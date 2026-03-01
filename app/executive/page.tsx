@@ -12,27 +12,35 @@ export default async function ExecutiveCommitteePage() {
 
   const { data: executiveMembers } = await supabase
     .from('profiles')
-    .select('id, name, email, avatar_url, executive_role')
+    .select('id, name, email, executive_role')
     .not('executive_role', 'is', null)
     .order('executive_role');
 
-  const { data: committeeHeads } = await supabase
+  const { data: committeeHeads, error } = await supabase
     .from('committee_members')
     .select(`
-      *,
-      profile:profiles(id, name, email, avatar_url),
-      committee:committees(name)
+      id,
+      position,
+      user_id,
+      committee_id,
+      profiles!committee_members_user_id_fkey(id, name, email),
+      committees!committee_members_committee_id_fkey(name)
     `)
-    .in('position', ['head', 'co-head'])
+    .in('position', ['head', 'co_head'])
     .neq('committee_id', '00000000-0000-0000-0000-000000000001');
+
+  console.log('Committee heads error:', error);
+  console.log('Committee heads count:', committeeHeads?.length);
+  console.log('First member:', committeeHeads?.[0]);
 
   const roleOrder: any = {
     'secretary': 1,
-    'joint_secretary': 2,
-    'treasurer': 3,
-    'associate_secretary': 4,
-    'associate_joint_secretary': 5,
-    'associate_treasurer': 6,
+    'associate_secretary': 2,
+    'joint_secretary': 3,
+    'joint_secretary_associate': 4,
+    'treasurer': 5,
+    'treasurer_associate': 6,
+    'secretary_associate': 7,
   };
 
   const sortedMembers = executiveMembers?.sort((a, b) => 
@@ -76,26 +84,6 @@ export default async function ExecutiveCommitteePage() {
             </div>
           </div>
         )}
-
-        <div className="mb-12">
-          <h2 className="text-2xl font-bold text-gray-900 mb-6">Committee Heads</h2>
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {committeeHeads?.map((member) => (
-              <ExecutiveMemberCard 
-                key={member.id} 
-                member={{
-                  id: member.profile?.id,
-                  name: member.profile?.name,
-                  email: member.profile?.email,
-                  avatar_url: member.profile?.avatar_url,
-                  executive_role: `${member.committee?.name} - ${member.position === 'head' ? 'HEAD' : 'CO-HEAD'}`
-                }} 
-                showChat={!!user}
-                icon={member.position === 'head' ? 'crown' : 'star'}
-              />
-            ))}
-          </div>
-        </div>
       </main>
     </div>
   );

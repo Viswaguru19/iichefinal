@@ -30,7 +30,7 @@ export default async function CommitteeDetailPage({ params }: { params: { id: st
     .order('position');
 
   const heads = members?.filter(m => m.position === 'head') || [];
-  const coHeads = members?.filter(m => m.position === 'co-head') || [];
+  const coHeads = members?.filter(m => m.position === 'co_head') || [];
   const regularMembers = members?.filter(m => m.position === 'member') || [];
 
   return (

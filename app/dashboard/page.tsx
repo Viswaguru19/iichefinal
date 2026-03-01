@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
-import { LogOut, Users, Calendar, Trophy, DollarSign } from 'lucide-react';
+import { LogOut, Users, Calendar, Trophy, DollarSign, Crown } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
 
@@ -48,6 +48,7 @@ export default async function DashboardPage() {
           <div className="flex justify-between h-16 items-center">
             <h1 className="text-2xl font-bold text-blue-600">IIChE AVVU Dashboard</h1>
             <div className="flex items-center gap-4">
+              <Link href="/dashboard/profile" className="text-gray-700 hover:text-blue-600">Profile</Link>
               <span className="text-gray-700">{profile.name}</span>
               <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
                 {profile.role.replace('_', ' ').toUpperCase()}
@@ -109,11 +110,16 @@ export default async function DashboardPage() {
           </div>
         )}
 
-        <div className="mt-8 grid md:grid-cols-4 gap-6">
+        <div className="mt-8 grid md:grid-cols-3 lg:grid-cols-5 gap-6">
           <Link href="/committees" className="bg-white rounded-xl shadow-md p-6 hover:shadow-lg transition">
             <Users className="w-8 h-8 text-blue-600 mb-4" />
             <h3 className="text-lg font-bold text-gray-900">View Committees</h3>
             <p className="text-sm text-gray-600 mt-2">See all committees and members</p>
+          </Link>
+          <Link href="/executive" className="bg-white rounded-xl shadow-md p-6 hover:shadow-lg transition">
+            <Crown className="w-8 h-8 text-yellow-600 mb-4" />
+            <h3 className="text-lg font-bold text-gray-900">Executive Committee</h3>
+            <p className="text-sm text-gray-600 mt-2">View executive members</p>
           </Link>
           <Link href="/events" className="bg-white rounded-xl shadow-md p-6 hover:shadow-lg transition">
             <Calendar className="w-8 h-8 text-green-600 mb-4" />

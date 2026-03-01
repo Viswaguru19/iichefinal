@@ -14,6 +14,16 @@ export default async function CommitteesPage() {
     .eq('type', 'regular')
     .order('name');
 
+  // Get members separately
+  const { data: allMembers, error: membersError } = await supabase
+    .from('committee_members')
+    .select('committee_id, position, profiles(id, name, avatar_url)')
+    .in('position', ['head', 'co_head']);
+
+  console.log('Committees:', committees?.length);
+  console.log('Members:', allMembers?.length);
+  console.log('Members error:', membersError);
+
   return (
     <div className="min-h-screen bg-gray-50">
       <nav className="bg-white shadow-sm">
@@ -43,36 +53,69 @@ export default async function CommitteesPage() {
         </div>
 
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {committees?.map((committee) => (
-            <Link
-              key={committee.id}
-              href={`/committees/${committee.id}`}
-              className="bg-white rounded-xl shadow-md hover:shadow-xl transition p-6 group"
-            >
-              <div className="flex items-center gap-4 mb-4">
-                <div className="bg-blue-100 p-3 rounded-lg group-hover:bg-blue-200 transition">
-                  <Users className="w-6 h-6 text-blue-600" />
+          {committees?.map((committee) => {
+            const members = allMembers?.filter((m: any) => m.committee_id === committee.id) || [];
+            const heads = members.filter((m: any) => m.position === 'head');
+            const coHeads = members.filter((m: any) => m.position === 'co_head');
+            
+            return (
+              <Link
+                key={committee.id}
+                href={`/committees/${committee.id}`}
+                className="bg-white rounded-xl shadow-md hover:shadow-xl transition p-6 block"
+              >
+                <div className="flex items-center gap-4 mb-4">
+                  <div className="bg-blue-100 p-3 rounded-lg">
+                    <Users className="w-6 h-6 text-blue-600" />
+                  </div>
+                  <h3 className="text-xl font-bold text-gray-900">{committee.name}</h3>
                 </div>
-                <h3 className="text-xl font-bold text-gray-900">{committee.name}</h3>
-              </div>
-              {committee.description && (
-                <p className="text-gray-600">{committee.description}</p>
-              )}
-            </Link>
-          ))}
-        </div>
-
-        <div className="mt-12 bg-blue-50 rounded-xl p-8 text-center">
-          <h2 className="text-2xl font-bold text-gray-900 mb-4">Executive Committee</h2>
-          <p className="text-gray-600 mb-6">
-            The governing body consisting of all committee heads and co-heads
-          </p>
-          <Link
-            href="/committees/00000000-0000-0000-0000-000000000001"
-            className="inline-block bg-blue-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-blue-700 transition"
-          >
-            View Executive Committee
-          </Link>
+                {committee.description && (
+                  <p className="text-gray-600 mb-4">{committee.description}</p>
+                )}
+                
+                {heads.length > 0 && (
+                  <div className="mt-4">
+                    <p className="text-xs font-semibold text-gray-500 mb-2">HEADS</p>
+                    <div className="flex flex-wrap gap-2">
+                      {heads.map((member: any) => (
+                        <div key={member.profiles.id} className="flex items-center gap-2 bg-gray-50 rounded-full px-3 py-1">
+                          {member.profiles.avatar_url ? (
+                            <img src={member.profiles.avatar_url} alt={member.profiles.name} className="w-6 h-6 rounded-full object-cover" />
+                          ) : (
+                            <div className="w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-bold">
+                              {member.profiles.name.charAt(0)}
+                            </div>
+                          )}
+                          <span className="text-sm text-gray-700">{member.profiles.name}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                {coHeads.length > 0 && (
+                  <div className="mt-3">
+                    <p className="text-xs font-semibold text-gray-500 mb-2">CO-HEADS</p>
+                    <div className="flex flex-wrap gap-2">
+                      {coHeads.map((member: any) => (
+                        <div key={member.profiles.id} className="flex items-center gap-2 bg-gray-50 rounded-full px-3 py-1">
+                          {member.profiles.avatar_url ? (
+                            <img src={member.profiles.avatar_url} alt={member.profiles.name} className="w-6 h-6 rounded-full object-cover" />
+                          ) : (
+                            <div className="w-6 h-6 rounded-full bg-green-600 flex items-center justify-center text-white text-xs font-bold">
+                              {member.profiles.name.charAt(0)}
+                            </div>
+                          )}
+                          <span className="text-sm text-gray-700">{member.profiles.name}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </Link>
+            );
+          })}
         </div>
       </main>
     </div>

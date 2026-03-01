@@ -82,9 +82,11 @@ export default function StatementOfAccountsPage() {
       query = query.eq('event', filterEvent);
     }
 
-    const { data: txns } = await query;
+    const { data: txns, error: txnError } = await query;
+    console.log('Transactions:', txns?.length, 'Error:', txnError);
 
-    const { data: summaryData } = await supabase.rpc('get_finance_summary');
+    const { data: summaryData, error: summaryError } = await supabase.rpc('get_finance_summary');
+    console.log('Summary:', summaryData, 'Error:', summaryError);
 
     setTransactions(txns || []);
     if (summaryData && summaryData.length > 0) {

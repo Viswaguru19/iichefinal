@@ -26,13 +26,28 @@ export default function EditUserModal({ user, committees, onClose, onSuccess }: 
 
     const formData = new FormData(e.currentTarget);
     const executiveRole = formData.get('executive_role') as string;
+    const newEmail = formData.get('email') as string;
+
+    // Update auth.users email if changed
+    if (newEmail !== user.email) {
+      const { error: authError } = await supabase.auth.admin.updateUserById(
+        user.id,
+        { email: newEmail }
+      );
+      
+      if (authError) {
+        toast.error('Failed to update auth email');
+        setLoading(false);
+        return;
+      }
+    }
 
     // Update profile
     const { error: profileError } = await supabase
       .from('profiles')
       .update({
         name: formData.get('name'),
-        email: formData.get('email'),
+        email: newEmail,
         username: formData.get('username'),
         executive_role: executiveRole || null,
         role: executiveRole ? 'committee_member' : 'student'
