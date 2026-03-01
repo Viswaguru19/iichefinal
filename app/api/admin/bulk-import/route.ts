@@ -74,7 +74,7 @@ export async function POST(request: Request) {
             role,
             executive_role: executiveRole || null,
             approved: true,
-          });
+          } as any);
 
         if (profileError) throw profileError;
 
