@@ -21,26 +21,49 @@ export default async function HomePage() {
 
   const { data: committeeHeads } = await supabase
     .from('committee_members')
-    .select('user_id, position, profiles(id, name, email), committees(name)')
+    .select('user_id, position, profiles(id, name, email, executive_role), committees(name)')
     .in('position', ['head', 'co_head'])
     .neq('committee_id', '00000000-0000-0000-0000-000000000001');
 
-  const executiveMembers = [
-    ...(executiveRoleMembers || []).map((m: any) => ({
+  // Create a map to combine roles for same person
+  const memberMap = new Map();
+
+  // Add executive role members
+  executiveRoleMembers?.forEach((m: any) => {
+    memberMap.set(m.id, {
       id: m.id,
       name: m.name,
       email: m.email,
-      role: m.executive_role?.replace('_', ' ').toUpperCase()
-    })),
-    ...(committeeHeads || []).map((m: any) => ({
-      id: m.profiles?.id,
-      name: m.profiles?.name,
-      email: m.profiles?.email,
-      role: `${m.committees?.name} ${m.position === 'head' ? 'HEAD' : 'CO-HEAD'}`
-    }))
-  ].filter((member, index, self) => 
-    member.id && index === self.findIndex((m) => m.id === member.id)
-  );
+      roles: [m.executive_role?.replace('_', ' ').toUpperCase()]
+    });
+  });
+
+  // Add committee heads/co-heads
+  committeeHeads?.forEach((m: any) => {
+    const id = m.profiles?.id;
+    if (!id) return;
+    
+    const committeeRole = `${m.committees?.name} ${m.position === 'head' ? 'HEAD' : 'CO-HEAD'}`;
+    
+    if (memberMap.has(id)) {
+      // Person already has executive role, add committee role
+      memberMap.get(id).roles.push(committeeRole);
+    } else {
+      // New person, add with committee role
+      const roles = [committeeRole];
+      if (m.profiles?.executive_role) {
+        roles.unshift(m.profiles.executive_role.replace('_', ' ').toUpperCase());
+      }
+      memberMap.set(id, {
+        id,
+        name: m.profiles?.name,
+        email: m.profiles?.email,
+        roles
+      });
+    }
+  });
+
+  const executiveMembers = Array.from(memberMap.values());
 
   // Get upcoming events
   const { data: upcomingEvents } = await supabase
@@ -137,9 +160,13 @@ export default async function HomePage() {
                 <div key={member.id} className="border border-gray-200 rounded-lg p-6 hover:shadow-lg transition">
                   <p className="text-lg font-bold text-gray-900">{member.name}</p>
                   <p className="text-sm text-gray-600 mt-1">{member.email}</p>
-                  <span className="text-xs bg-blue-100 text-blue-800 px-3 py-1 rounded-full mt-3 inline-block">
-                    {member.role}
-                  </span>
+                  <div className="mt-3 space-y-1">
+                    {member.roles?.map((role: string, idx: number) => (
+                      <span key={idx} className="block text-xs bg-blue-100 text-blue-800 px-3 py-1 rounded-full">
+                        {role}
+                      </span>
+                    ))}
+                  </div>
                 </div>
               ))}
             </div>
