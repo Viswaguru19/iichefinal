@@ -52,7 +52,8 @@ export default async function HomePage() {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20">
         <div className="text-center mb-16">
           <h1 className="text-6xl font-bold text-gray-900 mb-6">IIChE AVVU Chapter</h1>
-          <p className="text-2xl text-gray-600 mb-8">Indian Institute of Chemical Engineers</p>
+          <p className="text-2xl text-gray-600 mb-2">Indian Institute of Chemical Engineers</p>
+          <p className="text-xl text-gray-500 mb-8">Aditya College of Engineering, Surampalem</p>
           <div className="flex gap-4 justify-center">
             <Link href="/committees" className="bg-blue-600 text-white px-8 py-3 rounded-lg text-lg font-semibold hover:bg-blue-700">Explore Committees</Link>
             <Link href="/events" className="bg-white text-blue-600 px-8 py-3 rounded-lg text-lg font-semibold hover:bg-gray-50 border-2 border-blue-600">View Events</Link>
@@ -74,11 +75,15 @@ export default async function HomePage() {
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl shadow-xl p-12">
-          <h2 className="text-3xl font-bold text-gray-900 mb-6 text-center">About Us</h2>
+        <div className="bg-white rounded-2xl shadow-xl p-12 mb-16">
+          <h2 className="text-3xl font-bold text-gray-900 mb-6 text-center">About IIChE AVVU</h2>
+          <p className="text-lg text-gray-600 text-center max-w-3xl mx-auto mb-4">
+            The Indian Institute of Chemical Engineers (IIChE) AVVU Student Chapter at Aditya College of Engineering, Surampalem, 
+            is a dynamic student-driven organization committed to fostering excellence in chemical engineering.
+          </p>
           <p className="text-lg text-gray-600 text-center max-w-3xl mx-auto">
-            The IIChE AVVU Chapter is dedicated to promoting excellence in chemical engineering education and practice. 
-            We organize technical events, workshops, seminars, and cultural activities to enhance the overall development of our members.
+            We organize technical workshops, industrial visits, guest lectures, seminars, and cultural activities to bridge 
+            the gap between academic learning and industry practices, ensuring holistic development of our members.
           </p>
         </div>
 
