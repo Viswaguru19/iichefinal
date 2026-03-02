@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
+import { sendEmail } from '@/lib/notifications';
 
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -37,6 +38,21 @@ export async function POST(request: Request) {
 
   if (notifError) {
     return NextResponse.json({ error: notifError.message }, { status: 500 });
+  }
+
+  // Send email notification
+  const { data: targetUser } = await (supabase as any)
+    .from('profiles')
+    .select('email, name')
+    .eq('id', targetUserId)
+    .single();
+
+  if (targetUser) {
+    await sendEmail(
+      targetUser.email,
+      'Reminder: Pending Approval',
+      `<h2>Hello ${targetUser.name},</h2><p>${message || 'You have a pending approval in the IIChE AVVU Portal.'}</p><p><a href="${process.env.NEXT_PUBLIC_SUPABASE_URL?.replace('.supabase.co', '') || 'http://localhost:3000'}/dashboard/proposals">View Proposals</a></p>`
+    );
   }
 
   return NextResponse.json({ success: true });

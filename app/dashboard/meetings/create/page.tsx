@@ -95,6 +95,24 @@ export default function CreateMeetingPage() {
         .insert(invitees.map(userId => ({ meeting_id: meeting.id, user_id: userId })));
     }
 
+    // Send email notifications to invitees
+    await fetch('/api/notify-meeting', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        meetingId: meeting.id,
+        invitees,
+        meetingData: {
+          title: meetingData.title,
+          description: meetingData.description,
+          meeting_date: meetingData.meeting_date,
+          meeting_type: meetingData.meeting_type,
+          meeting_link: meetingData.meeting_link,
+          location: meetingData.location
+        }
+      })
+    });
+
     toast.success('Meeting scheduled successfully');
     router.push('/dashboard/meetings');
   }

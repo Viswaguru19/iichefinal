@@ -15,6 +15,7 @@ export default function ProposeEventPage() {
   const [resourcePersonDetails, setResourcePersonDetails] = useState('');
   const [requiresHall, setRequiresHall] = useState(true);
   const [requiresStudentWelfare, setRequiresStudentWelfare] = useState(false);
+  const [supportingDoc, setSupportingDoc] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const supabase = createClient();
   const router = useRouter();
@@ -37,6 +38,16 @@ export default function ProposeEventPage() {
       const isCoHead = (membership as any)?.position === 'co_head';
       const initialStatus = isCoHead ? 'pending_head' : 'pending_executive';
 
+      let supportingDocUrl = null;
+      if (supportingDoc) {
+        const fileName = `${Date.now()}_${supportingDoc.name}`;
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('payments')
+          .upload(`proposals/${fileName}`, supportingDoc);
+        if (uploadError) throw uploadError;
+        supportingDocUrl = uploadData.path;
+      }
+
       const { error } = await (supabase as any)
         .from('event_proposals')
         .insert({
@@ -50,6 +61,7 @@ export default function ProposeEventPage() {
           resource_person_details: resourcePersonDetails,
           requires_hall: requiresHall,
           requires_student_welfare: requiresStudentWelfare,
+          supporting_doc_url: supportingDocUrl,
           status: initialStatus,
         });
 
@@ -120,6 +132,17 @@ export default function ProposeEventPage() {
                 <textarea value={resourcePersonDetails} onChange={(e) => setResourcePersonDetails(e.target.value)} rows={3} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="Name, designation, contact..." />
               </div>
             )}
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Supporting Document (Optional)</label>
+              <input
+                type="file"
+                accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                onChange={(e) => setSupportingDoc(e.target.files?.[0] || null)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              />
+              <p className="text-xs text-gray-500 mt-1">PDF, DOC, DOCX, JPG, PNG (Max 10MB)</p>
+            </div>
 
             <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2">
               <Send className="w-5 h-5" />

@@ -44,16 +44,62 @@ export default function ProposalsPage() {
   async function handleApprove(proposalId: string, currentStatus: string) {
     setLoading(true);
     try {
-      const newStatus = currentStatus === 'pending_head' ? 'pending_executive' : 'approved';
+      const { data: { user } } = await supabase.auth.getUser();
       
-      const { error } = await (supabase as any)
-        .from('event_proposals')
-        .update({ status: newStatus })
-        .eq('id', proposalId);
+      if (currentStatus === 'pending_head') {
+        // Check if committee has dual heads
+        const { data: proposal } = await supabase
+          .from('event_proposals')
+          .select('proposed_by_committee, head_approved_by, co_head_approved_by')
+          .eq('id', proposalId)
+          .single();
 
-      if (error) throw error;
+        const { data: heads } = await supabase
+          .from('committee_members')
+          .select('user_id')
+          .eq('committee_id', (proposal as any).proposed_by_committee)
+          .eq('position', 'head');
 
-      toast.success('Proposal approved!');
+        const hasDualHeads = heads && heads.length === 2;
+
+        if (hasDualHeads) {
+          // Dual head approval required
+          const updateData: any = {};
+          if (!(proposal as any).head_approved_by) {
+            updateData.head_approved_by = user?.id;
+          } else if (!(proposal as any).co_head_approved_by) {
+            updateData.co_head_approved_by = user?.id;
+            updateData.status = 'pending_executive'; // Both approved, move to executive
+          }
+
+          const { error } = await (supabase as any)
+            .from('event_proposals')
+            .update(updateData)
+            .eq('id', proposalId);
+
+          if (error) throw error;
+          toast.success(updateData.status ? 'Both heads approved! Sent to Executive Committee' : 'Approved! Waiting for second head approval');
+        } else {
+          // Single head, approve directly
+          const { error } = await (supabase as any)
+            .from('event_proposals')
+            .update({ status: 'pending_executive', head_approved_by: user?.id })
+            .eq('id', proposalId);
+
+          if (error) throw error;
+          toast.success('Proposal approved!');
+        }
+      } else {
+        // Executive approval
+        const { error } = await (supabase as any)
+          .from('event_proposals')
+          .update({ status: 'approved' })
+          .eq('id', proposalId);
+
+        if (error) throw error;
+        toast.success('Proposal approved!');
+      }
+
       loadProposals();
     } catch (error: any) {
       toast.error(error.message);

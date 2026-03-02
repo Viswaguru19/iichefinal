@@ -70,6 +70,18 @@ export default function TasksPage() {
 
       if (error) throw error;
 
+      // Send email notification to committee members
+      await fetch('/api/notify-task', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          committeeId: selectedCommittee,
+          taskTitle,
+          taskDescription,
+          proposalId: selectedProposal
+        })
+      });
+
       toast.success('Task assigned!');
       setShowAssign(false);
       setTaskTitle('');

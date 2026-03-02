@@ -59,6 +59,13 @@ export default async function DashboardPage() {
     .order('created_at', { ascending: false })
     .limit(10);
 
+  // Get pending head approvals
+  const { data: pendingHeadApprovals } = await supabase
+    .from('event_proposals')
+    .select('*, committees(name)')
+    .eq('status', 'pending_head')
+    .order('created_at', { ascending: false });
+
   // Calculate progress for each event
   const eventsWithProgress = eventProposals?.map((event: any) => {
     let progress = 0;
@@ -99,6 +106,30 @@ export default async function DashboardPage() {
             </div>
           )}
           <p className="text-gray-600 mt-2">Welcome to your dashboard</p>
+        </div>
+
+        {/* Event Progress Section */}
+        <div className="mb-8">
+          <h3 className="text-2xl font-bold text-gray-900 mb-4">Pending Head Approvals</h3>
+          <div className="bg-white rounded-xl shadow-lg p-6">
+            {pendingHeadApprovals && pendingHeadApprovals.length > 0 ? (
+              <div className="space-y-3">
+                {pendingHeadApprovals.map((event: any) => (
+                  <div key={event.id} className="flex justify-between items-center p-3 border border-yellow-200 bg-yellow-50 rounded-lg">
+                    <div>
+                      <h4 className="font-bold text-gray-900">{event.title}</h4>
+                      <p className="text-sm text-gray-600">{event.committees?.name}</p>
+                    </div>
+                    <span className="text-xs bg-yellow-100 text-yellow-800 px-3 py-1 rounded-full font-bold">
+                      WAITING FOR HEAD APPROVAL
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-gray-600 text-center py-4">No pending head approvals</p>
+            )}
+          </div>
         </div>
 
         {/* Event Progress Section */}
