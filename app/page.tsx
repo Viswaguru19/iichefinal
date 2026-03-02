@@ -13,12 +13,32 @@ export default async function HomePage() {
     .eq('type', 'regular')
     .order('name');
 
-  // Get executive committee members
-  const { data: executiveMembers } = await supabase
+  // Get executive committee members (both from executive_role and committee heads/co-heads)
+  const { data: executiveRoleMembers } = await supabase
+    .from('profiles')
+    .select('id, name, email, executive_role')
+    .not('executive_role', 'is', null);
+
+  const { data: committeeHeads } = await supabase
     .from('committee_members')
-    .select('*, profile:profiles(name, email)')
-    .eq('committee_id', '00000000-0000-0000-0000-000000000001')
-    .order('position');
+    .select('user_id, position, profiles(id, name, email), committees(name)')
+    .in('position', ['head', 'co_head'])
+    .neq('committee_id', '00000000-0000-0000-0000-000000000001');
+
+  const executiveMembers = [
+    ...(executiveRoleMembers || []).map((m: any) => ({
+      id: m.id,
+      name: m.name,
+      email: m.email,
+      role: m.executive_role?.replace('_', ' ').toUpperCase()
+    })),
+    ...(committeeHeads || []).map((m: any) => ({
+      id: m.profiles?.id,
+      name: m.profiles?.name,
+      email: m.profiles?.email,
+      role: `${m.committees?.name} ${m.position === 'head' ? 'HEAD' : 'CO-HEAD'}`
+    }))
+  ];
 
   // Get upcoming events
   const { data: upcomingEvents } = await supabase
@@ -113,10 +133,10 @@ export default async function HomePage() {
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
               {executiveMembers?.map((member: any) => (
                 <div key={member.id} className="border border-gray-200 rounded-lg p-6 hover:shadow-lg transition">
-                  <p className="text-lg font-bold text-gray-900">{member.profile?.name}</p>
-                  <p className="text-sm text-gray-600 mt-1">{member.profile?.email}</p>
+                  <p className="text-lg font-bold text-gray-900">{member.name}</p>
+                  <p className="text-sm text-gray-600 mt-1">{member.email}</p>
                   <span className="text-xs bg-blue-100 text-blue-800 px-3 py-1 rounded-full mt-3 inline-block">
-                    {member.position.replace('_', ' ').toUpperCase()}
+                    {member.role}
                   </span>
                 </div>
               ))}
