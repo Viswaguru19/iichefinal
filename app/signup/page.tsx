@@ -27,7 +27,7 @@ export default function SignupPage() {
       if (authError) throw authError;
 
       if (authData.user) {
-        const { error: profileError } = await supabase
+        const { error: profileError } = await (supabase as any)
           .from('profiles')
           .insert({
             id: authData.user.id,
