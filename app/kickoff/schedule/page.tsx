@@ -14,8 +14,8 @@ export default async function SchedulePage() {
     `)
     .order('match_date', { ascending: true });
 
-  const groupMatches = matches?.filter(m => m.round === 'group') || [];
-  const knockoutMatches = matches?.filter(m => m.round !== 'group') || [];
+  const groupMatches = (matches as any)?.filter((m: any) => m.round === 'group') || [];
+  const knockoutMatches = (matches as any)?.filter((m: any) => m.round !== 'group') || [];
 
   return (
     <div className="min-h-screen bg-gray-50 py-12">
@@ -30,7 +30,7 @@ export default async function SchedulePage() {
           <div className="mb-12">
             <h2 className="text-2xl font-bold text-gray-900 mb-6">Group Stage</h2>
             <div className="space-y-4">
-              {groupMatches.map((match) => (
+              {groupMatches.map((match: any) => (
                 <MatchCard key={match.id} match={match} />
               ))}
             </div>
@@ -41,7 +41,7 @@ export default async function SchedulePage() {
           <div>
             <h2 className="text-2xl font-bold text-gray-900 mb-6">Knockout Stage</h2>
             <div className="space-y-4">
-              {knockoutMatches.map((match) => (
+              {knockoutMatches.map((match: any) => (
                 <MatchCard key={match.id} match={match} />
               ))}
             </div>

@@ -51,7 +51,7 @@ export default function RegisterTeamPage() {
         paymentUrl = publicUrl;
       }
 
-      const { data: team, error: teamError } = await supabase
+      const { data: team, error: teamError } = await (supabase as any)
         .from('kickoff_teams')
         .insert({
           name: teamName,
@@ -70,7 +70,7 @@ export default function RegisterTeamPage() {
         jersey_number: index + 1,
       }));
 
-      const { error: playersError } = await supabase
+      const { error: playersError } = await (supabase as any)
         .from('kickoff_players')
         .insert(playerInserts);
 

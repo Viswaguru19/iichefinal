@@ -59,7 +59,7 @@ export default function MessagesPage() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-    const { error } = await supabase.from('direct_messages').insert({
+    const { error } = await (supabase as any).from('direct_messages').insert({
       sender_id: user.id,
       receiver_id: receiverId,
       message: newMessage,

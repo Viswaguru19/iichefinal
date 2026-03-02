@@ -15,7 +15,7 @@ export default async function CommitteesManagementPage() {
     .eq('id', user.id)
     .single();
 
-  if (!profile || profile.role !== 'super_admin') {
+  if (!profile || (profile as any).role !== 'super_admin') {
     redirect('/dashboard');
   }
 
@@ -38,7 +38,7 @@ export default async function CommitteesManagementPage() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="bg-white rounded-xl shadow-lg p-6">
           <h2 className="text-xl font-bold text-gray-900 mb-6">Edit Committees</h2>
-          <EditCommitteeForm committees={committees || []} />
+          <EditCommitteeForm committees={(committees as any) || []} />
         </div>
       </div>
     </div>

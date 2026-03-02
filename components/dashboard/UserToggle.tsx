@@ -12,7 +12,7 @@ export default function UserToggle({ userId, currentStatus, onUpdate }: { userId
   const toggleUser = async () => {
     setLoading(true);
     try {
-      const { error } = await supabase
+      const { error } = await (supabase as any)
         .from('profiles')
         .update({ approved: !currentStatus })
         .eq('id', userId);

@@ -27,8 +27,8 @@ export default function LoginPage() {
           .eq('username', emailOrUsername)
           .maybeSingle();
 
-        if (!profileData?.email) throw new Error('User not found');
-        email = profileData.email;
+        if (!(profileData as any)?.email) throw new Error('User not found');
+        email = (profileData as any).email;
       }
 
       const { error } = await supabase.auth.signInWithPassword({ email, password });

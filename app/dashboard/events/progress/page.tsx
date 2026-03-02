@@ -22,10 +22,11 @@ export default function EventProgressPage() {
 
   async function fetchData() {
     const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
     const { data: profile } = await supabase
       .from('profiles')
       .select('*')
-      .eq('id', user?.id)
+      .eq('id', user.id)
       .single();
     setCurrentUser(profile);
 
@@ -69,7 +70,7 @@ export default function EventProgressPage() {
         task_title: formData.get('task_title'),
         task_description: formData.get('task_description'),
         assigned_by: currentUser.id
-      });
+      } as any);
 
     if (error) {
       toast.error('Failed to create task');
@@ -91,7 +92,7 @@ export default function EventProgressPage() {
         committee_id: selectedTask.committee_id,
         update_text: formData.get('update_text'),
         updated_by: currentUser.id
-      });
+      } as any);
 
     if (error) {
       toast.error('Failed to post update');
@@ -103,7 +104,7 @@ export default function EventProgressPage() {
   }
 
   async function markComplete(taskId: string) {
-    const { error } = await supabase
+    const { error } = await (supabase as any)
       .from('event_committee_tasks')
       .update({ status: 'completed' })
       .eq('id', taskId);

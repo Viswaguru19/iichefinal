@@ -35,12 +35,12 @@ export default function ProposeEventPage() {
         .neq('committee_id', '00000000-0000-0000-0000-000000000001')
         .single();
 
-      const { error } = await supabase
+      const { error } = await (supabase as any)
         .from('event_proposals')
         .insert({
           title,
           description,
-          proposed_by_committee: membership?.committee_id,
+          proposed_by_committee: (membership as any)?.committee_id,
           proposed_by_user: user.id,
           event_date: eventDate,
           location,

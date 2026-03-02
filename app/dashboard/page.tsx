@@ -32,10 +32,10 @@ export default async function DashboardPage() {
     );
   }
 
-  const isStudent = profile.role === 'student';
-  const isAdmin = ['super_admin', 'secretary'].includes(profile.role);
-  const canManageKickoff = ['super_admin', 'secretary', 'committee_head'].includes(profile.role);
-  const isExecutive = profile.executive_role !== null;
+  const isStudent = (profile as any).role === 'student';
+  const isAdmin = ['super_admin', 'secretary'].includes((profile as any).role);
+  const canManageKickoff = ['super_admin', 'secretary', 'committee_head'].includes((profile as any).role);
+  const isExecutive = (profile as any).executive_role !== null;
 
   // Get finance summary
   const { data: financeData } = await supabase.rpc('get_finance_summary');
@@ -49,9 +49,9 @@ export default async function DashboardPage() {
             <h1 className="text-2xl font-bold text-blue-600">IIChE AVVU Dashboard</h1>
             <div className="flex items-center gap-4">
               <Link href="/dashboard/profile" className="text-gray-700 hover:text-blue-600">Profile</Link>
-              <span className="text-gray-700">{profile.name}</span>
+              <span className="text-gray-700">{(profile as any).name}</span>
               <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
-                {profile.role.replace('_', ' ').toUpperCase()}
+                {(profile as any).role.replace('_', ' ').toUpperCase()}
               </span>
               <form action="/api/auth/signout" method="POST">
                 <button type="submit" className="text-gray-600 hover:text-red-600">
@@ -65,7 +65,7 @@ export default async function DashboardPage() {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-8">
-          <h2 className="text-3xl font-bold text-gray-900">Hi {profile.name.split(' ')[0]}! 👋</h2>
+          <h2 className="text-3xl font-bold text-gray-900">Hi {(profile as any).name.split(' ')[0]}! 👋</h2>
           <p className="text-gray-600 mt-2">Welcome to your dashboard</p>
         </div>
 

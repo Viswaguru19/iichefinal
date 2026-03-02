@@ -40,7 +40,7 @@ export default async function EventsPage() {
         </div>
 
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {events?.map((event) => (
+          {(events as any)?.map((event: any) => (
             <div key={event.id} className="bg-white rounded-xl shadow-md hover:shadow-xl transition p-6">
               <div className="mb-4">
                 <span className="inline-block bg-blue-100 text-blue-800 text-xs font-semibold px-3 py-1 rounded-full">

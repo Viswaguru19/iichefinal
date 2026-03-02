@@ -48,7 +48,7 @@ export default function CreateFormPage() {
     const formData = new FormData(e.currentTarget);
     const { data: { user } } = await supabase.auth.getUser();
 
-    const { data: form, error: formError } = await supabase
+    const { data: form, error: formError } = await (supabase as any)
       .from('forms')
       .insert({
         title: formData.get('title'),
@@ -64,7 +64,7 @@ export default function CreateFormPage() {
       return;
     }
 
-    const { error: fieldsError } = await supabase
+    const { error: fieldsError } = await (supabase as any)
       .from('form_fields')
       .insert(fields.map(f => ({ ...f, form_id: form.id })));
 

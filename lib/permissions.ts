@@ -1,4 +1,4 @@
-import { UserRole } from '@/types/database';
+type UserRole = string;
 
 export function hasAdminAccess(role: UserRole): boolean {
   return ['super_admin', 'secretary', 'program_head'].includes(role);

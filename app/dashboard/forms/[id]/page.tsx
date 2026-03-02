@@ -56,7 +56,7 @@ export default function FormSubmitPage() {
 
     const { data: { user } } = await supabase.auth.getUser();
 
-    const { error } = await supabase
+    const { error } = await (supabase as any)
       .from('form_responses')
       .insert({
         form_id: params.id,

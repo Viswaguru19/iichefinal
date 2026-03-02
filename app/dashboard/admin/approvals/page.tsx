@@ -15,7 +15,7 @@ export default async function UserApprovalsPage() {
     .eq('id', user.id)
     .single();
 
-  if (!profile || profile.role !== 'super_admin') {
+  if (!profile || (profile as any).role !== 'super_admin') {
     redirect('/dashboard');
   }
 
@@ -54,8 +54,8 @@ export default async function UserApprovalsPage() {
           )}
 
           <div className="space-y-4">
-            {pendingUsers?.map((user) => (
-              <ApprovalActions key={user.id} user={user} committees={committees || []} />
+            {(pendingUsers as any)?.map((user: any) => (
+              <ApprovalActions key={user.id} user={user} committees={(committees as any) || []} />
             ))}
           </div>
         </div>

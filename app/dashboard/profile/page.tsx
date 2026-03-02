@@ -37,10 +37,10 @@ export default function ProfilePage() {
 
     if (data) {
       setProfile(data);
-      setName(data.name);
-      setUsername(data.username || '');
-      setEmail(data.email);
-      setPhotoUrl(data.avatar_url || '');
+      setName((data as any).name);
+      setUsername((data as any).username || '');
+      setEmail((data as any).email);
+      setPhotoUrl((data as any).avatar_url || '');
     }
   };
 
@@ -80,7 +80,7 @@ export default function ProfilePage() {
         avatarUrl = publicUrl;
       }
 
-      const { error } = await supabase
+      const { error } = await (supabase as any)
         .from('profiles')
         .update({
           name,

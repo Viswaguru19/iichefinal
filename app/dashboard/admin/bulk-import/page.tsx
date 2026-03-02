@@ -15,7 +15,7 @@ export default async function BulkImportPage() {
     .eq('id', user.id)
     .single();
 
-  if (!profile || profile.role !== 'super_admin') {
+  if (!profile || (profile as any).role !== 'super_admin') {
     redirect('/dashboard');
   }
 
@@ -36,7 +36,7 @@ export default async function BulkImportPage() {
       </nav>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <BulkImportForm committees={committees || []} />
+        <BulkImportForm committees={(committees as any) || []} />
       </div>
     </div>
   );

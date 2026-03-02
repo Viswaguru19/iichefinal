@@ -17,11 +17,12 @@ export default function EventWorkflowPage() {
 
   async function fetchData() {
     const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
     
     const { data: profile } = await supabase
       .from('profiles')
       .select('*')
-      .eq('id', user?.id)
+      .eq('id', user.id)
       .single();
 
     setCurrentUser(profile);
@@ -40,7 +41,7 @@ export default function EventWorkflowPage() {
   }
 
   async function handleApproval(proposalId: string, approved: boolean) {
-    const { error } = await supabase
+    const { error } = await (supabase as any)
       .from('event_approvals')
       .upsert({
         proposal_id: proposalId,

@@ -15,7 +15,7 @@ export default async function UserManagementPage() {
     .eq('id', user.id)
     .single();
 
-  if (!profile || profile.role !== 'super_admin') {
+  if (!profile || (profile as any).role !== 'super_admin') {
     redirect('/dashboard');
   }
 
@@ -33,9 +33,9 @@ export default async function UserManagementPage() {
     .from('committee_members')
     .select('user_id, committee_id, position');
 
-  const usersWithCommittees = users?.map(u => ({
+  const usersWithCommittees = (users as any)?.map((u: any) => ({
     ...u,
-    committees: committeeMemberships?.filter(m => m.user_id === u.id).map(m => ({
+    committees: (committeeMemberships as any)?.filter((m: any) => m.user_id === u.id).map((m: any) => ({
       committee_id: m.committee_id,
       position: m.position
     })) || []
@@ -55,7 +55,7 @@ export default async function UserManagementPage() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="bg-white rounded-xl shadow-lg p-6">
           <h2 className="text-xl font-bold text-gray-900 mb-6">All Users & Credentials</h2>
-          <UserTable initialUsers={usersWithCommittees} committees={committees || []} />
+          <UserTable initialUsers={usersWithCommittees} committees={(committees as any) || []} />
 
           <div className="mt-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
             <p className="text-sm text-yellow-800">

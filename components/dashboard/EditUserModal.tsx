@@ -43,7 +43,7 @@ export default function EditUserModal({ user, committees, onClose, onSuccess }: 
     }
 
     // Update profile
-    const { error: profileError } = await supabase
+    const { error: profileError } = await (supabase as any)
       .from('profiles')
       .update({
         name: formData.get('name'),
@@ -68,7 +68,7 @@ export default function EditUserModal({ user, committees, onClose, onSuccess }: 
 
     // Insert new committee memberships
     if (selectedCommittees.length > 0) {
-      const { error: memberError } = await supabase
+      const { error: memberError } = await (supabase as any)
         .from('committee_members')
         .insert(
           selectedCommittees.map(c => ({

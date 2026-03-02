@@ -85,7 +85,7 @@ export default function StatementOfAccountsPage() {
     const { data: txns, error: txnError } = await query;
     console.log('Transactions:', txns?.length, 'Error:', txnError);
 
-    const { data: summaryData, error: summaryError } = await supabase.rpc('get_finance_summary');
+    const { data: summaryData, error: summaryError }: { data: any; error: any } = await supabase.rpc('get_finance_summary');
     console.log('Summary:', summaryData, 'Error:', summaryError);
 
     setTransactions(txns || []);
@@ -122,7 +122,7 @@ export default function StatementOfAccountsPage() {
         debit,
         credit,
         balance: newBalance
-      });
+      } as any);
 
     if (error) {
       toast.error('Failed to add transaction');

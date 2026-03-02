@@ -16,7 +16,7 @@ export default async function AdminDashboard() {
     .eq('id', user.id)
     .single();
 
-  if (!profile || !hasAdminAccess(profile.role)) {
+  if (!profile || !(profile as any).role || !hasAdminAccess((profile as any).role)) {
     redirect('/dashboard');
   }
 
@@ -38,17 +38,19 @@ export default async function AdminDashboard() {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="grid md:grid-cols-4 gap-6 mb-8">
-          <StatCard icon={<Users />} title="Total Users" value={users?.length || 0} color="blue" />
-          <StatCard icon={<UserCheck />} title="Pending Approvals" value={pendingUsers?.length || 0} color="yellow" />
-          <StatCard icon={<FileText />} title="Total Events" value={events?.length || 0} color="green" />
-          <StatCard icon={<Users />} title="Committees" value={committees?.length || 0} color="purple" />
+          <StatCard icon={<Users />} title="Total Users" value={(users as any)?.length || 0} color="blue" />
+          <StatCard icon={<UserCheck />} title="Pending Approvals" value={(pendingUsers as any)?.length || 0} color="yellow" />
+          <StatCard icon={<FileText />} title="Total Events" value={(events as any)?.length || 0} color="green" />
+          <StatCard icon={<Users />} title="Committees" value={(committees as any)?.length || 0} color="purple" />
         </div>
 
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
           <AdminCard href="/dashboard/admin/users" icon={<Power />} title="User Management" desc="Activate/Deactivate users" color="red" />
+          <AdminCard href="/dashboard/admin/add-user" icon={<Users />} title="Add User" desc="Create new user account" color="green" />
           <AdminCard href="/dashboard/admin/approvals" icon={<UserCheck />} title="User Approvals" desc="Approve & assign users" color="blue" />
           <AdminCard href="/dashboard/admin/committees" icon={<Users />} title="Edit Committees" desc="Edit committee details" color="purple" />
           <AdminCard href="/dashboard/admin/bulk-import" icon={<Users />} title="Bulk Import" desc="Import multiple users" color="indigo" />
+          <AdminCard href="/dashboard/admin/hiring" icon={<Users />} title="Hiring Management" desc="Manage job positions" color="yellow" />
           <AdminCard href="/dashboard/kickoff" icon={<Trophy />} title="Kickoff Control" desc="Tournament management" color="green" />
         </div>
 
@@ -56,7 +58,7 @@ export default async function AdminDashboard() {
           <div className="bg-white rounded-xl shadow-lg p-6">
             <h2 className="text-xl font-bold text-gray-900 mb-4">Recent Events</h2>
             <div className="space-y-2 max-h-96 overflow-y-auto">
-              {events?.slice(0, 5).map((event) => (
+              {(events as any)?.slice(0, 5).map((event: any) => (
                 <div key={event.id} className="border-l-4 border-green-500 pl-4 py-2">
                   <h3 className="font-bold text-gray-900">{event.title}</h3>
                   <p className="text-sm text-gray-600">{event.committee?.name}</p>
@@ -69,9 +71,9 @@ export default async function AdminDashboard() {
           </div>
 
           <div className="bg-white rounded-xl shadow-lg p-6">
-            <h2 className="text-xl font-bold text-gray-900 mb-4">Committees ({committees?.length})</h2>
+            <h2 className="text-xl font-bold text-gray-900 mb-4">Committees ({(committees as any)?.length})</h2>
             <div className="space-y-2 max-h-96 overflow-y-auto">
-              {committees?.map((committee) => (
+              {(committees as any)?.map((committee: any) => (
                 <div key={committee.id} className="border-l-4 border-blue-500 pl-4 py-2">
                   <h3 className="font-bold text-gray-900">{committee.name}</h3>
                   <p className="text-sm text-gray-600">{committee.type}</p>

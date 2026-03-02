@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { Edit } from 'lucide-react';
+import { Edit, Trash2 } from 'lucide-react';
 import EditUserModal from '@/components/dashboard/EditUserModal';
 import UserToggle from '@/components/dashboard/UserToggle';
 import CreateAuthButton from '@/components/dashboard/CreateAuthButton';
@@ -28,6 +28,18 @@ export default function UserTable({ initialUsers, committees }: UserTableProps) 
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const supabase = createClient();
 
+  async function deleteUser(userId: string, userName: string) {
+    if (!confirm(`Delete user ${userName}? This cannot be undone.`)) return;
+
+    try {
+      const { error } = await supabase.from('profiles').delete().eq('id', userId);
+      if (error) throw error;
+      await refreshUsers();
+    } catch (error: any) {
+      alert(error.message);
+    }
+  }
+
   async function refreshUsers() {
     const { data } = await supabase
       .from('profiles')
@@ -38,9 +50,9 @@ export default function UserTable({ initialUsers, committees }: UserTableProps) 
       .from('committee_members')
       .select('user_id, committee_id, position');
 
-    const usersWithCommittees = data?.map(u => ({
+    const usersWithCommittees = (data as any)?.map((u: any) => ({
       ...u,
-      committees: committeeMemberships?.filter(m => m.user_id === u.id).map(m => ({
+      committees: (committeeMemberships as any)?.filter((m: any) => m.user_id === u.id).map((m: any) => ({
         committee_id: m.committee_id,
         position: m.position
       })) || []
@@ -107,6 +119,12 @@ export default function UserTable({ initialUsers, committees }: UserTableProps) 
                       <Edit className="w-4 h-4" />
                     </button>
                     <UserToggle userId={u.id} currentStatus={u.approved} onUpdate={refreshUsers} />
+                    <button
+                      onClick={() => deleteUser(u.id, u.name)}
+                      className="text-red-600 hover:text-red-700"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   </div>
                 </td>
               </tr>

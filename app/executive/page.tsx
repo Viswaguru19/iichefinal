@@ -43,7 +43,7 @@ export default async function ExecutiveCommitteePage() {
     'secretary_associate': 7,
   };
 
-  const sortedMembers = executiveMembers?.sort((a, b) => 
+  const sortedMembers = (executiveMembers as any)?.sort((a: any, b: any) => 
     (roleOrder[a.executive_role] || 99) - (roleOrder[b.executive_role] || 99)
   );
 
@@ -78,7 +78,7 @@ export default async function ExecutiveCommitteePage() {
           <div className="mb-12">
             <h2 className="text-2xl font-bold text-gray-900 mb-6">Executive Roles</h2>
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {sortedMembers.map((member) => (
+              {sortedMembers.map((member: any) => (
                 <ExecutiveMemberCard key={member.id} member={member} showChat={!!user} />
               ))}
             </div>

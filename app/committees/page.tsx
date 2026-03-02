@@ -33,6 +33,7 @@ export default async function CommitteesPage() {
             <div className="flex gap-4">
               <Link href="/committees" className="text-blue-600 font-medium">Committees</Link>
               <Link href="/events" className="text-gray-700 hover:text-blue-600">Events</Link>
+              <Link href="/hiring" className="text-gray-700 hover:text-blue-600">Hiring</Link>
               <Link href="/kickoff" className="text-gray-700 hover:text-blue-600">Kickoff</Link>
               {isLoggedIn ? (
                 <Link href="/dashboard" className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">Dashboard</Link>

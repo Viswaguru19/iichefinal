@@ -30,9 +30,9 @@ export default function FormResponsesPage() {
       .single();
 
     const hasAccess = 
-      profile?.role === 'super_admin' ||
-      ['committee_head', 'committee_cohead'].includes(profile?.role || '') ||
-      profile?.executive_role !== null;
+      (profile as any)?.role === 'super_admin' ||
+      ['committee_head', 'committee_cohead'].includes((profile as any)?.role || '') ||
+      (profile as any)?.executive_role !== null;
 
     setCanView(hasAccess);
 

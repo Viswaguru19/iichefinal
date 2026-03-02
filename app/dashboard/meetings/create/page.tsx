@@ -54,7 +54,7 @@ export default function CreateMeetingPage() {
       meetingData.committee_id = formData.get('committee_id');
     }
 
-    const { data: meeting, error } = await supabase
+    const { data: meeting, error } = await (supabase as any)
       .from('meetings')
       .insert(meetingData)
       .select()
@@ -74,23 +74,23 @@ export default function CreateMeetingPage() {
         .from('profiles')
         .select('id')
         .not('executive_role', 'is', null);
-      invitees = executives?.map(e => e.id) || [];
+      invitees = (executives as any)?.map((e: any) => e.id) || [];
     } else if (inviteType === 'specific_committee') {
       const { data: members } = await supabase
         .from('committee_members')
         .select('user_id')
-        .eq('committee_id', formData.get('committee_id'));
-      invitees = members?.map(m => m.user_id) || [];
+        .eq('committee_id', formData.get('committee_id') as string);
+      invitees = (members as any)?.map((m: any) => m.user_id) || [];
     } else {
       const { data: allUsers } = await supabase
         .from('profiles')
         .select('id')
         .eq('approved', true);
-      invitees = allUsers?.map(u => u.id) || [];
+      invitees = (allUsers as any)?.map((u: any) => u.id) || [];
     }
 
     if (invitees.length > 0) {
-      await supabase
+      await (supabase as any)
         .from('meeting_invites')
         .insert(invitees.map(userId => ({ meeting_id: meeting.id, user_id: userId })));
     }

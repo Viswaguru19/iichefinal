@@ -40,9 +40,9 @@ export default function MeetingsPage() {
       .select('user_id, status')
       .eq('meeting_id', meeting.id);
 
-    const attendanceMap = new Map(attendance?.map(a => [a.user_id, a.status]) || []);
+    const attendanceMap = new Map((attendance as any)?.map((a: any) => [a.user_id, a.status]) || []);
     
-    const attendeesList = invites?.map(inv => ({
+    const attendeesList = (invites as any)?.map((inv: any) => ({
       id: inv.user.id,
       name: inv.user.name,
       status: attendanceMap.get(inv.user.id) || 'absent'
@@ -52,7 +52,7 @@ export default function MeetingsPage() {
   }
 
   async function markAttendance(userId: string, status: string) {
-    const { error } = await supabase
+    const { error } = await (supabase as any)
       .from('meeting_attendance')
       .upsert({
         meeting_id: selectedMeeting.id,

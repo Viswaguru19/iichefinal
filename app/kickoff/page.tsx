@@ -10,7 +10,7 @@ export default async function KickoffPage() {
     .select('*')
     .single();
 
-  const isActive = settings?.is_active || false;
+  const isActive = (settings as any)?.is_active || false;
 
   if (!isActive) {
     // Show past tournament results
@@ -69,15 +69,15 @@ export default async function KickoffPage() {
             <div className="bg-gradient-to-r from-yellow-400 to-yellow-600 rounded-2xl shadow-2xl p-12 mb-12 text-center">
               <Award className="w-16 h-16 text-white mx-auto mb-4" />
               <h2 className="text-3xl font-bold text-white mb-2">Last Tournament Champion</h2>
-              <p className="text-5xl font-bold text-white">{winner.winner?.name}</p>
+              <p className="text-5xl font-bold text-white">{(winner as any).winner?.name}</p>
             </div>
           )}
 
-          {pastMatches && pastMatches.length > 0 && (
+          {(pastMatches as any) && (pastMatches as any).length > 0 && (
             <div className="bg-white rounded-xl shadow-lg p-8">
               <h2 className="text-2xl font-bold text-gray-900 mb-6">Recent Matches</h2>
               <div className="space-y-4">
-                {pastMatches.map((match) => (
+                {(pastMatches as any).map((match: any) => (
                   <div key={match.id} className="border rounded-lg p-4">
                     <div className="flex items-center justify-between">
                       <div className="flex-1 grid grid-cols-3 gap-4 items-center">
@@ -187,7 +187,7 @@ export default async function KickoffPage() {
         <div className="bg-white rounded-xl shadow-lg p-8">
           <h2 className="text-2xl font-bold text-gray-900 mb-6">Registered Teams</h2>
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {teams?.map((team) => (
+            {(teams as any)?.map((team: any) => (
               <div key={team.id} className="border border-gray-200 rounded-lg p-4 hover:border-blue-500 transition">
                 <h3 className="font-bold text-gray-900">{team.name}</h3>
                 <p className="text-sm text-gray-500 mt-1">

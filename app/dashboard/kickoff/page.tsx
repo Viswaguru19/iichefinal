@@ -33,7 +33,7 @@ export default function KickoffControlPage() {
       .eq('id', user.id)
       .single();
 
-    if (!profile || !['super_admin', 'secretary', 'program_head', 'committee_head'].includes(profile.role)) {
+    if (!profile || !['super_admin', 'secretary', 'program_head', 'committee_head'].includes((profile as any).role)) {
       router.push('/dashboard');
     }
   };
@@ -44,7 +44,7 @@ export default function KickoffControlPage() {
       .select('*')
       .single();
 
-    setTournamentActive(settings?.is_active || false);
+    setTournamentActive((settings as any)?.is_active || false);
 
     const { data: teamsData } = await supabase
       .from('kickoff_teams')
@@ -66,10 +66,11 @@ export default function KickoffControlPage() {
   };
 
   const toggleTournament = async () => {
-    const { error } = await supabase
+    const settingsId = (await supabase.from('tournament_settings').select('id').single()).data as any;
+    const { error } = await (supabase as any)
       .from('tournament_settings')
       .update({ is_active: !tournamentActive })
-      .eq('id', (await supabase.from('tournament_settings').select('id').single()).data?.id);
+      .eq('id', settingsId?.id);
 
     if (error) {
       toast.error('Failed to toggle tournament');
@@ -80,7 +81,7 @@ export default function KickoffControlPage() {
   };
 
   const approveTeam = async (teamId: string) => {
-    const { error } = await supabase
+    const { error } = await (supabase as any)
       .from('kickoff_teams')
       .update({ approved: true })
       .eq('id', teamId);
@@ -131,7 +132,7 @@ export default function KickoffControlPage() {
       }
     }
 
-    const { error } = await supabase
+    const { error } = await (supabase as any)
       .from('kickoff_matches')
       .insert(matchInserts);
 

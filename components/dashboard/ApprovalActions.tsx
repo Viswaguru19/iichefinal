@@ -23,7 +23,7 @@ export default function ApprovalActions({ user, committees }: any) {
     setLoading(true);
     try {
       // Approve user
-      const { error: approveError } = await supabase
+      const { error: approveError } = await (supabase as any)
         .from('profiles')
         .update({ 
           approved: true,
@@ -34,7 +34,7 @@ export default function ApprovalActions({ user, committees }: any) {
       if (approveError) throw approveError;
 
       // Add to committee
-      const { error: memberError } = await supabase
+      const { error: memberError } = await (supabase as any)
         .from('committee_members')
         .insert({
           user_id: user.id,
@@ -46,7 +46,7 @@ export default function ApprovalActions({ user, committees }: any) {
 
       // If head or co-head, add to executive committee
       if (position === 'head' || position === 'co_head') {
-        await supabase
+        await (supabase as any)
           .from('committee_members')
           .insert({
             user_id: user.id,
