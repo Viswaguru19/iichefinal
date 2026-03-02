@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { Edit, Save, X } from 'lucide-react';
+import { Edit, Save, X, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export default function EditCommitteeForm({ committees }: { committees: any[] }) {
@@ -32,6 +32,24 @@ export default function EditCommitteeForm({ committees }: { committees: any[] })
       window.location.reload();
     } catch (error: any) {
       toast.error(error.message || 'Failed to update committee');
+    }
+  }
+
+  async function deleteCommittee(id: string, name: string) {
+    if (!confirm(`Delete "${name}"? This will remove all members from this committee.`)) return;
+
+    try {
+      const { error } = await supabase
+        .from('committees')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+      
+      toast.success('Committee deleted');
+      window.location.reload();
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to delete committee');
     }
   }
 
@@ -78,12 +96,20 @@ export default function EditCommitteeForm({ committees }: { committees: any[] })
                 <h3 className="text-lg font-bold text-gray-900">{committee.name}</h3>
                 <p className="text-sm text-gray-600 mt-1">{committee.description}</p>
               </div>
-              <button
-                onClick={() => startEdit(committee)}
-                className="text-blue-600 hover:text-blue-700"
-              >
-                <Edit className="w-5 h-5" />
-              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => startEdit(committee)}
+                  className="text-blue-600 hover:text-blue-700"
+                >
+                  <Edit className="w-5 h-5" />
+                </button>
+                <button
+                  onClick={() => deleteCommittee(committee.id, committee.name)}
+                  className="text-red-600 hover:text-red-700"
+                >
+                  <Trash2 className="w-5 h-5" />
+                </button>
+              </div>
             </div>
           )}
         </div>
