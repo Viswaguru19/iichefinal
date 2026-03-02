@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
-import { LogOut, Users, Calendar, Trophy, DollarSign, Crown, Send } from 'lucide-react';
+import { LogOut, Users, Calendar, Trophy, DollarSign, Crown, Send, MessageSquare } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
 
@@ -123,6 +123,11 @@ export default async function DashboardPage() {
         )}
 
         <div className="mt-8 grid md:grid-cols-3 lg:grid-cols-5 gap-6">
+          <Link href="/dashboard/chat" className="bg-gradient-to-r from-green-600 to-green-700 text-white rounded-xl shadow-md p-6 hover:shadow-lg transition">
+            <MessageSquare className="w-8 h-8 mb-4" />
+            <h3 className="text-lg font-bold">Chats</h3>
+            <p className="text-sm text-green-100 mt-2">Messages & Groups</p>
+          </Link>
           <Link href="/dashboard/propose-event" className="bg-gradient-to-r from-purple-600 to-purple-700 text-white rounded-xl shadow-md p-6 hover:shadow-lg transition">
             <Send className="w-8 h-8 mb-4" />
             <h3 className="text-lg font-bold">Propose Event</h3>
