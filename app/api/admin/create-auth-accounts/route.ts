@@ -20,7 +20,7 @@ export async function POST() {
   }
 
   try {
-    const { data: profiles } = await supabase
+    const { data: profiles }: { data: any } = await supabase
       .from('profiles')
       .select('id, name, email')
       .neq('email', 'vishwaguru1819@gmail.com');
