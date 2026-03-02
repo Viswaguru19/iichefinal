@@ -45,7 +45,7 @@ export default function StatementOfAccountsPage() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-    const { data: profile } = await supabase
+    const { data: profile }: { data: any } = await supabase
       .from('profiles')
       .select('executive_role, role')
       .eq('id', user.id)
