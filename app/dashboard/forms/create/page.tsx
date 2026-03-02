@@ -74,8 +74,10 @@ export default function CreateFormPage() {
       return;
     }
 
-    toast.success('Form created successfully');
-    router.push('/dashboard/forms');
+    const formLink = `${window.location.origin}/dashboard/forms/${form.id}`;
+    navigator.clipboard.writeText(formLink);
+    toast.success('Form created! Link copied to clipboard');
+    router.push(`/dashboard/forms/${form.id}`);
   }
 
   return (
