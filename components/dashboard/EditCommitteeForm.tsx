@@ -17,7 +17,7 @@ export default function EditCommitteeForm({ committees }: { committees: any[] })
 
   async function saveEdit(id: string) {
     try {
-      const { error } = await supabase
+      const { error } = await (supabase as any)
         .from('committees')
         .update({
           name: editData.name,
