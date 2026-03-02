@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+
+export const dynamic = 'force-dynamic';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Send, Bot } from 'lucide-react';
