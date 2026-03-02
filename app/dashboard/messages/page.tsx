@@ -1,14 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-
-export const dynamic = 'force-dynamic';
+import { useEffect, useState, Suspense } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Send, Bot } from 'lucide-react';
 import toast from 'react-hot-toast';
 
-export default function MessagesPage() {
+function MessagesContent() {
   const [messages, setMessages] = useState<any[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -150,5 +148,13 @@ export default function MessagesPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function MessagesPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-gray-50 flex items-center justify-center">Loading...</div>}>
+      <MessagesContent />
+    </Suspense>
   );
 }
