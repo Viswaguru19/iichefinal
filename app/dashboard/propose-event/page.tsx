@@ -11,7 +11,6 @@ export default function ProposeEventPage() {
   const [description, setDescription] = useState('');
   const [eventDate, setEventDate] = useState('');
   const [location, setLocation] = useState('');
-  const [budget, setBudget] = useState('');
   const [requiresResourcePerson, setRequiresResourcePerson] = useState(false);
   const [resourcePersonDetails, setResourcePersonDetails] = useState('');
   const [requiresHall, setRequiresHall] = useState(true);
@@ -30,10 +29,13 @@ export default function ProposeEventPage() {
 
       const { data: membership } = await supabase
         .from('committee_members')
-        .select('committee_id')
+        .select('committee_id, position')
         .eq('user_id', user.id)
         .neq('committee_id', '00000000-0000-0000-0000-000000000001')
         .single();
+
+      const isCoHead = (membership as any)?.position === 'co_head';
+      const initialStatus = isCoHead ? 'pending_head' : 'pending_executive';
 
       const { error } = await (supabase as any)
         .from('event_proposals')
@@ -44,12 +46,11 @@ export default function ProposeEventPage() {
           proposed_by_user: user.id,
           event_date: eventDate,
           location,
-          budget: parseFloat(budget) || 0,
           requires_resource_person: requiresResourcePerson,
           resource_person_details: resourcePersonDetails,
           requires_hall: requiresHall,
           requires_student_welfare: requiresStudentWelfare,
-          status: 'pending_joint_secretary',
+          status: initialStatus,
         });
 
       if (error) throw error;
@@ -98,12 +99,7 @@ export default function ProposeEventPage() {
               </div>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Budget (₹)</label>
-              <input type="number" value={budget} onChange={(e) => setBudget(e.target.value)} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
-            </div>
-
-            <div className="space-y-3">
+<div className="space-y-3">
               <label className="flex items-center gap-2">
                 <input type="checkbox" checked={requiresHall} onChange={(e) => setRequiresHall(e.target.checked)} className="w-4 h-4" />
                 <span className="text-sm text-gray-700">Requires Hall Booking</span>

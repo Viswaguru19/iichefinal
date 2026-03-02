@@ -27,6 +27,16 @@ export default async function DashboardPage() {
   const canManageKickoff = ['super_admin', 'secretary', 'committee_head'].includes((profile as any).role);
   const isExecutive = (profile as any).executive_role !== null;
 
+  // Get user's committee membership
+  const { data: userCommittee } = await supabase
+    .from('committee_members')
+    .select('position, committees(name)')
+    .eq('user_id', user.id)
+    .neq('committee_id', '00000000-0000-0000-0000-000000000001')
+    .single();
+
+  const committeeRole = userCommittee ? `${(userCommittee as any).committees.name} ${(userCommittee as any).position === 'head' ? 'Head' : (userCommittee as any).position === 'co_head' ? 'Co-Head' : 'Member'}` : null;
+
   // Get committees
   const { data: committees } = await supabase
     .from('committees')
@@ -41,17 +51,21 @@ export default async function DashboardPage() {
     .eq('committee_id', '00000000-0000-0000-0000-000000000001')
     .order('position');
 
-  // Get upcoming events
-  const { data: upcomingEvents } = await supabase
-    .from('events')
-    .select('*')
-    .gte('date', new Date().toISOString())
-    .order('date')
-    .limit(5);
+  // Get upcoming events with progress
+  const { data: eventProposals } = await supabase
+    .from('event_proposals')
+    .select('*, committees(name)')
+    .in('status', ['pending_head', 'pending_executive', 'approved', 'in_progress'])
+    .order('created_at', { ascending: false })
+    .limit(10);
 
-  // Get finance summary
-  const { data: financeData } = await supabase.rpc('get_finance_summary');
-  const finance = financeData?.[0] || { total_income: 0, total_expense: 0, balance: 0 };
+  // Calculate progress for each event
+  const eventsWithProgress = eventProposals?.map((event: any) => {
+    let progress = 0;
+    if (event.status === 'approved' || event.status === 'in_progress') progress = 20;
+    if (event.status === 'in_progress') progress = 60;
+    return { ...event, progress };
+  }) || [];
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -77,31 +91,51 @@ export default async function DashboardPage() {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-8">
-          <h2 className="text-3xl font-bold text-gray-900">Hi {(profile as any).name.split(' ')[0]}! 👋</h2>
+          <h2 className="text-3xl font-bold text-gray-900">Hi {(profile as any).name.split(' ')[0]}{committeeRole ? `, ${committeeRole}` : ''}! 👋</h2>
+          {isExecutive && (
+            <div className="mt-2 inline-flex items-center gap-2 bg-gradient-to-r from-yellow-400 to-yellow-600 text-white px-4 py-2 rounded-lg shadow-lg">
+              <Crown className="w-5 h-5" />
+              <span className="font-bold">IIChE Executive Committee - {(profile as any).executive_role?.replace('_', ' ').toUpperCase()}</span>
+            </div>
+          )}
           <p className="text-gray-600 mt-2">Welcome to your dashboard</p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <div className="bg-gradient-to-br from-green-50 to-green-100 p-6 rounded-xl shadow-md border border-green-200">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-green-800 text-sm font-medium">Total Income</h3>
-              <DollarSign className="w-5 h-5 text-green-600" />
-            </div>
-            <p className="text-3xl font-bold text-green-600">₹{Number(finance.total_income || 0).toLocaleString('en-IN')}</p>
-          </div>
-          <div className="bg-gradient-to-br from-red-50 to-red-100 p-6 rounded-xl shadow-md border border-red-200">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-red-800 text-sm font-medium">Total Expense</h3>
-              <DollarSign className="w-5 h-5 text-red-600" />
-            </div>
-            <p className="text-3xl font-bold text-red-600">₹{Number(finance.total_expense || 0).toLocaleString('en-IN')}</p>
-          </div>
-          <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-6 rounded-xl shadow-md border border-blue-200">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-blue-800 text-sm font-medium">Balance Fund</h3>
-              <DollarSign className="w-5 h-5 text-blue-600" />
-            </div>
-            <p className="text-3xl font-bold text-blue-600">₹{Number(finance.balance || 0).toLocaleString('en-IN')}</p>
+        {/* Event Progress Section */}
+        <div className="mb-8">
+          <h3 className="text-2xl font-bold text-gray-900 mb-4">Event Progress</h3>
+          <div className="bg-white rounded-xl shadow-lg p-6">
+            {eventsWithProgress.length > 0 ? (
+              <div className="space-y-4">
+                {eventsWithProgress.map((event: any) => (
+                  <div key={event.id} className="border border-gray-200 rounded-lg p-4">
+                    <div className="flex justify-between items-start mb-2">
+                      <div>
+                        <h4 className="font-bold text-gray-900">{event.title}</h4>
+                        <p className="text-sm text-gray-600">{event.committees?.name}</p>
+                      </div>
+                      <span className="text-xs bg-blue-100 text-blue-800 px-3 py-1 rounded-full">
+                        {event.status.replace('_', ' ').toUpperCase()}
+                      </span>
+                    </div>
+                    <div className="mt-3">
+                      <div className="flex justify-between text-sm text-gray-600 mb-1">
+                        <span>Progress</span>
+                        <span>{event.progress}%</span>
+                      </div>
+                      <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+                        <div 
+                          className="h-full bg-gradient-to-r from-blue-500 to-blue-600 rounded-full transition-all duration-500 ease-out"
+                          style={{ width: `${event.progress}%` }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-gray-600 text-center py-4">No events in progress</p>
+            )}
           </div>
         </div>
 
