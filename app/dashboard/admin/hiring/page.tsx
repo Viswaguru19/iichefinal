@@ -8,9 +8,11 @@ import { Briefcase, Plus, Power, Trash2 } from 'lucide-react';
 
 export default function HiringManagementPage() {
   const [positions, setPositions] = useState<any[]>([]);
+  const [applications, setApplications] = useState<any[]>([]);
   const [isActive, setIsActive] = useState(false);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [selectedPosition, setSelectedPosition] = useState<string | null>(null);
   const supabase = createClient();
   const router = useRouter();
 
@@ -60,6 +62,13 @@ export default function HiringManagementPage() {
       .order('created_at', { ascending: false });
 
     setPositions((data as any) || []);
+
+    const { data: apps } = await supabase
+      .from('hiring_applications')
+      .select('*, position:hiring_positions(title)')
+      .order('created_at', { ascending: false });
+
+    setApplications((apps as any) || []);
     setLoading(false);
   }
 
@@ -129,6 +138,47 @@ export default function HiringManagementPage() {
               <Power className="w-5 h-5" />
               {isActive ? 'Deactivate Hiring' : 'Activate Hiring'}
             </button>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
+          <h2 className="text-xl font-bold text-gray-900 mb-4">Applications ({applications.length})</h2>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b">
+                  <th className="text-left py-2">Name</th>
+                  <th className="text-left py-2">Email</th>
+                  <th className="text-left py-2">Position</th>
+                  <th className="text-left py-2">Status</th>
+                  <th className="text-left py-2">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {applications.map((app: any) => (
+                  <tr key={app.id} className="border-b">
+                    <td className="py-3">{app.name}</td>
+                    <td className="py-3">{app.email}</td>
+                    <td className="py-3">{app.position?.title}</td>
+                    <td className="py-3">
+                      <span className={`text-xs px-2 py-1 rounded-full ${
+                        app.status === 'selected' ? 'bg-green-100 text-green-800' :
+                        app.status === 'rejected' ? 'bg-red-100 text-red-800' :
+                        'bg-yellow-100 text-yellow-800'
+                      }`}>
+                        {app.status}
+                      </span>
+                    </td>
+                    <td className="py-3">
+                      <a href={app.resume} target="_blank" className="text-blue-600 hover:underline text-sm">View Resume</a>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {applications.length === 0 && (
+              <p className="text-center text-gray-500 py-8">No applications yet</p>
+            )}
           </div>
         </div>
 
