@@ -122,14 +122,21 @@ export default async function HomePage() {
 
         <div className="bg-white rounded-2xl shadow-xl p-12 mb-16">
           <h2 className="text-3xl font-bold text-gray-900 mb-6 text-center">About IIChE AVVU</h2>
-          <p className="text-lg text-gray-600 text-center max-w-3xl mx-auto mb-4">
-            The Indian Institute of Chemical Engineers (IIChE) AVVU Student Chapter at Aditya College of Engineering, Surampalem, 
-            is a dynamic student-driven organization committed to fostering excellence in chemical engineering.
-          </p>
-          <p className="text-lg text-gray-600 text-center max-w-3xl mx-auto">
-            We organize technical workshops, industrial visits, guest lectures, seminars, and cultural activities to bridge 
-            the gap between academic learning and industry practices, ensuring holistic development of our members.
-          </p>
+          <div className="max-w-4xl mx-auto space-y-4">
+            <p className="text-lg text-gray-700 leading-relaxed">
+              Welcome to the Indian Institute of Chemical Engineers (IIChE) Student Chapter of Amrita Vishwa Vidyapeetham, 
+              a growing center of chemical expertise. Our chapter is a lighthouse for people who are passionate about chemical 
+              engineering, tucked away in the lush hallways of higher learning. We cordially encourage you to join us on a 
+              journey that goes beyond the conventional bounds of education in this dynamic environment, where creativity and 
+              curiosity collide and innovation ignites with every contact.
+            </p>
+            <p className="text-lg text-gray-700 leading-relaxed">
+              The IIChE-AVVU student chapter was formed in February 2023. The full functioning of the chapter was started in 
+              April 2023 by the formation of 10 executive committees with 22 members, including a secretary, joint secretary, 
+              and treasurer. One discovery at a time, we are collaborating to shape chemical engineering students' futures. 
+              Welcome to a voyage where knowledge is the only restriction and the possibilities are endless.
+            </p>
+          </div>
         </div>
 
         {/* Committees Section */}
