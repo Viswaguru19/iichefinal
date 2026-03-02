@@ -32,40 +32,24 @@ export default function AddUserPage() {
     setLoading(true);
 
     try {
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email,
-        password: 'iichelogin',
+      const response = await fetch('/api/admin/create-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name,
+          email,
+          username,
+          role,
+          committee_id: selectedCommittee || null,
+          position,
+        }),
       });
 
-      if (authError) throw authError;
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error);
 
-      if (authData.user) {
-        const { error: profileError } = await (supabase as any)
-          .from('profiles')
-          .insert({
-            id: authData.user.id,
-            name,
-            email,
-            username,
-            role,
-            approved: true,
-          });
-
-        if (profileError) throw profileError;
-
-        if (selectedCommittee) {
-          await (supabase as any)
-            .from('committee_members')
-            .insert({
-              user_id: authData.user.id,
-              committee_id: selectedCommittee,
-              position,
-            });
-        }
-
-        toast.success('User added successfully!');
-        router.push('/dashboard/admin/users');
-      }
+      toast.success('User added successfully!');
+      router.push('/dashboard/admin/users');
     } catch (error: any) {
       toast.error(error.message);
     } finally {
