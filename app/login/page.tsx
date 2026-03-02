@@ -67,11 +67,12 @@ export default function LoginPage() {
 
       const { data: profile } = await supabase
         .from('profiles')
-        .select('approved')
+        .select('approved, role')
         .eq('email', email)
         .single();
 
-      if (!(profile as any)?.approved) {
+      // Super admin can always login, others need approval
+      if ((profile as any)?.role !== 'super_admin' && !(profile as any)?.approved) {
         await supabase.auth.signOut();
         throw new Error('Account pending approval. Contact admin.');
       }
