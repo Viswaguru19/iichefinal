@@ -75,81 +75,106 @@ export default function MeetingsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-8 px-4">
-      <div className="max-w-7xl mx-auto">
-        <div className="flex items-center justify-between mb-6">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Meetings</h1>
-          <Link
-            href="/dashboard/meetings/create"
-            className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
-          >
-            <Plus className="w-5 h-5" />
-            Schedule Meeting
-          </Link>
+    <div className="min-h-screen bg-white">
+      {/* Google Meet Style Header */}
+      <div className="bg-white border-b">
+        <div className="max-w-7xl mx-auto px-4 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Video className="w-8 h-8 text-blue-600" />
+              <h1 className="text-2xl font-medium text-gray-900">Meetings</h1>
+            </div>
+            <Link
+              href="/dashboard/meetings/create"
+              className="flex items-center gap-2 bg-blue-600 text-white px-6 py-2.5 rounded-full hover:bg-blue-700 font-medium"
+            >
+              <Plus className="w-5 h-5" />
+              New meeting
+            </Link>
+          </div>
         </div>
+      </div>
 
-        <div className="space-y-4">
+      <div className="max-w-7xl mx-auto px-4 py-8">
+        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
           {meetings.map((meeting) => (
-            <div key={meeting.id} className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-              <div className="flex items-start justify-between">
-                <div className="flex-1">
-                  <div className="flex items-center gap-3 mb-2">
-                    {meeting.meeting_type === 'online' ? (
-                      <Video className="w-5 h-5 text-blue-600" />
-                    ) : (
-                      <MapPin className="w-5 h-5 text-green-600" />
-                    )}
-                    <h3 className="text-xl font-bold text-gray-900 dark:text-white">{meeting.title}</h3>
-                    <span className={`text-xs px-2 py-1 rounded-full ${
-                      meeting.status === 'completed' ? 'bg-gray-100 text-gray-800' :
-                      meeting.status === 'ongoing' ? 'bg-green-100 text-green-800' :
-                      'bg-blue-100 text-blue-800'
-                    }`}>
-                      {meeting.status}
-                    </span>
-                  </div>
-                  <p className="text-gray-600 dark:text-gray-400 mb-3">{meeting.description}</p>
-                  <div className="flex items-center gap-4 text-sm text-gray-500">
-                    <span className="flex items-center gap-1">
-                      <Calendar className="w-4 h-4" />
-                      {new Date(meeting.meeting_date).toLocaleString()}
-                    </span>
-                    <span>{meeting.duration} mins</span>
-                    <span>By {meeting.creator?.name}</span>
-                  </div>
-                  {meeting.meeting_type === 'online' && meeting.meeting_link && (
-                    <a
-                      href={meeting.meeting_link}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-block mt-3 text-blue-600 hover:text-blue-700 text-sm"
-                    >
-                      Join Meeting →
-                    </a>
-                  )}
-                  {meeting.meeting_type === 'offline' && (
-                    <p className="mt-3 text-sm text-gray-600 dark:text-gray-400">
-                      📍 {meeting.location}
-                    </p>
+            <div key={meeting.id} className="bg-white border border-gray-200 rounded-lg hover:shadow-lg transition p-6">
+              <div className="flex items-start gap-4 mb-4">
+                <div className={`p-3 rounded-lg ${
+                  meeting.meeting_type === 'online' ? 'bg-blue-50' : 'bg-green-50'
+                }`}>
+                  {meeting.meeting_type === 'online' ? (
+                    <Video className="w-6 h-6 text-blue-600" />
+                  ) : (
+                    <MapPin className="w-6 h-6 text-green-600" />
                   )}
                 </div>
-                {meeting.meeting_type === 'offline' && (
+                <div className="flex-1">
+                  <h3 className="font-semibold text-gray-900 mb-1">{meeting.title}</h3>
+                  <span className={`text-xs px-2 py-1 rounded-full ${
+                    meeting.status === 'completed' ? 'bg-gray-100 text-gray-700' :
+                    meeting.status === 'ongoing' ? 'bg-green-100 text-green-700' :
+                    'bg-blue-100 text-blue-700'
+                  }`}>
+                    {meeting.status}
+                  </span>
+                </div>
+              </div>
+
+              <p className="text-sm text-gray-600 mb-4 line-clamp-2">{meeting.description}</p>
+              
+              <div className="space-y-2 text-sm text-gray-500 mb-4">
+                <div className="flex items-center gap-2">
+                  <Calendar className="w-4 h-4" />
+                  {new Date(meeting.meeting_date).toLocaleDateString('en-IN', {
+                    day: 'numeric',
+                    month: 'short',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                  })}
+                </div>
+                <div>{meeting.duration} minutes</div>
+                <div className="text-xs">Organized by {meeting.creator?.name}</div>
+              </div>
+
+              {meeting.meeting_type === 'online' && meeting.meeting_link && (
+                <a
+                  href={meeting.meeting_link}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block w-full text-center bg-blue-600 text-white py-2.5 rounded-lg hover:bg-blue-700 font-medium"
+                >
+                  Join now
+                </a>
+              )}
+
+              {meeting.meeting_type === 'offline' && (
+                <div>
+                  <p className="text-sm text-gray-600 mb-2">📍 {meeting.location}</p>
                   <button
                     onClick={() => openAttendance(meeting)}
-                    className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700"
+                    className="w-full bg-green-600 text-white py-2.5 rounded-lg hover:bg-green-700 font-medium"
                   >
-                    Mark Attendance
+                    Mark attendance
                   </button>
-                )}
-              </div>
+                </div>
+              )}
             </div>
           ))}
         </div>
 
         {meetings.length === 0 && (
-          <div className="text-center py-12">
-            <Calendar className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-            <p className="text-gray-600 dark:text-gray-400">No meetings scheduled yet.</p>
+          <div className="text-center py-16">
+            <Video className="w-20 h-20 text-gray-300 mx-auto mb-4" />
+            <h3 className="text-xl font-medium text-gray-900 mb-2">No meetings yet</h3>
+            <p className="text-gray-500 mb-6">Create your first meeting to get started</p>
+            <Link
+              href="/dashboard/meetings/create"
+              className="inline-flex items-center gap-2 bg-blue-600 text-white px-6 py-3 rounded-full hover:bg-blue-700 font-medium"
+            >
+              <Plus className="w-5 h-5" />
+              New meeting
+            </Link>
           </div>
         )}
       </div>

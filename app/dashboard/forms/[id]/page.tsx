@@ -88,32 +88,32 @@ export default function FormSubmitPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-8 px-4">
-      <div className="max-w-3xl mx-auto">
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-4">
-            <Link href="/dashboard/forms" className="text-blue-600 hover:text-blue-700">
+    <div className="min-h-screen bg-gradient-to-br from-purple-50 to-blue-50 py-8 px-4">
+      <div className="max-w-2xl mx-auto">
+        {/* Microsoft Forms Header */}
+        <div className="bg-white rounded-t-xl border-t-4 border-purple-600 shadow-lg p-8 mb-1">
+          <div className="flex items-center justify-between mb-4">
+            <Link href="/dashboard/forms" className="text-purple-600 hover:text-purple-700">
               <ArrowLeft className="w-6 h-6" />
             </Link>
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">{form?.title}</h1>
+            <button
+              onClick={copyLink}
+              className="flex items-center gap-2 text-purple-600 hover:text-purple-700 font-medium"
+            >
+              {copied ? <Check className="w-5 h-5" /> : <Share2 className="w-5 h-5" />}
+              {copied ? 'Copied!' : 'Share'}
+            </button>
           </div>
-          <button
-            onClick={copyLink}
-            className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
-          >
-            {copied ? <Check className="w-5 h-5" /> : <Share2 className="w-5 h-5" />}
-            {copied ? 'Copied!' : 'Share Link'}
-          </button>
+          <h1 className="text-4xl font-bold text-gray-900 mb-2">{form?.title}</h1>
+          {form?.description && (
+            <p className="text-gray-600 text-lg">{form.description}</p>
+          )}
         </div>
 
-        {form?.description && (
-          <p className="text-gray-600 dark:text-gray-400 mb-6">{form.description}</p>
-        )}
-
-        <form onSubmit={handleSubmit} className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 space-y-6">
-          {fields.map((field) => (
-            <div key={field.id}>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+        <form onSubmit={handleSubmit} className="space-y-1">
+          {fields.map((field, index) => (
+            <div key={field.id} className="bg-white shadow-md p-6 hover:shadow-lg transition">
+              <label className="block text-lg font-medium text-gray-900 mb-4">
                 {field.label}
                 {field.required && <span className="text-red-600 ml-1">*</span>}
               </label>
@@ -123,7 +123,8 @@ export default function FormSubmitPage() {
                   type="text"
                   name={field.id}
                   required={field.required}
-                  className="w-full border border-gray-300 dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  placeholder="Your answer"
+                  className="w-full border-b-2 border-gray-300 focus:border-purple-600 outline-none px-2 py-2 text-gray-900"
                 />
               )}
 
@@ -132,7 +133,8 @@ export default function FormSubmitPage() {
                   type="email"
                   name={field.id}
                   required={field.required}
-                  className="w-full border border-gray-300 dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  placeholder="Your email"
+                  className="w-full border-b-2 border-gray-300 focus:border-purple-600 outline-none px-2 py-2 text-gray-900"
                 />
               )}
 
@@ -141,7 +143,8 @@ export default function FormSubmitPage() {
                   type="number"
                   name={field.id}
                   required={field.required}
-                  className="w-full border border-gray-300 dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  placeholder="Your answer"
+                  className="w-full border-b-2 border-gray-300 focus:border-purple-600 outline-none px-2 py-2 text-gray-900"
                 />
               )}
 
@@ -150,7 +153,7 @@ export default function FormSubmitPage() {
                   type="date"
                   name={field.id}
                   required={field.required}
-                  className="w-full border border-gray-300 dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  className="w-full border-b-2 border-gray-300 focus:border-purple-600 outline-none px-2 py-2 text-gray-900"
                 />
               )}
 
@@ -159,7 +162,8 @@ export default function FormSubmitPage() {
                   name={field.id}
                   required={field.required}
                   rows={4}
-                  className="w-full border border-gray-300 dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  placeholder="Long answer text"
+                  className="w-full border-b-2 border-gray-300 focus:border-purple-600 outline-none px-2 py-2 text-gray-900 resize-none"
                 />
               )}
 
@@ -167,9 +171,9 @@ export default function FormSubmitPage() {
                 <select
                   name={field.id}
                   required={field.required}
-                  className="w-full border border-gray-300 dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  className="w-full border-b-2 border-gray-300 focus:border-purple-600 outline-none px-2 py-2 text-gray-900"
                 >
-                  <option value="">Select an option</option>
+                  <option value="">Choose</option>
                   {field.options?.map((option: string, i: number) => (
                     <option key={i} value={option}>{option}</option>
                   ))}
@@ -177,33 +181,33 @@ export default function FormSubmitPage() {
               )}
 
               {field.field_type === 'radio' && (
-                <div className="space-y-2">
+                <div className="space-y-3">
                   {field.options?.map((option: string, i: number) => (
-                    <label key={i} className="flex items-center gap-2">
+                    <label key={i} className="flex items-center gap-3 cursor-pointer hover:bg-gray-50 p-2 rounded">
                       <input
                         type="radio"
                         name={field.id}
                         value={option}
                         required={field.required}
-                        className="rounded"
+                        className="w-5 h-5 text-purple-600"
                       />
-                      <span className="text-gray-700 dark:text-gray-300">{option}</span>
+                      <span className="text-gray-700">{option}</span>
                     </label>
                   ))}
                 </div>
               )}
 
               {field.field_type === 'checkbox' && (
-                <div className="space-y-2">
+                <div className="space-y-3">
                   {field.options?.map((option: string, i: number) => (
-                    <label key={i} className="flex items-center gap-2">
+                    <label key={i} className="flex items-center gap-3 cursor-pointer hover:bg-gray-50 p-2 rounded">
                       <input
                         type="checkbox"
                         name={field.id}
                         value={option}
-                        className="rounded"
+                        className="w-5 h-5 text-purple-600 rounded"
                       />
-                      <span className="text-gray-700 dark:text-gray-300">{option}</span>
+                      <span className="text-gray-700">{option}</span>
                     </label>
                   ))}
                 </div>
@@ -211,13 +215,15 @@ export default function FormSubmitPage() {
             </div>
           ))}
 
-          <button
-            type="submit"
-            disabled={submitting}
-            className="w-full bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50"
-          >
-            {submitting ? 'Submitting...' : 'Submit'}
-          </button>
+          <div className="bg-white shadow-md p-6 rounded-b-xl">
+            <button
+              type="submit"
+              disabled={submitting}
+              className="bg-purple-600 text-white px-8 py-3 rounded-lg hover:bg-purple-700 disabled:opacity-50 font-medium"
+            >
+              {submitting ? 'Submitting...' : 'Submit'}
+            </button>
+          </div>
         </form>
       </div>
     </div>
