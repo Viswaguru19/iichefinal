@@ -84,13 +84,15 @@ export default function MeetingsPage() {
               <Video className="w-8 h-8 text-blue-600" />
               <h1 className="text-2xl font-medium text-gray-900">Meetings</h1>
             </div>
-            <Link
-              href="/dashboard/meetings/create"
+            <a
+              href="https://teams.microsoft.com/l/meeting/new"
+              target="_blank"
+              rel="noopener noreferrer"
               className="flex items-center gap-2 bg-blue-600 text-white px-6 py-2.5 rounded-full hover:bg-blue-700 font-medium"
             >
               <Plus className="w-5 h-5" />
-              New meeting
-            </Link>
+              New meeting (Teams)
+            </a>
           </div>
         </div>
       </div>
