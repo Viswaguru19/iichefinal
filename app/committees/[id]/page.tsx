@@ -72,7 +72,7 @@ export default async function CommitteeDetailPage({ params }: { params: { id: st
               Committee Head{heads.length > 1 ? 's' : ''}
             </h2>
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {heads.map((member) => (
+              {heads.map((member: any) => (
                 <MemberCardClient key={member.id} member={member} />
               ))}
             </div>
@@ -86,7 +86,7 @@ export default async function CommitteeDetailPage({ params }: { params: { id: st
               Co-Head{coHeads.length > 1 ? 's' : ''}
             </h2>
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {coHeads.map((member) => (
+              {coHeads.map((member: any) => (
                 <MemberCardClient key={member.id} member={member} />
               ))}
             </div>
@@ -100,7 +100,7 @@ export default async function CommitteeDetailPage({ params }: { params: { id: st
               Members
             </h2>
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {regularMembers.map((member) => (
+              {regularMembers.map((member: any) => (
                 <MemberCardClient key={member.id} member={member} />
               ))}
             </div>
