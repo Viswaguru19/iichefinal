@@ -10,7 +10,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { data: profile } = await supabase
+    const { data: profile }: { data: any } = await supabase
       .from('profiles')
       .select('role')
       .eq('id', user.id)
@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
         player_id,
         team_id,
         minute,
-      })
+      } as any)
       .select()
       .single();
 

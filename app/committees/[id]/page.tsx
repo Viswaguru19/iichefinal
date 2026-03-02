@@ -10,7 +10,7 @@ export default async function CommitteeDetailPage({ params }: { params: { id: st
   const { data: { user } } = await supabase.auth.getUser();
   const isLoggedIn = !!user;
 
-  const { data: committee } = await supabase
+  const { data: committee }: { data: any } = await supabase
     .from('committees')
     .select('*')
     .eq('id', params.id)
@@ -20,7 +20,7 @@ export default async function CommitteeDetailPage({ params }: { params: { id: st
     notFound();
   }
 
-  const { data: members } = await supabase
+  const { data: members }: { data: any } = await supabase
     .from('committee_members')
     .select(`
       *,
@@ -29,9 +29,9 @@ export default async function CommitteeDetailPage({ params }: { params: { id: st
     .eq('committee_id', params.id)
     .order('position');
 
-  const heads = members?.filter(m => m.position === 'head') || [];
-  const coHeads = members?.filter(m => m.position === 'co_head') || [];
-  const regularMembers = members?.filter(m => m.position === 'member') || [];
+  const heads = members?.filter((m: any) => m.position === 'head') || [];
+  const coHeads = members?.filter((m: any) => m.position === 'co_head') || [];
+  const regularMembers = members?.filter((m: any) => m.position === 'member') || [];
 
   return (
     <div className="min-h-screen bg-gray-50">
