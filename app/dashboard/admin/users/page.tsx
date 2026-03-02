@@ -24,6 +24,9 @@ export default async function UserManagementPage() {
     .select('*')
     .order('created_at', { ascending: false });
 
+  const pendingUsers = (users as any)?.filter((u: any) => !u.approved) || [];
+  const approvedUsers = (users as any)?.filter((u: any) => u.approved) || [];
+
   const { data: committees } = await supabase
     .from('committees')
     .select('id, name')
@@ -33,13 +36,13 @@ export default async function UserManagementPage() {
     .from('committee_members')
     .select('user_id, committee_id, position');
 
-  const usersWithCommittees = (users as any)?.map((u: any) => ({
+  const usersWithCommittees = approvedUsers.map((u: any) => ({
     ...u,
     committees: (committeeMemberships as any)?.filter((m: any) => m.user_id === u.id).map((m: any) => ({
       committee_id: m.committee_id,
       position: m.position
     })) || []
-  })) || [];
+  }));
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -53,6 +56,28 @@ export default async function UserManagementPage() {
       </nav>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {pendingUsers.length > 0 && (
+          <div className="bg-yellow-50 border-2 border-yellow-400 rounded-xl shadow-lg p-6 mb-8">
+            <h2 className="text-xl font-bold text-yellow-900 mb-4">⏳ Pending Approvals ({pendingUsers.length})</h2>
+            <div className="space-y-3">
+              {pendingUsers.map((user: any) => (
+                <div key={user.id} className="bg-white rounded-lg p-4 flex items-center justify-between">
+                  <div>
+                    <p className="font-bold text-gray-900">{user.name}</p>
+                    <p className="text-sm text-gray-600">{user.email} • @{user.username}</p>
+                  </div>
+                  <Link
+                    href={`/dashboard/admin/approve-user?id=${user.id}`}
+                    className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700"
+                  >
+                    Review & Approve
+                  </Link>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="bg-white rounded-xl shadow-lg p-6">
           <h2 className="text-xl font-bold text-gray-900 mb-6">All Users & Credentials</h2>
           <UserTable initialUsers={usersWithCommittees} committees={(committees as any) || []} />
