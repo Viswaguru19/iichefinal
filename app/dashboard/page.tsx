@@ -18,18 +18,8 @@ export default async function DashboardPage() {
     .single();
 
   if (profileError || !profile) {
-    console.error('Profile error:', profileError);
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold mb-4">Profile Not Found</h1>
-          <p className="text-gray-600 mb-4">Please create your profile first.</p>
-          <a href="/setup" className="bg-blue-600 text-white px-6 py-2 rounded-lg">
-            Go to Setup
-          </a>
-        </div>
-      </div>
-    );
+    await supabase.auth.signOut();
+    redirect('/');
   }
 
   const isStudent = (profile as any).role === 'student';
