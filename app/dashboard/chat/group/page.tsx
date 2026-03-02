@@ -29,7 +29,7 @@ function GroupChatContent() {
 
   async function loadMessages() {
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    if (!user || !groupId) return;
 
     const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
     setCurrentUser(profile);
