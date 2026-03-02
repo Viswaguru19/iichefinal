@@ -139,7 +139,7 @@ export default async function DashboardPage() {
             {eventsWithProgress.length > 0 ? (
               <div className="space-y-4">
                 {eventsWithProgress.map((event: any) => (
-                  <div key={event.id} className="border border-gray-200 rounded-lg p-4">
+                  <Link key={event.id} href={`/dashboard/event-detail/${event.id}`} className="border border-gray-200 rounded-lg p-4 block hover:shadow-md transition">
                     <div className="flex justify-between items-start mb-2">
                       <div>
                         <h4 className="font-bold text-gray-900">{event.title}</h4>
@@ -161,7 +161,7 @@ export default async function DashboardPage() {
                         />
                       </div>
                     </div>
-                  </div>
+                  </Link>
                 ))}
               </div>
             ) : (

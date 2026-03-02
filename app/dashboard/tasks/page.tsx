@@ -12,6 +12,9 @@ export default function TasksPage() {
   const [committees, setCommittees] = useState<any[]>([]);
   const [isExecutive, setIsExecutive] = useState(false);
   const [showAssign, setShowAssign] = useState(false);
+  const [selectedTask, setSelectedTask] = useState<any>(null);
+  const [updateText, setUpdateText] = useState('');
+  const [updateDoc, setUpdateDoc] = useState<File | null>(null);
   const [selectedProposal, setSelectedProposal] = useState('');
   const [selectedCommittee, setSelectedCommittee] = useState('');
   const [taskTitle, setTaskTitle] = useState('');
@@ -33,7 +36,7 @@ export default function TasksPage() {
 
     const { data: tasksData } = await supabase
       .from('event_tasks')
-      .select('*, committees(name), proposals:event_proposals(title)')
+      .select('*, committees(name), proposals:event_proposals(title), updates:task_updates(*, updater:profiles(name))')
       .order('created_at', { ascending: false });
     setTasks(tasksData || []);
 
@@ -107,6 +110,47 @@ export default function TasksPage() {
       loadData();
     } catch (error: any) {
       toast.error(error.message);
+    }
+  }
+
+  async function handlePostUpdate(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selectedTask || !updateText) return;
+
+    setLoading(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      let docUrl = null;
+      if (updateDoc) {
+        const fileName = `${Date.now()}_${updateDoc.name}`;
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('payments')
+          .upload(`task-updates/${fileName}`, updateDoc);
+        if (uploadError) throw uploadError;
+        docUrl = uploadData.path;
+      }
+
+      const { error } = await (supabase as any)
+        .from('task_updates')
+        .insert({
+          task_id: selectedTask.id,
+          update_text: updateText,
+          document_url: docUrl,
+          updated_by: user?.id
+        });
+
+      if (error) throw error;
+
+      toast.success('Update posted!');
+      setSelectedTask(null);
+      setUpdateText('');
+      setUpdateDoc(null);
+      loadData();
+    } catch (error: any) {
+      toast.error(error.message);
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -220,6 +264,21 @@ export default function TasksPage() {
                 <p className="text-gray-700 mb-4">{task.task_description}</p>
               )}
 
+              {task.updates && task.updates.length > 0 && (
+                <div className="mb-4 space-y-2">
+                  <h4 className="font-bold text-sm text-gray-700">Updates:</h4>
+                  {task.updates.map((update: any) => (
+                    <div key={update.id} className="bg-gray-50 p-3 rounded border">
+                      <p className="text-sm text-gray-700">{update.update_text}</p>
+                      <p className="text-xs text-gray-500 mt-1">By {update.updater?.name} - {new Date(update.created_at).toLocaleDateString()}</p>
+                      {update.document_url && (
+                        <a href={`${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/payments/${update.document_url}`} target="_blank" className="text-xs text-blue-600 hover:underline">View Document</a>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
               <div className="flex gap-2">
                 {task.status !== 'in_progress' && (
                   <button
@@ -237,6 +296,12 @@ export default function TasksPage() {
                     Mark Complete
                   </button>
                 )}
+                <button
+                  onClick={() => setSelectedTask(task)}
+                  className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 text-sm"
+                >
+                  Post Update
+                </button>
               </div>
             </div>
           ))}
@@ -248,6 +313,51 @@ export default function TasksPage() {
           )}
         </div>
       </div>
+
+      {selectedTask && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 max-w-2xl w-full">
+            <h2 className="text-xl font-bold mb-4">Post Update - {selectedTask.task_title}</h2>
+            <form onSubmit={handlePostUpdate} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-2">Update *</label>
+                <textarea
+                  value={updateText}
+                  onChange={(e) => setUpdateText(e.target.value)}
+                  required
+                  rows={4}
+                  className="w-full px-4 py-2 border rounded-lg"
+                  placeholder="Describe the progress or update..."
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-2">Attach Document (Optional)</label>
+                <input
+                  type="file"
+                  onChange={(e) => setUpdateDoc(e.target.files?.[0] || null)}
+                  className="w-full px-4 py-2 border rounded-lg"
+                />
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="flex-1 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {loading ? 'Posting...' : 'Post Update'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedTask(null)}
+                  className="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg hover:bg-gray-300"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
