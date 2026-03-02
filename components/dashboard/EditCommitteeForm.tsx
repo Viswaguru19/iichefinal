@@ -16,17 +16,22 @@ export default function EditCommitteeForm({ committees }: { committees: any[] })
   }
 
   async function saveEdit(id: string) {
-    const { error } = await (supabase as any)
-      .from('committees')
-      .update(editData)
-      .eq('id', id);
+    try {
+      const { error } = await supabase
+        .from('committees')
+        .update({
+          name: editData.name,
+          description: editData.description
+        })
+        .eq('id', id);
 
-    if (error) {
-      toast.error('Failed to update committee');
-    } else {
+      if (error) throw error;
+      
       toast.success('Committee updated');
       setEditingId(null);
       window.location.reload();
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to update committee');
     }
   }
 
