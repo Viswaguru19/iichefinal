@@ -18,10 +18,12 @@ function ApproveUserContent() {
   const userId = searchParams.get('id');
 
   useEffect(() => {
-    fetchData();
+    if (userId) fetchData();
   }, [userId]);
 
   async function fetchData() {
+    if (!userId) return;
+    
     const { data: userData } = await supabase
       .from('profiles')
       .select('*')
