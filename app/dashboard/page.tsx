@@ -37,6 +37,28 @@ export default async function DashboardPage() {
   const canManageKickoff = ['super_admin', 'secretary', 'committee_head'].includes((profile as any).role);
   const isExecutive = (profile as any).executive_role !== null;
 
+  // Get committees
+  const { data: committees } = await supabase
+    .from('committees')
+    .select('*')
+    .eq('type', 'regular')
+    .order('name');
+
+  // Get executive committee members
+  const { data: executiveMembers } = await supabase
+    .from('committee_members')
+    .select('*, profile:profiles(name, email)')
+    .eq('committee_id', '00000000-0000-0000-0000-000000000001')
+    .order('position');
+
+  // Get upcoming events
+  const { data: upcomingEvents } = await supabase
+    .from('events')
+    .select('*')
+    .gte('date', new Date().toISOString())
+    .order('date')
+    .limit(5);
+
   // Get finance summary
   const { data: financeData } = await supabase.rpc('get_finance_summary');
   const finance = financeData?.[0] || { total_income: 0, total_expense: 0, balance: 0 };
@@ -136,6 +158,90 @@ export default async function DashboardPage() {
             <h3 className="text-lg font-bold text-gray-900">Statement of Accounts</h3>
             <p className="text-sm text-gray-600 mt-2">View finance records</p>
           </Link>
+        </div>
+
+        {/* Committees Section */}
+        <div className="mt-8">
+          <h3 className="text-2xl font-bold text-gray-900 mb-4">Our Committees</h3>
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {committees?.map((committee: any) => (
+              <Link key={committee.id} href={`/committees/${committee.id}`} className="bg-white rounded-lg shadow p-4 hover:shadow-lg transition">
+                <h4 className="font-bold text-gray-900">{committee.name}</h4>
+                <p className="text-sm text-gray-600 mt-1">{committee.description}</p>
+              </Link>
+            ))}
+          </div>
+        </div>
+
+        {/* Executive Committee Section */}
+        <div className="mt-8">
+          <h3 className="text-2xl font-bold text-gray-900 mb-4">Executive Committee</h3>
+          <div className="bg-white rounded-xl shadow-lg p-6">
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {executiveMembers?.map((member: any) => (
+                <div key={member.id} className="border border-gray-200 rounded-lg p-4">
+                  <p className="font-bold text-gray-900">{member.profile?.name}</p>
+                  <p className="text-sm text-gray-600">{member.profile?.email}</p>
+                  <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded mt-2 inline-block">
+                    {member.position.replace('_', ' ').toUpperCase()}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Upcoming Events Section */}
+        <div className="mt-8">
+          <h3 className="text-2xl font-bold text-gray-900 mb-4">Upcoming Events</h3>
+          <div className="bg-white rounded-xl shadow-lg p-6">
+            {upcomingEvents && upcomingEvents.length > 0 ? (
+              <div className="space-y-4">
+                {upcomingEvents.map((event: any) => (
+                  <div key={event.id} className="border-l-4 border-blue-500 pl-4 py-2">
+                    <h4 className="font-bold text-gray-900">{event.title}</h4>
+                    <p className="text-sm text-gray-600">{event.description}</p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {new Date(event.date).toLocaleDateString('en-IN', { 
+                        day: 'numeric', 
+                        month: 'long', 
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-gray-600 text-center py-4">No upcoming events</p>
+            )}
+          </div>
+        </div>
+
+        {/* Student Details Section */}
+        <div className="mt-8">
+          <h3 className="text-2xl font-bold text-gray-900 mb-4">My Details</h3>
+          <div className="bg-white rounded-xl shadow-lg p-6">
+            <div className="grid md:grid-cols-2 gap-4">
+              <div>
+                <p className="text-sm text-gray-600">Name</p>
+                <p className="font-bold text-gray-900">{(profile as any).name}</p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-600">Email</p>
+                <p className="font-bold text-gray-900">{(profile as any).email}</p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-600">Username</p>
+                <p className="font-bold text-gray-900">{(profile as any).username}</p>
+              </div>
+              <div>
+                <p className="text-sm text-gray-600">Role</p>
+                <p className="font-bold text-gray-900">{(profile as any).role.replace('_', ' ').toUpperCase()}</p>
+              </div>
+            </div>
+          </div>
         </div>
 
         {!isStudent && (
