@@ -38,7 +38,9 @@ export default async function HomePage() {
       email: m.profiles?.email,
       role: `${m.committees?.name} ${m.position === 'head' ? 'HEAD' : 'CO-HEAD'}`
     }))
-  ];
+  ].filter((member, index, self) => 
+    member.id && index === self.findIndex((m) => m.id === member.id)
+  );
 
   // Get upcoming events
   const { data: upcomingEvents } = await supabase
