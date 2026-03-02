@@ -65,11 +65,16 @@ export default function LoginPage() {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
 
-      const { data: profile } = await supabase
+      const { data: profile, error: profileError } = await supabase
         .from('profiles')
         .select('approved, role')
         .eq('email', email)
         .single();
+
+      if (profileError || !profile) {
+        await supabase.auth.signOut();
+        throw new Error('Profile not found. Contact admin.');
+      }
 
       // Super admin can always login, others need approval
       if ((profile as any)?.role !== 'super_admin' && !(profile as any)?.approved) {
