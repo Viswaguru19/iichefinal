@@ -2,7 +2,7 @@ import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { hasAdminAccess } from '@/lib/permissions';
-import { Users, Calendar, Trophy, DollarSign, UserCheck, MessageSquare, FileText, Power } from 'lucide-react';
+import { Users, Calendar, Trophy, DollarSign, UserCheck, MessageSquare, FileText, Power, Settings } from 'lucide-react';
 
 export default async function AdminDashboard() {
   const supabase = await createClient();
@@ -51,6 +51,7 @@ export default async function AdminDashboard() {
           <AdminCard href="/dashboard/admin/committees" icon={<Users />} title="Edit Committees" desc="Edit committee details" color="purple" />
           <AdminCard href="/dashboard/admin/bulk-import" icon={<Users />} title="Bulk Import" desc="Import multiple users" color="indigo" />
           <AdminCard href="/dashboard/admin/hiring" icon={<Users />} title="Hiring Management" desc="Manage job positions" color="yellow" />
+          <AdminCard href="/dashboard/workflow-config" icon={<Settings />} title="Workflow Config" desc="Configure approval workflows" color="indigo" />
           <AdminCard href="/dashboard/kickoff" icon={<Trophy />} title="Kickoff Control" desc="Tournament management" color="green" />
         </div>
 
