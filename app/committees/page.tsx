@@ -53,7 +53,7 @@ export default async function CommitteesPage() {
         </div>
 
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {committees?.map((committee) => {
+          {committees?.map((committee: any) => {
             const members = allMembers?.filter((m: any) => m.committee_id === committee.id) || [];
             const heads = members.filter((m: any) => m.position === 'head');
             const coHeads = members.filter((m: any) => m.position === 'co_head');
