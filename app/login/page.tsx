@@ -62,18 +62,60 @@ export default function LoginPage() {
         email = (profileData as any).email;
       }
 
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      const { data: authData, error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
 
-      const { data: profile, error: profileError } = await supabase
+      // Check if profile exists
+      let { data: profile, error: profileError } = await supabase
         .from('profiles')
-        .select('approved, role')
+        .select('approved, role, is_faculty, name')
         .eq('email', email)
-        .single();
+        .maybeSingle();
 
-      if (profileError || !profile) {
+      // Auto-create profile if it doesn't exist
+      if (!profile && authData.user) {
+        try {
+          const { data: newProfile, error: createError } = await supabase
+            .from('profiles')
+            .insert({
+              id: authData.user.id,
+              email: email,
+              name: authData.user.email?.split('@')[0] || 'User',
+              username: authData.user.email?.split('@')[0] || 'user',
+              role: 'student',
+              approved: false,
+              is_faculty: false
+            })
+            .select('approved, role, is_faculty, name')
+            .single();
+
+          if (createError) {
+            console.error('Profile creation error:', createError);
+            // If profile creation fails, try to fetch again (might already exist)
+            const { data: existingProfile } = await supabase
+              .from('profiles')
+              .select('approved, role, is_faculty, name')
+              .eq('id', authData.user.id)
+              .maybeSingle();
+
+            if (existingProfile) {
+              profile = existingProfile;
+            } else {
+              await supabase.auth.signOut();
+              throw new Error(`Database setup incomplete. Please run migrations first. Error: ${createError.message}`);
+            }
+          } else {
+            profile = newProfile;
+          }
+        } catch (err: any) {
+          await supabase.auth.signOut();
+          throw new Error(`Profile creation failed: ${err.message}. Please ensure database migrations are run.`);
+        }
+      }
+
+      if (!profile) {
         await supabase.auth.signOut();
-        throw new Error('Profile not found. Contact admin.');
+        throw new Error('Profile not found. Please sign up first or contact admin.');
       }
 
       // Super admin can always login, others need approval
@@ -82,9 +124,29 @@ export default function LoginPage() {
         throw new Error('Account pending approval. Contact admin.');
       }
 
-      window.location.href = '/dashboard';
+      // Redirect based on is_faculty flag (set by admin)
+      if ((profile as any)?.is_faculty) {
+        window.location.href = '/dashboard/faculty';
+      } else {
+        window.location.href = '/dashboard';
+      }
     } catch (error: any) {
-      alert(error?.message || 'Login failed');
+      console.error('Login error:', error);
+      const errorMessage = error?.message || 'Login failed';
+
+      // Provide helpful error messages
+      if (errorMessage.includes('fetch failed') || errorMessage.includes('ENOTFOUND')) {
+        alert('❌ Cannot connect to database.\n\n' +
+          'Your Supabase URL is not reachable.\n\n' +
+          'Please:\n' +
+          '1. Go to https://supabase.com/dashboard\n' +
+          '2. Get your correct Project URL from Settings → API\n' +
+          '3. Update .env.local with the correct URL\n' +
+          '4. Restart the dev server\n\n' +
+          'Current URL: ' + process.env.NEXT_PUBLIC_SUPABASE_URL);
+      } else {
+        alert(errorMessage);
+      }
     } finally {
       setLoading(false);
     }

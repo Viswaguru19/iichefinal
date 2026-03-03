@@ -2,11 +2,13 @@
 
 import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { Plus, CheckCircle } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import PremiumInteractiveProgress from '@/components/events/PremiumInteractiveProgress';
+import { Plus, CheckCircle, Clock, AlertCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export default function EventProgressPage() {
-  const [approvedEvents, setApprovedEvents] = useState<any[]>([]);
+  const [events, setEvents] = useState<any[]>([]);
   const [selectedEvent, setSelectedEvent] = useState<any>(null);
   const [tasks, setTasks] = useState<any[]>([]);
   const [committees, setCommittees] = useState<any[]>([]);
@@ -14,7 +16,13 @@ export default function EventProgressPage() {
   const [showTaskModal, setShowTaskModal] = useState(false);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [selectedTask, setSelectedTask] = useState<any>(null);
+  const [taskTitle, setTaskTitle] = useState('');
+  const [taskDescription, setTaskDescription] = useState('');
+  const [selectedCommittee, setSelectedCommittee] = useState('');
+  const [updateText, setUpdateText] = useState('');
+  const [loading, setLoading] = useState(false);
   const supabase = createClient();
+  const router = useRouter();
 
   useEffect(() => {
     fetchData();
@@ -22,33 +30,47 @@ export default function EventProgressPage() {
 
   async function fetchData() {
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    if (!user) return router.push('/login');
+
     const { data: profile } = await supabase
       .from('profiles')
-      .select('*')
+      .select('*, committee_members(committee_id)')
       .eq('id', user.id)
       .single();
     setCurrentUser(profile);
 
-    const { data: events } = await supabase
-      .from('event_proposals')
-      .select('*, committee:committees(name)')
-      .eq('status', 'approved')
-      .order('event_date', { ascending: false });
-    setApprovedEvents(events || []);
+    // Get events with proper status
+    const { data: eventsData } = await supabase
+      .from('events')
+      .select(`
+        *,
+        committee:committee_id(name),
+        proposer:proposed_by(name),
+        head_approver:head_approved_by(name),
+        faculty_approver:faculty_approved_by(name)
+      `)
+      .in('status', ['active', 'pending_faculty_approval', 'faculty_approved'])
+      .order('date', { ascending: false });
+    setEvents(eventsData || []);
 
     const { data: comms } = await supabase
       .from('committees')
       .select('id, name')
+      .eq('type', 'regular')
       .order('name');
     setCommittees(comms || []);
   }
 
   async function loadTasks(eventId: string) {
     const { data } = await supabase
-      .from('event_committee_tasks')
-      .select('*, committee:committees(name), updates:event_daily_updates(*, user:profiles(name))')
-      .eq('proposal_id', eventId)
+      .from('tasks')
+      .select(`
+        *,
+        assigned_committee:assigned_to_committee_id(name),
+        creator:created_by(name),
+        updates:task_updates(*, user:user_id(name))
+      `)
+      .eq('event_id', eventId)
       .order('created_at');
     setTasks(data || []);
   }
@@ -58,102 +80,181 @@ export default function EventProgressPage() {
     await loadTasks(event.id);
   }
 
-  async function createTask(e: React.FormEvent<HTMLFormElement>) {
+  async function createTask(e: React.FormEvent) {
     e.preventDefault();
-    const formData = new FormData(e.currentTarget);
+    setLoading(true);
 
-    const { error } = await supabase
-      .from('event_committee_tasks')
-      .insert({
-        proposal_id: selectedEvent.id,
-        committee_id: formData.get('committee_id'),
-        task_title: formData.get('task_title'),
-        task_description: formData.get('task_description'),
-        assigned_by: currentUser.id
-      } as any);
+    try {
+      const { error } = await supabase
+        .from('tasks')
+        .insert({
+          event_id: selectedEvent.id,
+          assigned_to_committee_id: selectedCommittee,
+          title: taskTitle,
+          description: taskDescription,
+          created_by: currentUser.id,
+          status: 'not_started',
+          priority: 'medium'
+        });
 
-    if (error) {
-      toast.error('Failed to create task');
-    } else {
-      toast.success('Task assigned');
+      if (error) throw error;
+
+      toast.success('Task assigned successfully!');
       setShowTaskModal(false);
+      setTaskTitle('');
+      setTaskDescription('');
+      setSelectedCommittee('');
       loadTasks(selectedEvent.id);
+    } catch (error: any) {
+      toast.error(error.message);
+    } finally {
+      setLoading(false);
     }
   }
 
-  async function postUpdate(e: React.FormEvent<HTMLFormElement>) {
+  async function postUpdate(e: React.FormEvent) {
     e.preventDefault();
-    const formData = new FormData(e.currentTarget);
+    setLoading(true);
 
-    const { error } = await supabase
-      .from('event_daily_updates')
-      .insert({
-        task_id: selectedTask.id,
-        committee_id: selectedTask.committee_id,
-        update_text: formData.get('update_text'),
-        updated_by: currentUser.id
-      } as any);
+    try {
+      const { error } = await supabase
+        .from('task_updates')
+        .insert({
+          task_id: selectedTask.id,
+          user_id: currentUser.id,
+          update_text: updateText,
+          documents: []
+        });
 
-    if (error) {
-      toast.error('Failed to post update');
-    } else {
-      toast.success('Update posted');
+      if (error) throw error;
+
+      toast.success('Update posted successfully!');
       setShowUpdateModal(false);
+      setUpdateText('');
+      setSelectedTask(null);
       loadTasks(selectedEvent.id);
+    } catch (error: any) {
+      toast.error(error.message);
+    } finally {
+      setLoading(false);
     }
   }
 
   async function markComplete(taskId: string) {
-    const { error } = await (supabase as any)
-      .from('event_committee_tasks')
-      .update({ status: 'completed' })
-      .eq('id', taskId);
+    try {
+      const { error } = await supabase
+        .from('tasks')
+        .update({ status: 'completed', updated_at: new Date().toISOString() })
+        .eq('id', taskId);
 
-    if (error) {
-      toast.error('Failed to update status');
-    } else {
-      toast.success('Task marked complete');
+      if (error) throw error;
+
+      toast.success('Task marked complete!');
       loadTasks(selectedEvent.id);
+    } catch (error: any) {
+      toast.error(error.message);
     }
   }
 
   const isExecutive = currentUser?.executive_role !== null;
-  const progress = tasks.length > 0 
-    ? Math.round((tasks.filter(t => t.status === 'completed').length / tasks.length) * 100)
-    : 0;
+
+  // Build committee task summary for progress bar
+  const getCommitteeTaskSummary = () => {
+    const committeeMap = new Map();
+
+    tasks.forEach(task => {
+      const committeeName = task.assigned_committee?.name || 'Unassigned';
+      if (!committeeMap.has(committeeName)) {
+        committeeMap.set(committeeName, {
+          committee_name: committeeName,
+          total_tasks: 0,
+          completed_tasks: 0,
+          in_progress_tasks: 0,
+          not_started_tasks: 0
+        });
+      }
+
+      const summary = committeeMap.get(committeeName);
+      summary.total_tasks++;
+
+      if (task.status === 'completed') {
+        summary.completed_tasks++;
+      } else if (task.status === 'in_progress') {
+        summary.in_progress_tasks++;
+      } else {
+        summary.not_started_tasks++;
+      }
+    });
+
+    return Array.from(committeeMap.values());
+  };
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-8 px-4">
-      <div className="max-w-7xl mx-auto">
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-6">Event Progress Tracking</h1>
+    <div className="min-h-screen bg-gray-50">
+      <nav className="bg-white shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between h-16 items-center">
+            <h1 className="text-2xl font-bold text-blue-600">Event Progress</h1>
+            <button onClick={() => router.back()} className="text-gray-600 hover:text-blue-600">← Back</button>
+          </div>
+        </div>
+      </nav>
 
+      <div className="max-w-7xl mx-auto px-4 py-8">
         <div className="grid md:grid-cols-3 gap-6">
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
-            <h2 className="font-bold text-gray-900 dark:text-white mb-4">Approved Events</h2>
+          {/* Events List */}
+          <div className="bg-white rounded-xl shadow-lg p-6">
+            <h2 className="font-bold text-gray-900 mb-4 text-lg">Active Events</h2>
             <div className="space-y-2">
-              {approvedEvents.map((event) => (
+              {events.map((event) => (
                 <button
                   key={event.id}
                   onClick={() => selectEvent(event)}
-                  className={`w-full text-left p-3 rounded ${
-                    selectedEvent?.id === event.id
-                      ? 'bg-blue-100 dark:bg-blue-900'
-                      : 'hover:bg-gray-100 dark:hover:bg-gray-700'
-                  }`}
+                  className={`w-full text-left p-4 rounded-lg transition ${selectedEvent?.id === event.id
+                    ? 'bg-blue-100 border-2 border-blue-500'
+                    : 'hover:bg-gray-50 border-2 border-transparent'
+                    }`}
                 >
-                  <p className="font-medium text-gray-900 dark:text-white">{event.title}</p>
-                  <p className="text-xs text-gray-500">{event.committee?.name}</p>
+                  <p className="font-semibold text-gray-900">{event.title}</p>
+                  <p className="text-xs text-gray-500 mt-1">{event.committee?.name}</p>
+                  <span className={`inline-block mt-2 px-2 py-1 rounded text-xs font-medium ${event.status === 'active' ? 'bg-green-100 text-green-800' :
+                    event.status === 'faculty_approved' ? 'bg-blue-100 text-blue-800' :
+                      'bg-yellow-100 text-yellow-800'
+                    }`}>
+                    {event.status.replace(/_/g, ' ').toUpperCase()}
+                  </span>
                 </button>
               ))}
+              {events.length === 0 && (
+                <p className="text-gray-500 text-center py-8">No active events</p>
+              )}
             </div>
           </div>
 
+          {/* Event Details */}
           <div className="md:col-span-2">
             {selectedEvent ? (
               <>
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 mb-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{selectedEvent.title}</h2>
+                {/* Ultra-Premium Interactive Progress */}
+                <div className="mb-6">
+                  <h2 className="text-3xl font-bold text-gray-900 mb-2">{selectedEvent.title}</h2>
+                  <p className="text-gray-600 mb-6">{selectedEvent.description}</p>
+
+                  <PremiumInteractiveProgress
+                    committeeTasks={getCommitteeTaskSummary()}
+                    eventDate={selectedEvent.date}
+                  />
+                </div>
+
+                {/* Tasks Section */}
+                <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
+                  <div className="flex items-center justify-between mb-6">
+                    <div>
+                      <h3 className="text-xl font-bold text-gray-900">Event Tasks</h3>
+                      <p className="text-sm text-gray-600 mt-1">
+                        {tasks.filter(t => t.status === 'completed').length} of {tasks.length} completed
+                      </p>
+                    </div>
                     {isExecutive && (
                       <button
                         onClick={() => setShowTaskModal(true)}
@@ -164,95 +265,102 @@ export default function EventProgressPage() {
                       </button>
                     )}
                   </div>
-                  <div className="mb-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                        Progress: {progress}%
-                      </span>
-                    </div>
-                    <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3">
-                      <div
-                        className="bg-green-600 h-3 rounded-full transition-all"
-                        style={{ width: `${progress}%` }}
-                      />
-                    </div>
-                  </div>
-                </div>
 
-                <div className="space-y-4">
-                  {tasks.map((task) => (
-                    <div key={task.id} className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-                      <div className="flex items-start justify-between mb-3">
-                        <div>
-                          <h3 className="font-bold text-gray-900 dark:text-white">{task.task_title}</h3>
-                          <p className="text-sm text-gray-600 dark:text-gray-400">{task.committee?.name}</p>
-                          <p className="text-sm text-gray-500 mt-1">{task.task_description}</p>
+                  {/* Tasks List */}
+                  <div className="space-y-4">
+                    {tasks.map((task) => (
+                      <div key={task.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition">
+                        <div className="flex items-start justify-between mb-3">
+                          <div className="flex-1">
+                            <h4 className="font-bold text-gray-900">{task.title}</h4>
+                            <p className="text-sm text-gray-600 mt-1">{task.assigned_committee?.name}</p>
+                            {task.description && (
+                              <p className="text-sm text-gray-500 mt-2">{task.description}</p>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 ml-4">
+                            <span className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1 ${task.status === 'completed' ? 'bg-green-100 text-green-800' :
+                              task.status === 'in_progress' ? 'bg-blue-100 text-blue-800' :
+                                'bg-gray-100 text-gray-800'
+                              }`}>
+                              {task.status === 'completed' ? <CheckCircle className="w-3 h-3" /> :
+                                task.status === 'in_progress' ? <Clock className="w-3 h-3" /> :
+                                  <AlertCircle className="w-3 h-3" />}
+                              {task.status.replace(/_/g, ' ').toUpperCase()}
+                            </span>
+                            {task.status !== 'completed' && isExecutive && (
+                              <button
+                                onClick={() => markComplete(task.id)}
+                                className="text-green-600 hover:text-green-700"
+                                title="Mark as complete"
+                              >
+                                <CheckCircle className="w-5 h-5" />
+                              </button>
+                            )}
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <span className={`px-3 py-1 rounded-full text-xs ${
-                            task.status === 'completed' ? 'bg-green-100 text-green-800' :
-                            task.status === 'in_progress' ? 'bg-yellow-100 text-yellow-800' :
-                            'bg-gray-100 text-gray-800'
-                          }`}>
-                            {task.status}
-                          </span>
-                          {task.status !== 'completed' && isExecutive && (
-                            <button
-                              onClick={() => markComplete(task.id)}
-                              className="text-green-600 hover:text-green-700"
-                            >
-                              <CheckCircle className="w-5 h-5" />
-                            </button>
-                          )}
-                        </div>
-                      </div>
 
-                      <div className="mt-4">
-                        <div className="flex items-center justify-between mb-2">
-                          <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">Updates</h4>
-                          <button
-                            onClick={() => {
-                              setSelectedTask(task);
-                              setShowUpdateModal(true);
-                            }}
-                            className="text-sm text-blue-600 hover:text-blue-700"
-                          >
-                            + Add Update
-                          </button>
-                        </div>
-                        <div className="space-y-2">
-                          {task.updates?.map((update: any) => (
-                            <div key={update.id} className="bg-gray-50 dark:bg-gray-700 rounded p-3">
-                              <p className="text-sm text-gray-900 dark:text-white">{update.update_text}</p>
-                              <p className="text-xs text-gray-500 mt-1">
-                                {update.user?.name} • {new Date(update.created_at).toLocaleString()}
-                              </p>
+                        {/* Updates */}
+                        {task.updates && task.updates.length > 0 && (
+                          <div className="mt-4 pt-4 border-t border-gray-200">
+                            <h5 className="text-sm font-semibold text-gray-700 mb-2">Recent Updates</h5>
+                            <div className="space-y-2">
+                              {task.updates.slice(-3).map((update: any) => (
+                                <div key={update.id} className="bg-gray-50 rounded p-3">
+                                  <p className="text-sm text-gray-900">{update.update_text}</p>
+                                  <p className="text-xs text-gray-500 mt-1">
+                                    {update.user?.name} • {new Date(update.created_at).toLocaleString()}
+                                  </p>
+                                </div>
+                              ))}
                             </div>
-                          ))}
-                        </div>
+                          </div>
+                        )}
+
+                        <button
+                          onClick={() => {
+                            setSelectedTask(task);
+                            setShowUpdateModal(true);
+                          }}
+                          className="mt-3 text-sm text-blue-600 hover:text-blue-700 font-medium"
+                        >
+                          + Add Update
+                        </button>
                       </div>
-                    </div>
-                  ))}
+                    ))}
+
+                    {tasks.length === 0 && (
+                      <div className="text-center py-12 text-gray-500">
+                        <AlertCircle className="w-12 h-12 mx-auto mb-3 text-gray-400" />
+                        <p>No tasks assigned yet</p>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </>
             ) : (
-              <div className="text-center py-12 text-gray-500">Select an event to view tasks</div>
+              <div className="bg-white rounded-xl shadow-lg p-12 text-center">
+                <Clock className="w-16 h-16 mx-auto mb-4 text-gray-400" />
+                <p className="text-gray-600 text-lg">Select an event to view progress</p>
+              </div>
             )}
           </div>
         </div>
       </div>
 
+      {/* Task Modal */}
       {showTaskModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-md w-full">
-            <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">Assign Task</h2>
+          <div className="bg-white rounded-xl p-6 max-w-md w-full">
+            <h2 className="text-xl font-bold text-gray-900 mb-4">Assign Task</h2>
             <form onSubmit={createTask} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Committee</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Committee *</label>
                 <select
-                  name="committee_id"
+                  value={selectedCommittee}
+                  onChange={(e) => setSelectedCommittee(e.target.value)}
                   required
-                  className="w-full border border-gray-300 dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  className="w-full border border-gray-300 rounded-lg px-4 py-2"
                 >
                   <option value="">Select committee</option>
                   {committees.map((c) => (
@@ -261,27 +369,37 @@ export default function EventProgressPage() {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Task Title</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Task Title *</label>
                 <input
                   type="text"
-                  name="task_title"
+                  value={taskTitle}
+                  onChange={(e) => setTaskTitle(e.target.value)}
                   required
-                  className="w-full border border-gray-300 dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  className="w-full border border-gray-300 rounded-lg px-4 py-2"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
                 <textarea
-                  name="task_description"
+                  value={taskDescription}
+                  onChange={(e) => setTaskDescription(e.target.value)}
                   rows={3}
-                  className="w-full border border-gray-300 dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  className="w-full border border-gray-300 rounded-lg px-4 py-2"
                 />
               </div>
               <div className="flex gap-3">
-                <button type="submit" className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">
-                  Assign
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {loading ? 'Assigning...' : 'Assign Task'}
                 </button>
-                <button type="button" onClick={() => setShowTaskModal(false)} className="flex-1 bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white px-4 py-2 rounded-lg">
+                <button
+                  type="button"
+                  onClick={() => setShowTaskModal(false)}
+                  className="flex-1 bg-gray-200 text-gray-900 px-4 py-2 rounded-lg hover:bg-gray-300"
+                >
                   Cancel
                 </button>
               </div>
@@ -290,26 +408,40 @@ export default function EventProgressPage() {
         </div>
       )}
 
+      {/* Update Modal */}
       {showUpdateModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-md w-full">
-            <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">Post Update</h2>
+          <div className="bg-white rounded-xl p-6 max-w-md w-full">
+            <h2 className="text-xl font-bold text-gray-900 mb-4">Post Update</h2>
             <form onSubmit={postUpdate} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Update</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Update *</label>
                 <textarea
-                  name="update_text"
+                  value={updateText}
+                  onChange={(e) => setUpdateText(e.target.value)}
                   required
                   rows={4}
                   placeholder="What progress have you made?"
-                  className="w-full border border-gray-300 dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  className="w-full border border-gray-300 rounded-lg px-4 py-2"
                 />
               </div>
               <div className="flex gap-3">
-                <button type="submit" className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">
-                  Post
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {loading ? 'Posting...' : 'Post Update'}
                 </button>
-                <button type="button" onClick={() => setShowUpdateModal(false)} className="flex-1 bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white px-4 py-2 rounded-lg">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowUpdateModal(false);
+                    setUpdateText('');
+                    setSelectedTask(null);
+                  }}
+                  className="flex-1 bg-gray-200 text-gray-900 px-4 py-2 rounded-lg hover:bg-gray-300"
+                >
                   Cancel
                 </button>
               </div>

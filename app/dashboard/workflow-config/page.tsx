@@ -9,20 +9,20 @@ import toast from 'react-hot-toast';
 export default function WorkflowConfigPage() {
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
   const [loading, setLoading] = useState(false);
-  
+
   // Proposal Approval Settings
   const [requireDualHeadApproval, setRequireDualHeadApproval] = useState(true);
   const [notifyAllCommittees, setNotifyAllCommittees] = useState(true);
   const [requireFinanceApproval, setRequireFinanceApproval] = useState(false);
-  
+
   // Task Assignment Settings
   const [allowInternalAssignment, setAllowInternalAssignment] = useState(true);
   const [requireDeadline, setRequireDeadline] = useState(true);
-  
+
   // Hiring Settings
   const [hiringEnabled, setHiringEnabled] = useState(false);
   const [requireCommitteeHeadApproval, setRequireCommitteeHeadApproval] = useState(true);
-  
+
   const supabase = createClient();
   const router = useRouter();
 
@@ -56,18 +56,18 @@ export default function WorkflowConfigPage() {
 
     configs?.forEach((config: any) => {
       const settings = config.config;
-      
+
       if (config.workflow_type === 'proposal_approval') {
         setRequireDualHeadApproval(settings.require_dual_head_approval ?? true);
         setNotifyAllCommittees(settings.notify_all_committees ?? true);
         setRequireFinanceApproval(settings.require_finance_approval ?? false);
       }
-      
+
       if (config.workflow_type === 'task_assignment') {
         setAllowInternalAssignment(settings.allow_internal_assignment ?? true);
         setRequireDeadline(settings.require_deadline ?? true);
       }
-      
+
       if (config.workflow_type === 'hiring') {
         setHiringEnabled(settings.enabled ?? false);
         setRequireCommitteeHeadApproval(settings.require_committee_head_approval ?? true);
@@ -78,7 +78,7 @@ export default function WorkflowConfigPage() {
   async function handleSave() {
     setLoading(true);
     try {
-      await supabase
+      await (supabase as any)
         .from('workflow_config')
         .upsert({
           workflow_type: 'proposal_approval',
@@ -89,7 +89,7 @@ export default function WorkflowConfigPage() {
           }
         }, { onConflict: 'workflow_type' });
 
-      await supabase
+      await (supabase as any)
         .from('workflow_config')
         .upsert({
           workflow_type: 'task_assignment',
@@ -99,7 +99,7 @@ export default function WorkflowConfigPage() {
           }
         }, { onConflict: 'workflow_type' });
 
-      await supabase
+      await (supabase as any)
         .from('workflow_config')
         .upsert({
           workflow_type: 'hiring',

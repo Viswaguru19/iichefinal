@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Supabase Direct</title>
+</head>
+<body>
+    <h1>Testing Supabase Connection</h1>
+    <button onclick="testConnection()">Test Connection</button>
+    <pre id="result"></pre>
+
+    <script>
+        async function testConnection() {
+            const result = document.getElementById('result');
+            result.textContent = 'Testing...';
+            
+            try {
+                // Test 1: REST API
+                const response1 = await fetch('https://zaitflfjwxbywukpijww.supabase.co/rest/v1/', {
+                    headers: {
+                        'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InphaXRmbGZqd3hieXd1a3Bpand3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIzNjAwODIsImV4cCI6MjA4NzkzNjA4Mn0._sJsrgXKcV0ROTVX_4wcolcLLTKMThJjqqmplmSKBuw'
+                    }
+                });
+                const data1 = await response1.json();
+                result.textContent = 'REST API Test:\n' + JSON.stringify(data1, null, 2);
+                
+                // Test 2: Query profiles
+                const response2 = await fetch('https://zaitflfjwxbywukpijww.supabase.co/rest/v1/profiles?select=count', {
+                    headers: {
+                        'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InphaXRmbGZqd3hieXd1a3Bpand3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIzNjAwODIsImV4cCI6MjA4NzkzNjA4Mn0._sJsrgXKcV0ROTVX_4wcolcLLTKMThJjqqmplmSKBuw',
+                        'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InphaXRmbGZqd3hieXd1a3Bpand3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIzNjAwODIsImV4cCI6MjA4NzkzNjA4Mn0._sJsrgXKcV0ROTVX_4wcolcLLTKMThJjqqmplmSKBuw'
+                    }
+                });
+                const data2 = await response2.json();
+                result.textContent += '\n\nProfiles Query:\n' + JSON.stringify(data2, null, 2);
+                
+            } catch (error) {
+                result.textContent = 'ERROR:\n' + error.message + '\n\n' + error.stack;
+            }
+        }
+    </script>
+</body>
+</html>

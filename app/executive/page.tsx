@@ -12,7 +12,7 @@ export default async function ExecutiveCommitteePage() {
 
   const { data: executiveMembers } = await supabase
     .from('profiles')
-    .select('id, name, email, executive_role')
+    .select('id, name, email, avatar_url, executive_role')
     .not('executive_role', 'is', null)
     .order('executive_role');
 
@@ -43,7 +43,7 @@ export default async function ExecutiveCommitteePage() {
     'secretary_associate': 7,
   };
 
-  const sortedMembers = (executiveMembers as any)?.sort((a: any, b: any) => 
+  const sortedMembers = (executiveMembers as any)?.sort((a: any, b: any) =>
     (roleOrder[a.executive_role] || 99) - (roleOrder[b.executive_role] || 99)
   );
 

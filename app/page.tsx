@@ -13,57 +13,12 @@ export default async function HomePage() {
     .eq('type', 'regular')
     .order('name');
 
-  // Get executive committee members (both from executive_role and committee heads/co-heads)
-  const { data: executiveRoleMembers } = await supabase
+  // Get executive committee members (ONLY those with executive_role assigned)
+  const { data: executiveMembers } = await supabase
     .from('profiles')
-    .select('id, name, email, executive_role')
-    .not('executive_role', 'is', null);
-
-  const { data: committeeHeads } = await supabase
-    .from('committee_members')
-    .select('user_id, position, profiles(id, name, email, executive_role), committees(name)')
-    .in('position', ['head', 'co_head'])
-    .neq('committee_id', '00000000-0000-0000-0000-000000000001');
-
-  // Create a map to combine roles for same person
-  const memberMap = new Map();
-
-  // Add executive role members
-  executiveRoleMembers?.forEach((m: any) => {
-    memberMap.set(m.id, {
-      id: m.id,
-      name: m.name,
-      email: m.email,
-      roles: [m.executive_role?.replace('_', ' ').toUpperCase()]
-    });
-  });
-
-  // Add committee heads/co-heads
-  committeeHeads?.forEach((m: any) => {
-    const id = m.profiles?.id;
-    if (!id) return;
-    
-    const committeeRole = `${m.committees?.name} ${m.position === 'head' ? 'HEAD' : 'CO-HEAD'}`;
-    
-    if (memberMap.has(id)) {
-      // Person already has executive role, add committee role
-      memberMap.get(id).roles.push(committeeRole);
-    } else {
-      // New person, add with committee role
-      const roles = [committeeRole];
-      if (m.profiles?.executive_role) {
-        roles.unshift(m.profiles.executive_role.replace('_', ' ').toUpperCase());
-      }
-      memberMap.set(id, {
-        id,
-        name: m.profiles?.name,
-        email: m.profiles?.email,
-        roles
-      });
-    }
-  });
-
-  const executiveMembers = Array.from(memberMap.values());
+    .select('id, name, email, avatar_url, executive_role')
+    .not('executive_role', 'is', null)
+    .order('executive_role');
 
   // Get upcoming events
   const { data: upcomingEvents } = await supabase
@@ -124,16 +79,16 @@ export default async function HomePage() {
           <h2 className="text-3xl font-bold text-gray-900 mb-6 text-center">About IIChE AVVU</h2>
           <div className="max-w-4xl mx-auto space-y-4">
             <p className="text-lg text-gray-700 leading-relaxed">
-              Welcome to the Indian Institute of Chemical Engineers (IIChE) Student Chapter of Amrita Vishwa Vidyapeetham, 
-              a growing center of chemical expertise. Our chapter is a lighthouse for people who are passionate about chemical 
-              engineering, tucked away in the lush hallways of higher learning. We cordially encourage you to join us on a 
-              journey that goes beyond the conventional bounds of education in this dynamic environment, where creativity and 
+              Welcome to the Indian Institute of Chemical Engineers (IIChE) Student Chapter of Amrita Vishwa Vidyapeetham,
+              a growing center of chemical expertise. Our chapter is a lighthouse for people who are passionate about chemical
+              engineering, tucked away in the lush hallways of higher learning. We cordially encourage you to join us on a
+              journey that goes beyond the conventional bounds of education in this dynamic environment, where creativity and
               curiosity collide and innovation ignites with every contact.
             </p>
             <p className="text-lg text-gray-700 leading-relaxed">
-              The IIChE-AVVU student chapter was formed in February 2023. The full functioning of the chapter was started in 
-              April 2023 by the formation of 10 executive committees with 22 members, including a secretary, joint secretary, 
-              and treasurer. One discovery at a time, we are collaborating to shape chemical engineering students' futures. 
+              The IIChE-AVVU student chapter was formed in February 2023. The full functioning of the chapter was started in
+              April 2023 by the formation of 10 executive committees with 22 members, including a secretary, joint secretary,
+              and treasurer. One discovery at a time, we are collaborating to shape chemical engineering students' futures.
               Welcome to a voyage where knowledge is the only restriction and the possibilities are endless.
             </p>
           </div>
@@ -165,14 +120,26 @@ export default async function HomePage() {
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
               {executiveMembers?.map((member: any) => (
                 <div key={member.id} className="border border-gray-200 rounded-lg p-6 hover:shadow-lg transition">
-                  <p className="text-lg font-bold text-gray-900">{member.name}</p>
-                  <p className="text-sm text-gray-600 mt-1">{member.email}</p>
-                  <div className="mt-3 space-y-1">
-                    {member.roles?.map((role: string, idx: number) => (
-                      <span key={idx} className="block text-xs bg-blue-100 text-blue-800 px-3 py-1 rounded-full">
-                        {role}
+                  {member.avatar_url && (
+                    <img
+                      src={member.avatar_url}
+                      alt={member.name}
+                      className="w-20 h-20 rounded-full mx-auto mb-4 object-cover"
+                    />
+                  )}
+                  {!member.avatar_url && (
+                    <div className="w-20 h-20 rounded-full mx-auto mb-4 bg-blue-100 flex items-center justify-center">
+                      <span className="text-2xl font-bold text-blue-600">
+                        {member.name?.charAt(0)}
                       </span>
-                    ))}
+                    </div>
+                  )}
+                  <p className="text-lg font-bold text-gray-900 text-center">{member.name}</p>
+                  <p className="text-sm text-gray-600 mt-1 text-center">{member.email}</p>
+                  <div className="mt-3 flex justify-center">
+                    <span className="text-xs bg-blue-100 text-blue-800 px-3 py-1 rounded-full font-semibold">
+                      {member.executive_role?.replace(/_/g, ' ').toUpperCase()}
+                    </span>
                   </div>
                 </div>
               ))}
@@ -194,9 +161,9 @@ export default async function HomePage() {
                     <h3 className="text-xl font-bold text-gray-900">{event.title}</h3>
                     <p className="text-gray-600 mt-2">{event.description}</p>
                     <p className="text-sm text-gray-500 mt-2">
-                      📅 {new Date(event.date).toLocaleDateString('en-IN', { 
-                        day: 'numeric', 
-                        month: 'long', 
+                      📅 {new Date(event.date).toLocaleDateString('en-IN', {
+                        day: 'numeric',
+                        month: 'long',
                         year: 'numeric',
                         hour: '2-digit',
                         minute: '2-digit'

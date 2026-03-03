@@ -59,6 +59,15 @@ export default async function DashboardPage() {
     .order('created_at', { ascending: false })
     .limit(10);
 
+  // Get upcoming events
+  const { data: upcomingEvents } = await supabase
+    .from('event_proposals')
+    .select('*')
+    .eq('status', 'approved')
+    .gte('date', new Date().toISOString())
+    .order('date', { ascending: true })
+    .limit(5);
+
   // Get pending head approvals
   const { data: pendingHeadApprovals } = await supabase
     .from('event_proposals')
@@ -222,6 +231,21 @@ export default async function DashboardPage() {
             <DollarSign className="w-8 h-8 text-purple-600 mb-4" />
             <h3 className="text-lg font-bold text-gray-900">Statement of Accounts</h3>
             <p className="text-sm text-gray-600 mt-2">View finance records</p>
+          </Link>
+          <Link href="/dashboard/documents" className="bg-white rounded-xl shadow-md p-6 hover:shadow-lg transition">
+            <Users className="w-8 h-8 text-indigo-600 mb-4" />
+            <h3 className="text-lg font-bold text-gray-900">Documents</h3>
+            <p className="text-sm text-gray-600 mt-2">Committee documents</p>
+          </Link>
+          <Link href="/dashboard/tasks" className="bg-white rounded-xl shadow-md p-6 hover:shadow-lg transition">
+            <Calendar className="w-8 h-8 text-red-600 mb-4" />
+            <h3 className="text-lg font-bold text-gray-900">Tasks</h3>
+            <p className="text-sm text-gray-600 mt-2">View assigned tasks</p>
+          </Link>
+          <Link href="/dashboard/proposals" className="bg-white rounded-xl shadow-md p-6 hover:shadow-lg transition">
+            <Send className="w-8 h-8 text-orange-600 mb-4" />
+            <h3 className="text-lg font-bold text-gray-900">Proposals</h3>
+            <p className="text-sm text-gray-600 mt-2">Review event proposals</p>
           </Link>
         </div>
 
