@@ -94,9 +94,9 @@ export default function HeroSlideshow({ slides, autoPlayInterval = 5000 }: HeroS
                             backgroundImage: `url(${currentSlide.photo_url})`,
                         }}
                     >
-                        {/* Overlay - Only if there's text content */}
+                        {/* Overlay - Only if there's text content - Very light overlay */}
                         {(currentSlide.title || currentSlide.description) && (
-                            <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-black/20 to-transparent" />
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/30 via-black/10 to-transparent" />
                         )}
                     </div>
 
