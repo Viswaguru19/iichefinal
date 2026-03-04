@@ -116,7 +116,7 @@ export async function proposeEvent(eventData: any, userId: string, userRole: Use
  * Approves an event as a committee head, transitioning it to EC approval stage.
  * 
  * After head approval, the event moves to 'pending_ec_approval' status where
- * EC members can approve (2 out of 6 required). EC members can view the event
+ * EC members can approve (1 out of 6 required). EC members can view the event
  * in read-only mode before head approval.
  * 
  * @param eventId - UUID of the event to approve
@@ -143,7 +143,7 @@ export async function approveEventAsHead(eventId: string, userId: string, userRo
         throw new Error('Event is not at the correct approval stage');
     }
 
-    // Update to pending EC approval (changed from pending_faculty_approval)
+    // Update to pending EC approval
     const { error } = await supabase
         .from('events')
         .update({
@@ -168,31 +168,30 @@ export async function approveEventAsHead(eventId: string, userId: string, userRo
 }
 
 // ============================================
-// EC APPROVAL FOR EVENTS (2/6 threshold)
+// EC APPROVAL FOR EVENTS (1/6 threshold)
 // ============================================
 
 /**
  * Approves an event as an Executive Committee (EC) member.
  * 
- * **Approval Threshold**: Only 2 out of 6 EC members need to approve for an event
- * to proceed to faculty approval. This threshold was chosen to balance oversight
- * with operational efficiency, allowing events to move forward without requiring
- * unanimous EC consent.
+ * **Approval Threshold**: Only 1 out of 6 EC members needs to approve for an event
+ * to be approved and move to event progress. This threshold was chosen for operational
+ * efficiency, allowing events to move forward quickly after head approval.
  * 
  * **Workflow**:
  * 1. Validates user has EC role (executive_role field must be set)
  * 2. Verifies event is at 'pending_ec_approval' status
  * 3. Records individual EC member's approval in ec_approvals table (upserts to handle duplicates)
- * 4. Checks total approval count against threshold (2 approvals)
- * 5. If threshold reached, transitions event to 'pending_faculty_approval'
+ * 4. Immediately transitions event to 'approved' status (single approval sufficient)
+ * 5. Event becomes visible in Event Progress section
  * 
  * @param eventId - UUID of the event to approve
  * @param userId - UUID of the EC member approving
  * @param userRole - Role of the user (must have EC permissions)
  * 
  * @returns Object containing:
- *   - approvalCount: Current number of EC approvals
- *   - thresholdReached: Boolean indicating if 2+ approvals achieved
+ *   - approvalCount: Current number of EC approvals (will be 1)
+ *   - thresholdReached: Boolean indicating approval achieved (always true)
  * 
  * @throws Error if:
  *   - User does not have EC approval permissions
@@ -207,7 +206,7 @@ export async function approveEventAsHead(eventId: string, userId: string, userRo
  *   'user-uuid',
  *   'executive_committee'
  * );
- * // result: { approvalCount: 2, thresholdReached: true }
+ * // result: { approvalCount: 1, thresholdReached: true }
  * ```
  */
 export async function approveEventAsEC(eventId: string, userId: string, userRole: UserRole) {
@@ -250,18 +249,15 @@ export async function approveEventAsEC(eventId: string, userId: string, userRole
 
     if (approvalError) throw approvalError;
 
-    // Check how many EC members have approved (threshold: 2 out of 6)
-    const { data: allApprovals, error: countError } = await supabase
-        .from('ec_approvals')
-        .select('*')
-        .eq('event_id', eventId)
-        .eq('approved', true);
+    // Single EC approval is sufficient - update event immediately to approved
+    const { error: updateError } = await supabase
+        .from('events')
+        .update({ status: 'approved' })
+        .eq('id', eventId);
 
-    if (countError) throw countError;
+    if (updateError) throw updateError;
 
-    const approvalCount = allApprovals?.length || 0;
-
-    // Log this EC member's approval
+    // Log approval
     await logApproval({
         userId,
         userRole,
@@ -269,33 +265,60 @@ export async function approveEventAsEC(eventId: string, userId: string, userRole
         entityId: eventId,
         action: 'approve_as_ec',
         previousStatus: event.status,
-        newStatus: event.status, // Status may not change yet
-        metadata: { approvalCount, threshold: 2 },
+        newStatus: 'approved',
+        metadata: { approvalCount: 1, threshold: 1, note: 'Single EC approval sufficient' },
     });
 
-    // If threshold reached (2 approvals), move to faculty approval
-    if (approvalCount >= 2) {
-        const { error: updateError } = await supabase
-            .from('events')
-            .update({ status: 'pending_faculty_approval' })
-            .eq('id', eventId);
+    // Send confirmation notification to the proposing committee
+    await sendEventApprovalNotification(eventId, event.proposed_by, event.committee_id);
 
-        if (updateError) throw updateError;
+    return { approvalCount: 1, thresholdReached: true };
+}
 
-        // Log status transition
-        await logApproval({
-            userId: 'system',
-            userRole: 'system' as UserRole,
-            entityType: 'event',
-            entityId: eventId,
-            action: 'ec_threshold_reached',
-            previousStatus: 'pending_ec_approval',
-            newStatus: 'pending_faculty_approval',
-            metadata: { approvalCount, threshold: 2 },
+/**
+ * Sends a notification to the proposing committee when their event is approved.
+ * 
+ * Creates a notification for the user who proposed the event, informing them
+ * that their event has been approved by the EC and is now active.
+ * 
+ * @param eventId - UUID of the approved event
+ * @param proposedBy - UUID of the user who proposed the event
+ * @param committeeId - UUID of the committee that proposed the event
+ */
+async function sendEventApprovalNotification(
+    eventId: string,
+    proposedBy: string,
+    committeeId: string
+) {
+    const supabase = createClient();
+
+    // Get event details
+    const { data: event } = await supabase
+        .from('events')
+        .select('title')
+        .eq('id', eventId)
+        .single();
+
+    if (!event) return;
+
+    // Create notification for the proposer
+    const { error } = await supabase
+        .from('notifications')
+        .insert({
+            user_id: proposedBy,
+            type: 'event_approved',
+            title: 'Event Approved! 🎉',
+            message: `Your event "${event.title}" has been approved by the Executive Committee and is now active. You can start assigning tasks in Event Progress.`,
+            link: `/dashboard/events/progress`,
+            metadata: {
+                event_id: eventId,
+                committee_id: committeeId,
+            },
         });
-    }
 
-    return { approvalCount, thresholdReached: approvalCount >= 2 };
+    if (error) {
+        console.error('Failed to send approval notification:', error);
+    }
 }
 
 /**
@@ -447,7 +470,8 @@ export async function rejectEvent(
  * Creates a new task for an active event.
  * 
  * Tasks are created with 'pending_ec_approval' status and require EC approval
- * before being assigned to committees. See approveTaskAsEC for approval logic.
+ * before being assigned to committees. This ensures EC oversight of all task
+ * assignments across committees.
  * 
  * @param taskData - Task details (event_id, assigned_to_committee_id, title, description, etc.)
  * @param userId - UUID of user creating the task
@@ -498,7 +522,8 @@ export async function createTask(taskData: any, userId: string, userRole: UserRo
  * 2. Verifies task is at 'pending_ec_approval' status
  * 3. Immediately transitions task to 'not_started' (single approval sufficient)
  * 4. Records EC approver ID and timestamp
- * 5. Optionally applies modifications to task fields
+ * 5. Sends notifications to all members of the assigned committee
+ * 6. Optionally applies modifications to task fields
  * 
  * @param taskId - UUID of the task to approve
  * @param userId - UUID of the EC member approving
@@ -546,7 +571,7 @@ export async function approveTaskAsEC(
 
     const { data: task } = await supabase
         .from('tasks')
-        .select('*')
+        .select('*, event:event_id(title), committee:assigned_to_committee_id(name)')
         .eq('id', taskId)
         .single();
 
@@ -585,6 +610,69 @@ export async function approveTaskAsEC(
         newStatus: 'not_started',
         metadata: { modifications, threshold: 1, note: 'Single EC approval sufficient' },
     });
+
+    // Send notifications to all members of the assigned committee
+    await sendTaskAssignmentNotifications(taskId, task.assigned_to_committee_id, task.event, task.committee);
+}
+
+/**
+ * Sends notifications to all members of a committee when a task is assigned to them.
+ * 
+ * Creates individual notifications for each committee member, informing them
+ * of the new task assignment. This ensures everyone in the committee is aware
+ * of their responsibilities.
+ * 
+ * @param taskId - UUID of the approved task
+ * @param committeeId - UUID of the committee the task is assigned to
+ * @param event - Event object containing event details
+ * @param committee - Committee object containing committee details
+ */
+async function sendTaskAssignmentNotifications(
+    taskId: string,
+    committeeId: string,
+    event: any,
+    committee: any
+) {
+    const supabase = createClient();
+
+    // Get task details
+    const { data: task } = await supabase
+        .from('tasks')
+        .select('title, description')
+        .eq('id', taskId)
+        .single();
+
+    if (!task) return;
+
+    // Get all members of the assigned committee
+    const { data: members } = await supabase
+        .from('committee_members')
+        .select('user_id')
+        .eq('committee_id', committeeId);
+
+    if (!members || members.length === 0) return;
+
+    // Create notifications for all committee members
+    const notifications = members.map(member => ({
+        user_id: member.user_id,
+        type: 'task_assigned',
+        title: 'New Task Assigned! 📋',
+        message: `Your committee "${committee?.name}" has been assigned a new task: "${task.title}" for the event "${event?.title}". Check your tasks section for details.`,
+        link: `/dashboard/tasks`,
+        metadata: {
+            task_id: taskId,
+            event_id: event?.id,
+            committee_id: committeeId,
+        },
+    }));
+
+    const { error } = await supabase
+        .from('notifications')
+        .insert(notifications);
+
+    if (error) {
+        console.error('Failed to send task assignment notifications:', error);
+    }
 }
 
 /**

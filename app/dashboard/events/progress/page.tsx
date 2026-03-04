@@ -42,7 +42,7 @@ export default function EventProgressPage() {
       .single();
     setCurrentUser(profile);
 
-    // Get events with proper status
+    // Get events with proper status (approved events go to event progress)
     const { data: eventsData } = await supabase
       .from('events')
       .select(`
@@ -52,7 +52,7 @@ export default function EventProgressPage() {
         head_approver:head_approved_by(name),
         faculty_approver:faculty_approved_by(name)
       `)
-      .in('status', ['active', 'pending_faculty_approval', 'faculty_approved'])
+      .in('status', ['approved', 'in_progress', 'completed'])
       .order('date', { ascending: false });
     setEvents(eventsData || []);
 
@@ -96,13 +96,13 @@ export default function EventProgressPage() {
           title: taskTitle,
           description: taskDescription,
           created_by: currentUser.id,
-          status: 'not_started',
+          status: 'pending_ec_approval', // Tasks require EC approval before assignment
           priority: 'medium'
         });
 
       if (error) throw error;
 
-      toast.success('Task assigned successfully!');
+      toast.success('Task created! Waiting for EC approval before assignment.');
       setShowTaskModal(false);
       setTaskTitle('');
       setTaskDescription('');
@@ -153,6 +153,26 @@ export default function EventProgressPage() {
       if (error) throw error;
 
       toast.success('Task marked complete!');
+      loadTasks(selectedEvent.id);
+    } catch (error: any) {
+      toast.error(error.message);
+    }
+  }
+
+  async function approveTask(taskId: string) {
+    try {
+      const { error } = await supabase
+        .from('tasks')
+        .update({
+          status: 'not_started',
+          ec_approved_by: currentUser.id,
+          ec_approved_at: new Date().toISOString()
+        })
+        .eq('id', taskId);
+
+      if (error) throw error;
+
+      toast.success('Task approved! Committee members have been notified.');
       loadTasks(selectedEvent.id);
     } catch (error: any) {
       toast.error(error.message);
@@ -416,6 +436,16 @@ export default function EventProgressPage() {
                                     <AlertCircle className="w-3 h-3" />}
                                 {task.status.replace(/_/g, ' ').toUpperCase()}
                               </span>
+                              {/* EC Approve Button */}
+                              {task.status === 'pending_ec_approval' && isExecutive && (
+                                <button
+                                  onClick={() => approveTask(task.id)}
+                                  className="text-green-600 hover:text-green-700 px-3 py-1 rounded-lg bg-green-50 hover:bg-green-100 text-xs font-medium"
+                                  title="Approve task"
+                                >
+                                  Approve
+                                </button>
+                              )}
                               {task.status !== 'completed' && task.status !== 'pending_ec_approval' && task.status !== 'ec_rejected' && isExecutive && (
                                 <button
                                   onClick={() => markComplete(task.id)}

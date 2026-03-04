@@ -62,15 +62,15 @@ export default async function DashboardPage() {
 
   // Get upcoming events with progress
   const { data: eventProposals } = await supabase
-    .from('event_proposals')
+    .from('events')
     .select('*, committees(name)')
-    .in('status', ['pending_head', 'pending_executive', 'approved', 'in_progress'])
+    .in('status', ['pending_head_approval', 'pending_ec_approval', 'approved', 'in_progress'])
     .order('created_at', { ascending: false })
     .limit(10);
 
   // Get upcoming events
   const { data: upcomingEvents } = await supabase
-    .from('event_proposals')
+    .from('events')
     .select('*')
     .eq('status', 'approved')
     .gte('date', new Date().toISOString())
@@ -79,9 +79,9 @@ export default async function DashboardPage() {
 
   // Get pending head approvals
   const { data: pendingHeadApprovals } = await supabase
-    .from('event_proposals')
+    .from('events')
     .select('*, committees(name)')
-    .eq('status', 'pending_head')
+    .eq('status', 'pending_head_approval')
     .order('created_at', { ascending: false });
 
   // Calculate progress for each event

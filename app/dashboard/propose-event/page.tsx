@@ -220,9 +220,8 @@ export default function ProposeEventPage() {
               <h4 className="font-semibold text-blue-900 mb-2">Approval Workflow</h4>
               <ol className="text-sm text-blue-800 space-y-1 list-decimal list-inside">
                 <li>Committee Head reviews and approves</li>
-                <li>Executive Committee (all 6 members) review and approve</li>
-                <li>Faculty Advisor gives final approval</li>
-                <li>Event becomes active and visible to all</li>
+                <li>Executive Committee (1 member) approves</li>
+                <li>Event goes to Event Progress and becomes active</li>
               </ol>
             </div>
 

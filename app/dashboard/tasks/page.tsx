@@ -72,9 +72,12 @@ export default function TasksPage() {
       `)
       .order('created_at', { ascending: false });
 
-    // Non-admin, non-EC users only see tasks assigned to their committees
+    // Non-admin, non-EC users only see approved tasks assigned to their committees
+    // (pending_ec_approval and ec_rejected tasks are hidden from regular members)
     if (!isExec && !isAdmin && committeeIds.length > 0) {
-      tasksQuery = tasksQuery.in('assigned_to_committee_id', committeeIds);
+      tasksQuery = tasksQuery
+        .in('assigned_to_committee_id', committeeIds)
+        .not('status', 'in', '(pending_ec_approval,ec_rejected)');
     }
 
     const { data: tasksData } = await tasksQuery;
