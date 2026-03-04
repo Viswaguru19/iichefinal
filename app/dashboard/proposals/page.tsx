@@ -42,7 +42,28 @@ export default function ProposalsPage() {
     const isFaculty = (profile as any)?.is_faculty;
     const isAdmin = (profile as any)?.is_admin;
 
-    // Build query based on role
+    // ============================================
+    // ROLE-BASED VISIBILITY RULES
+    // ============================================
+    // Build query based on role to enforce proper visibility at each approval stage:
+    //
+    // 1. Committee Heads (non-EC, non-faculty):
+    //    - See only their committee's proposals at 'pending_head_approval'
+    //    - Can approve to move to EC stage
+    //
+    // 2. EC Members (non-faculty):
+    //    - See proposals from 'pending_head_approval' onwards (READ-ONLY until head approves)
+    //    - At 'pending_head_approval': Can view details but cannot approve
+    //    - At 'pending_ec_approval': Can approve (2/6 threshold)
+    //    - This early visibility allows EC to prepare for review
+    //
+    // 3. Faculty & Admin:
+    //    - See all proposals at all stages
+    //    - Can perform final approval at 'pending_faculty_approval'
+    //
+    // 4. Regular Members:
+    //    - See only their committee's proposals
+    //    - Cannot approve
     let query = supabase
       .from('events')
       .select(`
@@ -58,8 +79,9 @@ export default function ProposalsPage() {
       // Committee heads see their committee's pending proposals
       query = query.in('committee_id', committeeIds).eq('status', 'pending_head_approval');
     } else if (isEC && !isFaculty && !isAdmin) {
-      // EC members see proposals pending EC approval
-      query = query.eq('status', 'pending_ec_approval');
+      // EC members can see proposals from head stage onwards
+      // Including 'pending_head_approval' for read-only visibility
+      query = query.in('status', ['pending_head_approval', 'pending_ec_approval', 'pending_faculty_approval', 'active', 'cancelled']);
     } else if (isFaculty || isAdmin) {
       // Faculty and admin see all proposals
       query = query.in('status', ['pending_head_approval', 'pending_ec_approval', 'pending_faculty_approval', 'active', 'cancelled']);
@@ -132,24 +154,32 @@ export default function ProposalsPage() {
 
       if (approvalError) throw approvalError;
 
-      // Check if all 6 EC members have approved
+      // ============================================
+      // EC APPROVAL THRESHOLD: 2 out of 6
+      // ============================================
+      // Check how many EC members have approved. Only 2 approvals are required
+      // to move the event to faculty approval stage. This threshold balances:
+      // - Oversight: Multiple EC members review each event
+      // - Efficiency: Events don't require unanimous EC consent
+      // - Speed: Events can proceed without waiting for all 6 EC members
       const { data: allApprovals } = await supabase
         .from('ec_approvals')
         .select('*')
         .eq('event_id', proposalId)
         .eq('approved', true);
 
-      if (allApprovals && allApprovals.length >= 6) {
-        // All EC members approved, move to faculty approval
+      // Only 2 EC approvals are required to move forward
+      if (allApprovals && allApprovals.length >= 2) {
+        // Enough EC members approved, move to faculty approval
         const { error: updateError } = await supabase
           .from('events')
           .update({ status: 'pending_faculty_approval' })
           .eq('id', proposalId);
 
         if (updateError) throw updateError;
-        toast.success('All EC members approved! Sent to Faculty Advisor');
+        toast.success('Executive Committee approval complete! Sent to Faculty Advisor');
       } else {
-        toast.success(`Your approval recorded (${allApprovals?.length || 0}/6 EC members approved)`);
+        toast.success(`Your approval recorded (${allApprovals?.length || 0}/2 EC approvals)`);
       }
 
       loadProposals();
@@ -226,7 +256,8 @@ export default function ProposalsPage() {
   };
 
   const canApproveAsFaculty = (proposal: any) => {
-    return (userProfile?.is_faculty || userProfile?.is_admin) &&
+    // Faculty, admin, or any EC member can perform the final approval step
+    return (userProfile?.is_faculty || userProfile?.is_admin || userProfile?.executive_role !== null) &&
       proposal.status === 'pending_faculty_approval';
   };
 
@@ -261,10 +292,10 @@ export default function ProposalsPage() {
                     <p className="text-xs text-gray-500 mt-1">Proposed by: {proposal.proposer?.name}</p>
                   </div>
                   <span className={`px-3 py-1 rounded-full text-xs font-bold whitespace-nowrap ml-4 ${proposal.status === 'active' ? 'bg-green-100 text-green-800' :
-                      proposal.status === 'cancelled' ? 'bg-red-100 text-red-800' :
-                        proposal.status === 'pending_faculty_approval' ? 'bg-purple-100 text-purple-800' :
-                          proposal.status === 'pending_ec_approval' ? 'bg-blue-100 text-blue-800' :
-                            'bg-yellow-100 text-yellow-800'
+                    proposal.status === 'cancelled' ? 'bg-red-100 text-red-800' :
+                      proposal.status === 'pending_faculty_approval' ? 'bg-purple-100 text-purple-800' :
+                        proposal.status === 'pending_ec_approval' ? 'bg-blue-100 text-blue-800' :
+                          'bg-yellow-100 text-yellow-800'
                     }`}>
                     {proposal.status.replace(/_/g, ' ').toUpperCase()}
                   </span>
@@ -289,16 +320,19 @@ export default function ProposalsPage() {
                 </div>
 
                 {/* EC Approval Progress */}
+                {/* Display approval progress when event is at EC approval stage.
+                    Shows X/2 progress (2 out of 6 EC members required) with visual
+                    progress bar and list of members who have approved. */}
                 {proposal.status === 'pending_ec_approval' && (
                   <div className="mb-4 p-4 bg-blue-50 rounded-lg">
                     <div className="flex items-center gap-2 mb-2">
                       <Users className="w-5 h-5 text-blue-600" />
-                      <span className="font-semibold text-blue-900">EC Approval Progress: {ecApprovalCount}/6</span>
+                      <span className="font-semibold text-blue-900">EC Approval Progress: {ecApprovalCount}/2</span>
                     </div>
                     <div className="w-full bg-blue-200 rounded-full h-2">
                       <div
                         className="bg-blue-600 h-2 rounded-full transition-all"
-                        style={{ width: `${(ecApprovalCount / 6) * 100}%` }}
+                        style={{ width: `${(ecApprovalCount / 2) * 100}%` }}
                       />
                     </div>
                     {approvals.length > 0 && (
@@ -327,7 +361,7 @@ export default function ProposalsPage() {
                       {proposal.status === 'pending_faculty_approval' && (
                         <div className="flex items-center gap-2">
                           <CheckCircle className="w-4 h-4 text-green-600" />
-                          <span>Executive Committee: All 6 members approved</span>
+                          <span>Executive Committee: Minimum approvals received</span>
                         </div>
                       )}
                       {proposal.faculty_approved_by && (
@@ -429,12 +463,32 @@ export default function ProposalsPage() {
                     </>
                   )}
 
-                  {proposal.status === 'pending_head_approval' && !canApproveAsHead(proposal) && (
-                    <div className="flex items-center gap-2 text-gray-600">
-                      <Clock className="w-4 h-4" />
-                      <span className="text-sm">Waiting for Committee Head approval</span>
-                    </div>
-                  )}
+                  {/* EC Read-Only View for pending_head_approval */}
+                  {/* EC members can see proposals at pending_head_approval stage but cannot
+                      approve yet. This read-only visibility allows EC to prepare for review
+                      once the committee head approves. The approval button is hidden and
+                      replaced with an informational message. */}
+                  {proposal.status === 'pending_head_approval' &&
+                    userProfile?.executive_role !== null &&
+                    !canApproveAsHead(proposal) && (
+                      <div className="flex items-center gap-2 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                        <Clock className="w-5 h-5 text-yellow-600" />
+                        <div>
+                          <p className="text-sm font-medium text-yellow-900">Waiting for Committee Head approval</p>
+                          <p className="text-xs text-yellow-700">You'll be able to approve once the head approves</p>
+                        </div>
+                      </div>
+                    )}
+
+                  {/* Generic waiting message for non-EC users */}
+                  {proposal.status === 'pending_head_approval' &&
+                    !canApproveAsHead(proposal) &&
+                    !userProfile?.executive_role && (
+                      <div className="flex items-center gap-2 text-gray-600">
+                        <Clock className="w-4 h-4" />
+                        <span className="text-sm">Waiting for Committee Head approval</span>
+                      </div>
+                    )}
                 </div>
               </div>
             );

@@ -11,6 +11,7 @@ function MessagesContent() {
   const [newMessage, setNewMessage] = useState('');
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const supabase = createClient();
   const router = useRouter();
@@ -81,6 +82,20 @@ function MessagesContent() {
     const messageText = newMessage.trim();
     setNewMessage('');
 
+    // Optimistic update - add message immediately to UI
+    const tempMessage = {
+      id: `temp-${Date.now()}`,
+      sender_id: user.id,
+      receiver_id: receiverId,
+      message: messageText,
+      created_at: new Date().toISOString(),
+      read: false,
+      sender: currentUser,
+      receiver: null
+    };
+    setMessages(prev => [...prev, tempMessage]);
+    scrollToBottom();
+
     const { error } = await (supabase as any).from('direct_messages').insert({
       sender_id: user.id,
       receiver_id: receiverId,
@@ -90,7 +105,12 @@ function MessagesContent() {
 
     if (error) {
       toast.error('Failed to send message');
+      // Remove temp message on error
+      setMessages(prev => prev.filter(m => m.id !== tempMessage.id));
       setNewMessage(messageText);
+    } else {
+      // Reload to get the real message with proper ID
+      loadMessages();
     }
   };
 
@@ -141,10 +161,33 @@ function MessagesContent() {
       </div>
 
       {/* Input Area */}
-      <form onSubmit={sendMessage} className="bg-gray-100 p-3 flex items-center gap-2 border-t">
-        <button type="button" className="text-gray-500 hover:text-gray-700 p-2">
-          <Smile className="w-6 h-6" />
-        </button>
+      <form onSubmit={sendMessage} className="bg-gray-100 p-3 flex items-center gap-2 border-t relative">
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setShowEmojiPicker((v) => !v)}
+            className="text-gray-500 hover:text-gray-700 p-2"
+          >
+            <Smile className="w-6 h-6" />
+          </button>
+          {showEmojiPicker && (
+            <div className="absolute bottom-12 left-0 bg-white rounded-lg shadow-lg p-2 grid grid-cols-5 gap-1 z-10">
+              {['😀', '😂', '😊', '😍', '🤝', '👍', '🔥', '🙌', '🙏', '🎉'].map((emoji) => (
+                <button
+                  key={emoji}
+                  type="button"
+                  className="text-xl hover:bg-gray-100 rounded"
+                  onClick={() => {
+                    setNewMessage((prev) => prev + emoji);
+                    setShowEmojiPicker(false);
+                  }}
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         <button type="button" className="text-gray-500 hover:text-gray-700 p-2">
           <Paperclip className="w-6 h-6" />
         </button>

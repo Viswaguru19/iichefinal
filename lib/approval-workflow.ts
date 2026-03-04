@@ -22,6 +22,26 @@ interface ApprovalContext {
 // CORE APPROVAL LOGGING
 // ============================================
 
+/**
+ * Logs an approval action to the approval_logs table for audit purposes.
+ * 
+ * All approval-related actions (propose, approve, reject, status changes) must
+ * be logged to maintain a complete audit trail. This function is called internally
+ * by all approval workflow functions.
+ * 
+ * @param context - Approval context containing:
+ *   - userId: UUID of user performing action
+ *   - userRole: Role of the user
+ *   - entityType: Type of entity ('event', 'task', 'poster', 'email', etc.)
+ *   - entityId: UUID of the entity
+ *   - action: Action performed (e.g., 'approve_as_ec', 'reject_event')
+ *   - previousStatus: Status before action
+ *   - newStatus: Status after action
+ *   - reason: Optional reason (required for rejections)
+ *   - metadata: Optional additional data
+ * 
+ * @throws Error if database insert fails
+ */
 export async function logApproval(context: ApprovalContext) {
     const supabase = createClient();
 
@@ -47,6 +67,20 @@ export async function logApproval(context: ApprovalContext) {
 // EVENT APPROVAL WORKFLOW
 // ============================================
 
+/**
+ * Creates a new event proposal with 'pending_head_approval' status.
+ * 
+ * This is the first step in the event approval workflow. The event will be
+ * visible to committee heads and EC members (read-only for EC until head approves).
+ * 
+ * @param eventData - Event details (title, description, date, location, budget, etc.)
+ * @param userId - UUID of user proposing the event
+ * @param userRole - Role of the user
+ * 
+ * @returns Created event object
+ * 
+ * @throws Error if database operation fails
+ */
 export async function proposeEvent(eventData: any, userId: string, userRole: UserRole) {
     const supabase = createClient();
 
@@ -78,6 +112,22 @@ export async function proposeEvent(eventData: any, userId: string, userRole: Use
     return event;
 }
 
+/**
+ * Approves an event as a committee head, transitioning it to EC approval stage.
+ * 
+ * After head approval, the event moves to 'pending_ec_approval' status where
+ * EC members can approve (2 out of 6 required). EC members can view the event
+ * in read-only mode before head approval.
+ * 
+ * @param eventId - UUID of the event to approve
+ * @param userId - UUID of the committee head approving
+ * @param userRole - Role of the user
+ * 
+ * @throws Error if:
+ *   - Event not found
+ *   - Event is not at 'pending_head_approval' status
+ *   - Database operation fails
+ */
 export async function approveEventAsHead(eventId: string, userId: string, userRole: UserRole) {
     const supabase = createClient();
 
@@ -89,12 +139,15 @@ export async function approveEventAsHead(eventId: string, userId: string, userRo
         .single();
 
     if (!event) throw new Error('Event not found');
+    if (event.status !== 'pending_head_approval') {
+        throw new Error('Event is not at the correct approval stage');
+    }
 
-    // Update to pending faculty approval
+    // Update to pending EC approval (changed from pending_faculty_approval)
     const { error } = await supabase
         .from('events')
         .update({
-            status: 'pending_faculty_approval',
+            status: 'pending_ec_approval',
             head_approved_by: userId,
             head_approved_at: new Date().toISOString(),
         })
@@ -110,12 +163,178 @@ export async function approveEventAsHead(eventId: string, userId: string, userRo
         entityId: eventId,
         action: 'approve_as_head',
         previousStatus: event.status,
-        newStatus: 'pending_faculty_approval',
+        newStatus: 'pending_ec_approval',
     });
 }
 
+// ============================================
+// EC APPROVAL FOR EVENTS (2/6 threshold)
+// ============================================
+
+/**
+ * Approves an event as an Executive Committee (EC) member.
+ * 
+ * **Approval Threshold**: Only 2 out of 6 EC members need to approve for an event
+ * to proceed to faculty approval. This threshold was chosen to balance oversight
+ * with operational efficiency, allowing events to move forward without requiring
+ * unanimous EC consent.
+ * 
+ * **Workflow**:
+ * 1. Validates user has EC role (executive_role field must be set)
+ * 2. Verifies event is at 'pending_ec_approval' status
+ * 3. Records individual EC member's approval in ec_approvals table (upserts to handle duplicates)
+ * 4. Checks total approval count against threshold (2 approvals)
+ * 5. If threshold reached, transitions event to 'pending_faculty_approval'
+ * 
+ * @param eventId - UUID of the event to approve
+ * @param userId - UUID of the EC member approving
+ * @param userRole - Role of the user (must have EC permissions)
+ * 
+ * @returns Object containing:
+ *   - approvalCount: Current number of EC approvals
+ *   - thresholdReached: Boolean indicating if 2+ approvals achieved
+ * 
+ * @throws Error if:
+ *   - User does not have EC approval permissions
+ *   - Event not found
+ *   - Event is not at 'pending_ec_approval' status
+ *   - Database operation fails
+ * 
+ * @example
+ * ```typescript
+ * const result = await approveEventAsEC(
+ *   'event-uuid',
+ *   'user-uuid',
+ *   'executive_committee'
+ * );
+ * // result: { approvalCount: 2, thresholdReached: true }
+ * ```
+ */
+export async function approveEventAsEC(eventId: string, userId: string, userRole: UserRole) {
+    const supabase = createClient();
+
+    // Validate user has EC role
+    const { data: profile } = await supabase
+        .from('profiles')
+        .select('executive_role')
+        .eq('id', userId)
+        .single();
+
+    if (!profile?.executive_role) {
+        throw new Error('User does not have EC approval permissions');
+    }
+
+    // Get current event
+    const { data: event } = await supabase
+        .from('events')
+        .select('*')
+        .eq('id', eventId)
+        .single();
+
+    if (!event) throw new Error('Event not found');
+    if (event.status !== 'pending_ec_approval') {
+        throw new Error('Event is not at the correct approval stage');
+    }
+
+    // Record EC member's approval (upsert to handle duplicate approvals)
+    const { error: approvalError } = await supabase
+        .from('ec_approvals')
+        .upsert({
+            event_id: eventId,
+            user_id: userId,
+            approved: true,
+            approved_at: new Date().toISOString(),
+        }, {
+            onConflict: 'event_id,user_id'
+        });
+
+    if (approvalError) throw approvalError;
+
+    // Check how many EC members have approved (threshold: 2 out of 6)
+    const { data: allApprovals, error: countError } = await supabase
+        .from('ec_approvals')
+        .select('*')
+        .eq('event_id', eventId)
+        .eq('approved', true);
+
+    if (countError) throw countError;
+
+    const approvalCount = allApprovals?.length || 0;
+
+    // Log this EC member's approval
+    await logApproval({
+        userId,
+        userRole,
+        entityType: 'event',
+        entityId: eventId,
+        action: 'approve_as_ec',
+        previousStatus: event.status,
+        newStatus: event.status, // Status may not change yet
+        metadata: { approvalCount, threshold: 2 },
+    });
+
+    // If threshold reached (2 approvals), move to faculty approval
+    if (approvalCount >= 2) {
+        const { error: updateError } = await supabase
+            .from('events')
+            .update({ status: 'pending_faculty_approval' })
+            .eq('id', eventId);
+
+        if (updateError) throw updateError;
+
+        // Log status transition
+        await logApproval({
+            userId: 'system',
+            userRole: 'system' as UserRole,
+            entityType: 'event',
+            entityId: eventId,
+            action: 'ec_threshold_reached',
+            previousStatus: 'pending_ec_approval',
+            newStatus: 'pending_faculty_approval',
+            metadata: { approvalCount, threshold: 2 },
+        });
+    }
+
+    return { approvalCount, thresholdReached: approvalCount >= 2 };
+}
+
+/**
+ * Approves an event as a faculty advisor, transitioning it to active status.
+ * 
+ * This is the final approval stage in the event workflow. After faculty approval,
+ * the event becomes active and visible to all users, and tasks can be assigned.
+ * 
+ * **Prerequisites**: Event must be at 'pending_faculty_approval' status, which
+ * means it has already received head approval and 2+ EC approvals.
+ * 
+ * @param eventId - UUID of the event to approve
+ * @param userId - UUID of the faculty member approving
+ * @param userRole - Role of the user (must have faculty or admin permissions)
+ * 
+ * @throws Error if:
+ *   - User does not have faculty approval permissions
+ *   - Event not found
+ *   - Event is not at 'pending_faculty_approval' status
+ *   - Database operation fails
+ * 
+ * @example
+ * ```typescript
+ * await approveEventAsFaculty('event-uuid', 'faculty-uuid', 'faculty');
+ * ```
+ */
 export async function approveEventAsFaculty(eventId: string, userId: string, userRole: UserRole) {
     const supabase = createClient();
+
+    // Validate user has faculty permissions
+    const { data: profile } = await supabase
+        .from('profiles')
+        .select('is_faculty, is_admin')
+        .eq('id', userId)
+        .single();
+
+    if (!profile?.is_faculty && !profile?.is_admin) {
+        throw new Error('User does not have faculty approval permissions');
+    }
 
     const { data: event } = await supabase
         .from('events')
@@ -124,6 +343,9 @@ export async function approveEventAsFaculty(eventId: string, userId: string, use
         .single();
 
     if (!event) throw new Error('Event not found');
+    if (event.status !== 'pending_faculty_approval') {
+        throw new Error('Event is not at the correct approval stage');
+    }
 
     // Update to active
     const { error } = await supabase
@@ -149,6 +371,32 @@ export async function approveEventAsFaculty(eventId: string, userId: string, use
     });
 }
 
+/**
+ * Rejects an event at any approval stage.
+ * 
+ * Rejection transitions the event to 'cancelled' status and requires a non-empty
+ * reason that will be visible to the proposing committee.
+ * 
+ * @param eventId - UUID of the event to reject
+ * @param userId - UUID of the user rejecting
+ * @param userRole - Role of the user
+ * @param reason - Required explanation for rejection (must be non-empty)
+ * 
+ * @throws Error if:
+ *   - Rejection reason is empty or whitespace-only
+ *   - Event not found
+ *   - Database operation fails
+ * 
+ * @example
+ * ```typescript
+ * await rejectEvent(
+ *   'event-uuid',
+ *   'user-uuid',
+ *   'faculty',
+ *   'Budget exceeds allocated funds for this quarter'
+ * );
+ * ```
+ */
 export async function rejectEvent(
     eventId: string,
     userId: string,
@@ -156,6 +404,10 @@ export async function rejectEvent(
     reason: string
 ) {
     const supabase = createClient();
+
+    if (!reason || reason.trim().length === 0) {
+        throw new Error('Rejection reason is required');
+    }
 
     const { data: event } = await supabase
         .from('events')
@@ -167,7 +419,10 @@ export async function rejectEvent(
 
     const { error } = await supabase
         .from('events')
-        .update({ status: 'cancelled' })
+        .update({
+            status: 'cancelled',
+            rejection_reason: reason
+        })
         .eq('id', eventId);
 
     if (error) throw error;
@@ -185,9 +440,23 @@ export async function rejectEvent(
 }
 
 // ============================================
-// TASK APPROVAL WORKFLOW
+// TASK APPROVAL WORKFLOW (1/6 EC threshold)
 // ============================================
 
+/**
+ * Creates a new task for an active event.
+ * 
+ * Tasks are created with 'pending_ec_approval' status and require EC approval
+ * before being assigned to committees. See approveTaskAsEC for approval logic.
+ * 
+ * @param taskData - Task details (event_id, assigned_to_committee_id, title, description, etc.)
+ * @param userId - UUID of user creating the task
+ * @param userRole - Role of the user
+ * 
+ * @returns Created task object
+ * 
+ * @throws Error if database operation fails
+ */
 export async function createTask(taskData: any, userId: string, userRole: UserRole) {
     const supabase = createClient();
 
@@ -216,6 +485,46 @@ export async function createTask(taskData: any, userId: string, userRole: UserRo
     return task;
 }
 
+/**
+ * Approves a task as an Executive Committee (EC) member.
+ * 
+ * **Approval Threshold**: Only 1 out of 6 EC members needs to approve for a task
+ * to be assigned to a committee. This lower threshold (compared to events) enables
+ * faster task assignment while maintaining EC oversight. The rationale is that tasks
+ * are lower-stakes than full events and need to move quickly for operational efficiency.
+ * 
+ * **Workflow**:
+ * 1. Validates user has EC role (executive_role field must be set)
+ * 2. Verifies task is at 'pending_ec_approval' status
+ * 3. Immediately transitions task to 'not_started' (single approval sufficient)
+ * 4. Records EC approver ID and timestamp
+ * 5. Optionally applies modifications to task fields
+ * 
+ * @param taskId - UUID of the task to approve
+ * @param userId - UUID of the EC member approving
+ * @param userRole - Role of the user (must have EC permissions)
+ * @param modifications - Optional object with field modifications to apply
+ * 
+ * @throws Error if:
+ *   - User does not have EC approval permissions
+ *   - Task not found
+ *   - Task is not at 'pending_ec_approval' status
+ *   - Database operation fails
+ * 
+ * @example
+ * ```typescript
+ * // Simple approval
+ * await approveTaskAsEC('task-uuid', 'user-uuid', 'executive_committee');
+ * 
+ * // Approval with modifications
+ * await approveTaskAsEC(
+ *   'task-uuid',
+ *   'user-uuid',
+ *   'executive_committee',
+ *   { deadline: '2024-12-31', priority: 'high' }
+ * );
+ * ```
+ */
 export async function approveTaskAsEC(
     taskId: string,
     userId: string,
@@ -224,6 +533,17 @@ export async function approveTaskAsEC(
 ) {
     const supabase = createClient();
 
+    // Validate user has EC role
+    const { data: profile } = await supabase
+        .from('profiles')
+        .select('executive_role')
+        .eq('id', userId)
+        .single();
+
+    if (!profile?.executive_role) {
+        throw new Error('User does not have EC approval permissions');
+    }
+
     const { data: task } = await supabase
         .from('tasks')
         .select('*')
@@ -231,6 +551,9 @@ export async function approveTaskAsEC(
         .single();
 
     if (!task) throw new Error('Task not found');
+    if (task.status !== 'pending_ec_approval') {
+        throw new Error('Task is not pending EC approval');
+    }
 
     const updateData: any = {
         status: 'not_started',
@@ -241,8 +564,10 @@ export async function approveTaskAsEC(
     // Apply modifications if provided
     if (modifications) {
         Object.assign(updateData, modifications);
+        updateData.ec_modified_fields = modifications;
     }
 
+    // Single EC approval is sufficient - update task immediately
     const { error } = await supabase
         .from('tasks')
         .update(updateData)
@@ -258,10 +583,25 @@ export async function approveTaskAsEC(
         action: 'approve_task',
         previousStatus: task.status,
         newStatus: 'not_started',
-        metadata: modifications,
+        metadata: { modifications, threshold: 1, note: 'Single EC approval sufficient' },
     });
 }
 
+/**
+ * Rejects a task as an Executive Committee (EC) member.
+ * 
+ * Rejected tasks are marked with 'ec_rejected' status and excluded from
+ * progress calculations. The rejection reason is stored for the proposing committee.
+ * 
+ * @param taskId - UUID of the task to reject
+ * @param userId - UUID of the EC member rejecting
+ * @param userRole - Role of the user
+ * @param reason - Explanation for rejection
+ * 
+ * @throws Error if:
+ *   - Task not found
+ *   - Database operation fails
+ */
 export async function rejectTaskAsEC(
     taskId: string,
     userId: string,
@@ -300,6 +640,35 @@ export async function rejectTaskAsEC(
     });
 }
 
+/**
+ * Updates a task's status and optionally adds an update with documents.
+ * 
+ * Used by committee members to track task progress through the workflow:
+ * not_started → in_progress → completed
+ * 
+ * @param taskId - UUID of the task to update
+ * @param newStatus - New status to set
+ * @param userId - UUID of user making the update
+ * @param userRole - Role of the user
+ * @param updateText - Optional text update describing progress
+ * @param documents - Optional array of document attachments
+ * 
+ * @throws Error if:
+ *   - Task not found
+ *   - Database operation fails
+ * 
+ * @example
+ * ```typescript
+ * await updateTaskStatus(
+ *   'task-uuid',
+ *   'in_progress',
+ *   'user-uuid',
+ *   'committee_member',
+ *   'Started working on venue booking',
+ *   []
+ * );
+ * ```
+ */
 export async function updateTaskStatus(
     taskId: string,
     newStatus: TaskStatus,

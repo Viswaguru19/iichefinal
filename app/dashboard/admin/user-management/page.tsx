@@ -105,11 +105,21 @@ export default function UserManagementPage() {
         setFilteredUsers(filtered);
     }
 
-    async function updateUserRole(userId: string, newRole: UserRole, executiveRole?: ExecutiveRole | null) {
+    async function updateUserRole(
+        userId: string,
+        newRole: UserRole,
+        executiveRole?: ExecutiveRole | null,
+        isFaculty?: boolean
+    ) {
         try {
             const { error } = await supabase
                 .from('profiles')
-                .update({ role: newRole, executive_role: executiveRole })
+                .update({
+                    role: newRole,
+                    executive_role: executiveRole,
+                    // If explicitly passed, update is_faculty; otherwise leave unchanged
+                    ...(typeof isFaculty === 'boolean' ? { is_faculty: isFaculty } : {}),
+                })
                 .eq('id', userId);
 
             if (error) throw error;
@@ -310,6 +320,12 @@ export default function UserManagementPage() {
                                                     EC: {user.executive_role.replace(/_/g, ' ')}
                                                 </div>
                                             )}
+                                            {user.is_faculty && (
+                                                <div className="mt-1 inline-flex items-center gap-1 rounded-full bg-purple-50 px-2 py-0.5 text-[11px] text-purple-700 border border-purple-100">
+                                                    <Shield className="w-3 h-3" />
+                                                    <span>Faculty</span>
+                                                </div>
+                                            )}
                                         </td>
                                         <td className="px-6 py-4">
                                             <div className="text-sm text-gray-900">
@@ -393,6 +409,7 @@ export default function UserManagementPage() {
 function EditRoleModal({ user, onClose, onSave }: any) {
     const [role, setRole] = useState<UserRole>(user.role);
     const [executiveRole, setExecutiveRole] = useState<ExecutiveRole | null>(user.executive_role);
+    const [isFaculty, setIsFaculty] = useState<boolean>(user.is_faculty === true);
 
     const roles: UserRole[] = [
         'admin',
@@ -460,9 +477,25 @@ function EditRoleModal({ user, onClose, onSave }: any) {
                     </select>
                 </div>
 
+                <div className="mb-6">
+                    <label className="inline-flex items-center gap-2 text-sm font-medium text-gray-700">
+                        <input
+                            type="checkbox"
+                            checked={isFaculty}
+                            onChange={(e) => setIsFaculty(e.target.checked)}
+                            className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                        />
+                        Mark as Faculty (no committee required)
+                    </label>
+                    <p className="mt-1 text-xs text-gray-500">
+                        If checked, this user will be treated as faculty and can use the faculty dashboard.
+                        Committee memberships are optional for faculty accounts.
+                    </p>
+                </div>
+
                 <div className="flex gap-3">
                     <button
-                        onClick={() => onSave(user.id, role, executiveRole)}
+                        onClick={() => onSave(user.id, role, executiveRole, isFaculty)}
                         className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
                     >
                         Save Changes

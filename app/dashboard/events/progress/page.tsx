@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
-import PremiumInteractiveProgress from '@/components/events/PremiumInteractiveProgress';
+import NotionProgressBar from '@/components/events/NotionProgressBar';
 import { Plus, CheckCircle, Clock, AlertCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -21,6 +21,9 @@ export default function EventProgressPage() {
   const [selectedCommittee, setSelectedCommittee] = useState('');
   const [updateText, setUpdateText] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showPendingTasks, setShowPendingTasks] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [eventToDelete, setEventToDelete] = useState<any>(null);
   const supabase = createClient();
   const router = useRouter();
 
@@ -157,12 +160,68 @@ export default function EventProgressPage() {
   }
 
   const isExecutive = currentUser?.executive_role !== null;
+  const isAdmin = currentUser?.is_admin === true;
+
+  async function deleteEvent() {
+    if (!eventToDelete) return;
+
+    setLoading(true);
+    try {
+      // Delete all tasks associated with the event first
+      const { error: tasksError } = await supabase
+        .from('tasks')
+        .delete()
+        .eq('event_id', eventToDelete.id);
+
+      if (tasksError) throw tasksError;
+
+      // Delete the event
+      const { error: eventError } = await supabase
+        .from('events')
+        .delete()
+        .eq('id', eventToDelete.id);
+
+      if (eventError) throw eventError;
+
+      toast.success('Event deleted successfully!');
+      setShowDeleteModal(false);
+      setEventToDelete(null);
+
+      // If the deleted event was selected, clear selection
+      if (selectedEvent?.id === eventToDelete.id) {
+        setSelectedEvent(null);
+        setTasks([]);
+      }
+
+      // Refresh events list
+      fetchData();
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to delete event');
+    } finally {
+      setLoading(false);
+    }
+  }
 
   // Build committee task summary for progress bar
+  // ============================================
+  // PROGRESS CALCULATION FILTERING
+  // ============================================
+  // Only include tasks that have been approved by EC in progress calculations.
+  // Tasks at 'pending_ec_approval' or 'ec_rejected' status are excluded because:
+  // 1. Pending tasks haven't been officially assigned yet
+  // 2. Rejected tasks won't be completed
+  // 3. Including them would show inaccurate progress (e.g., 0/10 when only 5 are approved)
+  //
+  // This ensures the progress bar reflects only approved, actionable tasks.
   const getCommitteeTaskSummary = () => {
     const committeeMap = new Map();
 
     tasks.forEach(task => {
+      // Only include tasks that have been approved by EC
+      if (task.status === 'pending_ec_approval' || task.status === 'ec_rejected') {
+        return;
+      }
+
       const committeeName = task.assigned_committee?.name || 'Unassigned';
       if (!committeeMap.has(committeeName)) {
         committeeMap.set(committeeName, {
@@ -179,7 +238,7 @@ export default function EventProgressPage() {
 
       if (task.status === 'completed') {
         summary.completed_tasks++;
-      } else if (task.status === 'in_progress') {
+      } else if (task.status === 'in_progress' || task.status === 'partially_completed') {
         summary.in_progress_tasks++;
       } else {
         summary.not_started_tasks++;
@@ -207,23 +266,39 @@ export default function EventProgressPage() {
             <h2 className="font-bold text-gray-900 mb-4 text-lg">Active Events</h2>
             <div className="space-y-2">
               {events.map((event) => (
-                <button
-                  key={event.id}
-                  onClick={() => selectEvent(event)}
-                  className={`w-full text-left p-4 rounded-lg transition ${selectedEvent?.id === event.id
-                    ? 'bg-blue-100 border-2 border-blue-500'
-                    : 'hover:bg-gray-50 border-2 border-transparent'
-                    }`}
-                >
-                  <p className="font-semibold text-gray-900">{event.title}</p>
-                  <p className="text-xs text-gray-500 mt-1">{event.committee?.name}</p>
-                  <span className={`inline-block mt-2 px-2 py-1 rounded text-xs font-medium ${event.status === 'active' ? 'bg-green-100 text-green-800' :
-                    event.status === 'faculty_approved' ? 'bg-blue-100 text-blue-800' :
-                      'bg-yellow-100 text-yellow-800'
-                    }`}>
-                    {event.status.replace(/_/g, ' ').toUpperCase()}
-                  </span>
-                </button>
+                <div key={event.id} className="relative group">
+                  <button
+                    onClick={() => selectEvent(event)}
+                    className={`w-full text-left p-4 rounded-lg transition ${selectedEvent?.id === event.id
+                      ? 'bg-blue-100 border-2 border-blue-500'
+                      : 'hover:bg-gray-50 border-2 border-transparent'
+                      }`}
+                  >
+                    <p className="font-semibold text-gray-900">{event.title}</p>
+                    <p className="text-xs text-gray-500 mt-1">{event.committee?.name}</p>
+                    <span className={`inline-block mt-2 px-2 py-1 rounded text-xs font-medium ${event.status === 'active' ? 'bg-green-100 text-green-800' :
+                      event.status === 'faculty_approved' ? 'bg-blue-100 text-blue-800' :
+                        'bg-yellow-100 text-yellow-800'
+                      }`}>
+                      {event.status.replace(/_/g, ' ').toUpperCase()}
+                    </span>
+                  </button>
+                  {isAdmin && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEventToDelete(event);
+                        setShowDeleteModal(true);
+                      }}
+                      className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-red-600 text-white p-2 rounded-lg hover:bg-red-700"
+                      title="Delete event"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
               ))}
               {events.length === 0 && (
                 <p className="text-gray-500 text-center py-8">No active events</p>
@@ -240,7 +315,7 @@ export default function EventProgressPage() {
                   <h2 className="text-3xl font-bold text-gray-900 mb-2">{selectedEvent.title}</h2>
                   <p className="text-gray-600 mb-6">{selectedEvent.description}</p>
 
-                  <PremiumInteractiveProgress
+                  <NotionProgressBar
                     committeeTasks={getCommitteeTaskSummary()}
                     eventDate={selectedEvent.date}
                   />
@@ -252,87 +327,142 @@ export default function EventProgressPage() {
                     <div>
                       <h3 className="text-xl font-bold text-gray-900">Event Tasks</h3>
                       <p className="text-sm text-gray-600 mt-1">
-                        {tasks.filter(t => t.status === 'completed').length} of {tasks.length} completed
+                        {tasks.filter(t => t.status === 'completed').length} of {tasks.filter(t => t.status !== 'pending_ec_approval' && t.status !== 'ec_rejected').length} completed
                       </p>
                     </div>
-                    {isExecutive && (
-                      <button
-                        onClick={() => setShowTaskModal(true)}
-                        className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
-                      >
-                        <Plus className="w-5 h-5" />
-                        Assign Task
-                      </button>
-                    )}
+                    <div className="flex items-center gap-3">
+                      {/* Filter Toggle */}
+                      {/* Allow users to show/hide pending EC approval tasks.
+                          Default: hidden (shows only approved, actionable tasks)
+                          When enabled: shows all tasks including pending and rejected */}
+                      <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={showPendingTasks}
+                          onChange={(e) => setShowPendingTasks(e.target.checked)}
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        Show pending tasks
+                      </label>
+                      {isExecutive && (
+                        <button
+                          onClick={() => setShowTaskModal(true)}
+                          className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
+                        >
+                          <Plus className="w-5 h-5" />
+                          Assign Task
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   {/* Tasks List */}
+                  {/* Filter tasks based on showPendingTasks toggle.
+                      By default, hide pending and rejected tasks to show only actionable work.
+                      Users can toggle to see pending tasks if they want to review what's awaiting approval. */}
                   <div className="space-y-4">
-                    {tasks.map((task) => (
-                      <div key={task.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition">
-                        <div className="flex items-start justify-between mb-3">
-                          <div className="flex-1">
-                            <h4 className="font-bold text-gray-900">{task.title}</h4>
-                            <p className="text-sm text-gray-600 mt-1">{task.assigned_committee?.name}</p>
-                            {task.description && (
-                              <p className="text-sm text-gray-500 mt-2">{task.description}</p>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-2 ml-4">
-                            <span className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1 ${task.status === 'completed' ? 'bg-green-100 text-green-800' :
-                              task.status === 'in_progress' ? 'bg-blue-100 text-blue-800' :
-                                'bg-gray-100 text-gray-800'
-                              }`}>
-                              {task.status === 'completed' ? <CheckCircle className="w-3 h-3" /> :
-                                task.status === 'in_progress' ? <Clock className="w-3 h-3" /> :
-                                  <AlertCircle className="w-3 h-3" />}
-                              {task.status.replace(/_/g, ' ').toUpperCase()}
-                            </span>
-                            {task.status !== 'completed' && isExecutive && (
-                              <button
-                                onClick={() => markComplete(task.id)}
-                                className="text-green-600 hover:text-green-700"
-                                title="Mark as complete"
-                              >
-                                <CheckCircle className="w-5 h-5" />
-                              </button>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Updates */}
-                        {task.updates && task.updates.length > 0 && (
-                          <div className="mt-4 pt-4 border-t border-gray-200">
-                            <h5 className="text-sm font-semibold text-gray-700 mb-2">Recent Updates</h5>
-                            <div className="space-y-2">
-                              {task.updates.slice(-3).map((update: any) => (
-                                <div key={update.id} className="bg-gray-50 rounded p-3">
-                                  <p className="text-sm text-gray-900">{update.update_text}</p>
-                                  <p className="text-xs text-gray-500 mt-1">
-                                    {update.user?.name} • {new Date(update.created_at).toLocaleString()}
-                                  </p>
-                                </div>
-                              ))}
+                    {tasks
+                      .filter(task => showPendingTasks || (task.status !== 'pending_ec_approval' && task.status !== 'ec_rejected'))
+                      .map((task) => (
+                        <div key={task.id} className={`border rounded-lg p-4 hover:shadow-md transition ${task.status === 'pending_ec_approval' ? 'border-yellow-300 bg-yellow-50' :
+                          task.status === 'ec_rejected' ? 'border-red-300 bg-red-50' :
+                            'border-gray-200'
+                          }`}>
+                          <div className="flex items-start justify-between mb-3">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-2">
+                                <h4 className="font-bold text-gray-900">{task.title}</h4>
+                                {/* EC Approval Status Badge */}
+                                {/* Visual indicators for task approval status:
+                                    - Yellow: Pending EC approval (not yet assigned)
+                                    - Red: EC rejected (won't be completed)
+                                    - Green: EC approved (officially assigned and actionable) */}
+                                {task.status === 'pending_ec_approval' && (
+                                  <span className="px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 border border-yellow-300">
+                                    Pending EC Approval
+                                  </span>
+                                )}
+                                {task.status === 'ec_rejected' && (
+                                  <span className="px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800 border border-red-300">
+                                    EC Rejected
+                                  </span>
+                                )}
+                                {task.ec_approved_by && task.status !== 'pending_ec_approval' && task.status !== 'ec_rejected' && (
+                                  <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 border border-green-300">
+                                    ✓ EC Approved
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-sm text-gray-600">{task.assigned_committee?.name}</p>
+                              {task.description && (
+                                <p className="text-sm text-gray-500 mt-2">{task.description}</p>
+                              )}
+                              {/* Show EC Approver Info */}
+                              {task.ec_approved_by && task.ec_approved_at && (
+                                <p className="text-xs text-gray-500 mt-2">
+                                  Approved by EC on {new Date(task.ec_approved_at).toLocaleDateString()}
+                                </p>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2 ml-4">
+                              <span className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1 ${task.status === 'completed' ? 'bg-green-100 text-green-800' :
+                                task.status === 'in_progress' ? 'bg-blue-100 text-blue-800' :
+                                  task.status === 'pending_ec_approval' ? 'bg-yellow-100 text-yellow-800' :
+                                    task.status === 'ec_rejected' ? 'bg-red-100 text-red-800' :
+                                      'bg-gray-100 text-gray-800'
+                                }`}>
+                                {task.status === 'completed' ? <CheckCircle className="w-3 h-3" /> :
+                                  task.status === 'in_progress' ? <Clock className="w-3 h-3" /> :
+                                    <AlertCircle className="w-3 h-3" />}
+                                {task.status.replace(/_/g, ' ').toUpperCase()}
+                              </span>
+                              {task.status !== 'completed' && task.status !== 'pending_ec_approval' && task.status !== 'ec_rejected' && isExecutive && (
+                                <button
+                                  onClick={() => markComplete(task.id)}
+                                  className="text-green-600 hover:text-green-700"
+                                  title="Mark as complete"
+                                >
+                                  <CheckCircle className="w-5 h-5" />
+                                </button>
+                              )}
                             </div>
                           </div>
-                        )}
 
-                        <button
-                          onClick={() => {
-                            setSelectedTask(task);
-                            setShowUpdateModal(true);
-                          }}
-                          className="mt-3 text-sm text-blue-600 hover:text-blue-700 font-medium"
-                        >
-                          + Add Update
-                        </button>
-                      </div>
-                    ))}
+                          {/* Updates */}
+                          {task.updates && task.updates.length > 0 && (
+                            <div className="mt-4 pt-4 border-t border-gray-200">
+                              <h5 className="text-sm font-semibold text-gray-700 mb-2">Recent Updates</h5>
+                              <div className="space-y-2">
+                                {task.updates.slice(-3).map((update: any) => (
+                                  <div key={update.id} className="bg-gray-50 rounded p-3">
+                                    <p className="text-sm text-gray-900">{update.update_text}</p>
+                                    <p className="text-xs text-gray-500 mt-1">
+                                      {update.user?.name} • {new Date(update.created_at).toLocaleString()}
+                                    </p>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
 
-                    {tasks.length === 0 && (
+                          {task.status !== 'pending_ec_approval' && task.status !== 'ec_rejected' && (
+                            <button
+                              onClick={() => {
+                                setSelectedTask(task);
+                                setShowUpdateModal(true);
+                              }}
+                              className="mt-3 text-sm text-blue-600 hover:text-blue-700 font-medium"
+                            >
+                              + Add Update
+                            </button>
+                          )}
+                        </div>
+                      ))}
+
+                    {tasks.filter(task => showPendingTasks || (task.status !== 'pending_ec_approval' && task.status !== 'ec_rejected')).length === 0 && (
                       <div className="text-center py-12 text-gray-500">
                         <AlertCircle className="w-12 h-12 mx-auto mb-3 text-gray-400" />
-                        <p>No tasks assigned yet</p>
+                        <p>No tasks {showPendingTasks ? 'assigned' : 'approved'} yet</p>
                       </div>
                     )}
                   </div>
@@ -446,6 +576,41 @@ export default function EventProgressPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Event Confirmation Modal */}
+      {showDeleteModal && eventToDelete && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl p-6 max-w-md w-full">
+            <h2 className="text-xl font-bold text-red-600 mb-4">Delete Event</h2>
+            <p className="text-gray-700 mb-4">
+              Are you sure you want to delete <span className="font-bold">"{eventToDelete.title}"</span>?
+            </p>
+            <p className="text-sm text-red-600 mb-6">
+              This will permanently delete the event and all associated tasks. This action cannot be undone.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={deleteEvent}
+                disabled={loading}
+                className="flex-1 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 disabled:opacity-50"
+              >
+                {loading ? 'Deleting...' : 'Delete Event'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowDeleteModal(false);
+                  setEventToDelete(null);
+                }}
+                disabled={loading}
+                className="flex-1 bg-gray-200 text-gray-900 px-4 py-2 rounded-lg hover:bg-gray-300 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       )}

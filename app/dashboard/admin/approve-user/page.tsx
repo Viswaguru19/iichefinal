@@ -8,6 +8,7 @@ import toast from 'react-hot-toast';
 function ApproveUserContent() {
   const [user, setUser] = useState<any>(null);
   const [role, setRole] = useState('student');
+  const [isFaculty, setIsFaculty] = useState(false);
   const [committees, setCommittees] = useState<any[]>([]);
   const [selectedCommittee, setSelectedCommittee] = useState('');
   const [position, setPosition] = useState('member');
@@ -44,14 +45,20 @@ function ApproveUserContent() {
     setLoading(true);
 
     try {
+      const finalRole = isFaculty ? 'faculty_advisor' : role;
+
       const { error: updateError } = await (supabase as any)
         .from('profiles')
-        .update({ role, approved: true })
+        .update({
+          role: finalRole,
+          is_faculty: isFaculty,
+          approved: true,
+        })
         .eq('id', userId);
 
       if (updateError) throw updateError;
 
-      if (selectedCommittee) {
+      if (!isFaculty && selectedCommittee) {
         await (supabase as any)
           .from('committee_members')
           .insert({
@@ -104,47 +111,86 @@ function ApproveUserContent() {
           </div>
 
           <div className="space-y-4">
+            {/* Faculty toggle */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Is this user a Faculty Advisor?
+              </label>
+              <div className="flex items-center gap-4">
+                <label className="flex items-center gap-2 text-sm text-gray-700">
+                  <input
+                    type="radio"
+                    name="isFaculty"
+                    value="no"
+                    checked={!isFaculty}
+                    onChange={() => setIsFaculty(false)}
+                  />
+                  <span>No (Student / Committee)</span>
+                </label>
+                <label className="flex items-center gap-2 text-sm text-gray-700">
+                  <input
+                    type="radio"
+                    name="isFaculty"
+                    value="yes"
+                    checked={isFaculty}
+                    onChange={() => setIsFaculty(true)}
+                  />
+                  <span>Yes (Faculty Advisor)</span>
+                </label>
+              </div>
+            </div>
+
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Assign Role *</label>
               <select
-                value={role}
+                value={isFaculty ? 'faculty_advisor' : role}
                 onChange={(e) => setRole(e.target.value)}
+                disabled={isFaculty}
                 className="w-full border border-gray-300 rounded px-3 py-2"
               >
-                <option value="student">Student</option>
-                <option value="committee_member">Committee Member</option>
-                <option value="committee_cohead">Committee Co-Head</option>
-                <option value="committee_head">Committee Head</option>
+                {!isFaculty && (
+                  <>
+                    <option value="student">Student</option>
+                    <option value="committee_member">Committee Member</option>
+                    <option value="committee_cohead">Committee Co-Head</option>
+                    <option value="committee_head">Committee Head</option>
+                  </>
+                )}
+                {isFaculty && <option value="faculty_advisor">Faculty Advisor</option>}
               </select>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Committee (Optional)</label>
-              <select
-                value={selectedCommittee}
-                onChange={(e) => setSelectedCommittee(e.target.value)}
-                className="w-full border border-gray-300 rounded px-3 py-2"
-              >
-                <option value="">None</option>
-                {committees.map((c) => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
-            </div>
+            {!isFaculty && (
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Committee (Optional)</label>
+                  <select
+                    value={selectedCommittee}
+                    onChange={(e) => setSelectedCommittee(e.target.value)}
+                    className="w-full border border-gray-300 rounded px-3 py-2"
+                  >
+                    <option value="">None</option>
+                    {committees.map((c) => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                </div>
 
-            {selectedCommittee && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Position</label>
-                <select
-                  value={position}
-                  onChange={(e) => setPosition(e.target.value)}
-                  className="w-full border border-gray-300 rounded px-3 py-2"
-                >
-                  <option value="member">Member</option>
-                  <option value="co_head">Co-Head</option>
-                  <option value="head">Head</option>
-                </select>
-              </div>
+                {selectedCommittee && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Position</label>
+                    <select
+                      value={position}
+                      onChange={(e) => setPosition(e.target.value)}
+                      className="w-full border border-gray-300 rounded px-3 py-2"
+                    >
+                      <option value="member">Member</option>
+                      <option value="co_head">Co-Head</option>
+                      <option value="head">Head</option>
+                    </select>
+                  </div>
+                )}
+              </>
             )}
 
             <div className="flex gap-4 pt-4">

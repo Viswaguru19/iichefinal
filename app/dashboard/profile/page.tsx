@@ -14,6 +14,7 @@ export default function ProfilePage() {
   const [password, setPassword] = useState('');
   const [photo, setPhoto] = useState<File | null>(null);
   const [photoUrl, setPhotoUrl] = useState('');
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const supabase = createClient();
   const router = useRouter();
@@ -51,7 +52,7 @@ export default function ProfilePage() {
     setPhoto(file);
     const reader = new FileReader();
     reader.onloadend = () => {
-      setPhotoUrl(reader.result as string);
+      setPreviewUrl(reader.result as string);
     };
     reader.readAsDataURL(file);
   };
@@ -62,35 +63,46 @@ export default function ProfilePage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      let avatarUrl = photoUrl;
+      let avatarPath = photoUrl; // stored path in bucket
 
       if (photo) {
         const fileExt = photo.name.split('.').pop();
-        const fileName = `${user.id}.${fileExt}`;
+        const fileName = `${crypto.randomUUID()}.${fileExt}`;
+        const filePath = `${user.id}/${fileName}`;
         const { error: uploadError } = await supabase.storage
           .from('avatars')
-          .upload(fileName, photo, { upsert: true });
+          .upload(filePath, photo, { upsert: true });
 
         if (uploadError) throw uploadError;
 
-        const { data: { publicUrl } } = supabase.storage
-          .from('avatars')
-          .getPublicUrl(fileName);
+        avatarPath = filePath;
+      }
 
-        avatarUrl = publicUrl;
+      // Only update fields that users are allowed to change
+      const updateData: any = {
+        name,
+        avatar_url: avatarPath,
+      };
+
+      // Only include username if it exists in the schema
+      if (username) {
+        updateData.username = username;
       }
 
       const { error } = await (supabase as any)
         .from('profiles')
-        .update({
-          name,
-          username,
-          email,
-          avatar_url: avatarUrl,
-        })
+        .update(updateData)
         .eq('id', user.id);
 
       if (error) throw error;
+
+      // Update email through auth if changed
+      if (email !== profile.email) {
+        const { error: emailError } = await supabase.auth.updateUser({
+          email,
+        });
+        if (emailError) throw emailError;
+      }
 
       if (password) {
         const { error: pwError } = await supabase.auth.updateUser({
@@ -126,8 +138,14 @@ export default function ProfilePage() {
           <div className="flex flex-col items-center mb-8">
             <div className="relative">
               <div className="w-32 h-32 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden">
-                {photoUrl ? (
-                  <img src={photoUrl} alt="Profile" className="w-full h-full object-cover" />
+                {previewUrl ? (
+                  <img src={previewUrl} alt="Profile" className="w-full h-full object-cover" />
+                ) : photoUrl ? (
+                  <img
+                    src={supabase.storage.from('avatars').getPublicUrl(photoUrl).data.publicUrl}
+                    alt="Profile"
+                    className="w-full h-full object-cover"
+                  />
                 ) : (
                   <Camera className="w-12 h-12 text-gray-400" />
                 )}

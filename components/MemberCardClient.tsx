@@ -1,15 +1,19 @@
 'use client';
 
+import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 
 export default function MemberCardClient({ member }: { member: any }) {
   const supabase = createClient();
-  const avatarUrl = member.profile?.avatar_url 
+  const avatarUrl = member.profile?.avatar_url
     ? supabase.storage.from('avatars').getPublicUrl(member.profile.avatar_url).data.publicUrl
     : null;
 
   return (
-    <div className="bg-white rounded-lg shadow-md p-6 flex items-center gap-4">
+    <Link
+      href={`/profile/${member.profile?.id}`}
+      className="bg-white rounded-lg shadow-md p-6 flex items-center gap-4 hover:shadow-xl transition"
+    >
       {avatarUrl ? (
         <img src={avatarUrl} alt={member.profile?.name} className="w-16 h-16 rounded-full object-cover" />
       ) : (
@@ -24,6 +28,6 @@ export default function MemberCardClient({ member }: { member: any }) {
         )}
         <p className="text-sm text-gray-500 mt-1">{member.profile?.email}</p>
       </div>
-    </div>
+    </Link>
   );
 }

@@ -41,7 +41,6 @@ export default function CreateMeetingPage() {
       meeting_date: formData.get('meeting_date'),
       duration: parseInt(formData.get('duration') as string),
       created_by: user?.id,
-      invite_type: inviteType,
       agenda: formData.get('agenda')
     };
 
@@ -87,7 +86,7 @@ export default function CreateMeetingPage() {
       const { data: allUsers } = await supabase
         .from('profiles')
         .select('id')
-        .eq('approved', true);
+        .eq('is_active', true);
       invitees = (allUsers as any)?.map((u: any) => u.id) || [];
     }
 

@@ -4,7 +4,9 @@ import { Users, Crown, Calendar } from 'lucide-react';
 
 export default async function HomePage() {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
   // Get committees
   const { data: committees } = await supabase
@@ -14,11 +16,24 @@ export default async function HomePage() {
     .order('name');
 
   // Get executive committee members (ONLY those with executive_role assigned)
-  const { data: executiveMembers } = await supabase
+  const { data: executiveMembersRaw } = await supabase
     .from('profiles')
     .select('id, name, email, avatar_url, executive_role')
     .not('executive_role', 'is', null)
     .order('executive_role');
+
+  // Resolve avatar URLs from storage paths
+  const executiveMembers =
+    executiveMembersRaw?.map((member: any) => {
+      let avatarUrl: string | null = null;
+      if (member.avatar_url) {
+        const { data } = supabase.storage
+          .from('avatars')
+          .getPublicUrl(member.avatar_url);
+        avatarUrl = data.publicUrl;
+      }
+      return { ...member, avatar_url: avatarUrl };
+    }) || [];
 
   // Get upcoming events
   const { data: upcomingEvents } = await supabase
@@ -51,9 +66,19 @@ export default async function HomePage() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20">
         <div className="text-center mb-16">
-          <h1 className="text-6xl font-bold text-gray-900 mb-6">IIChE AVVU Chapter</h1>
-          <p className="text-2xl text-gray-600 mb-2">Indian Institute of Chemical Engineers</p>
-          <p className="text-xl text-gray-500 mb-8">Aditya College of Engineering, Surampalem</p>
+          <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold text-gray-900 mb-4">
+            Indian Institute of Chemical Engineers
+          </h1>
+          <p className="text-lg sm:text-xl text-gray-600">
+            Amrita Vishwa Vidyapeetham University · Student Chapter
+          </p>
+          <p className="mt-4 text-xl sm:text-2xl font-semibold text-blue-700">
+            "Fueled by Passion, Driven by Students"
+          </p>
+          <p className="mt-3 text-gray-500 max-w-2xl mx-auto">
+            Join a dynamic community where innovation, leadership, and collaboration
+            define the future of Chemical Engineering.
+          </p>
           <div className="flex gap-4 justify-center">
             <Link href="/committees" className="bg-blue-600 text-white px-8 py-3 rounded-lg text-lg font-semibold hover:bg-blue-700">Explore Committees</Link>
             <Link href="/events" className="bg-white text-blue-600 px-8 py-3 rounded-lg text-lg font-semibold hover:bg-gray-50 border-2 border-blue-600">View Events</Link>
@@ -119,7 +144,11 @@ export default async function HomePage() {
           <div className="bg-white rounded-2xl shadow-xl p-8">
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
               {executiveMembers?.map((member: any) => (
-                <div key={member.id} className="border border-gray-200 rounded-lg p-6 hover:shadow-lg transition">
+                <Link
+                  key={member.id}
+                  href={`/profile/${member.id}`}
+                  className="border border-gray-200 rounded-lg p-6 hover:shadow-lg transition block"
+                >
                   {member.avatar_url && (
                     <img
                       src={member.avatar_url}
@@ -141,7 +170,7 @@ export default async function HomePage() {
                       {member.executive_role?.replace(/_/g, ' ').toUpperCase()}
                     </span>
                   </div>
-                </div>
+                </Link>
               ))}
             </div>
           </div>

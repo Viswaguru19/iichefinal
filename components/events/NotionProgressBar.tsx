@@ -58,7 +58,7 @@ export default function NotionProgressBar({ committeeTasks, eventDate }: NotionP
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.4, delay: 0.1, ease: [0.25, 0.1, 0.25, 1] }}
-                className="space-y-2"
+                className="space-y-3"
             >
                 <div className="flex items-center justify-between">
                     <span className="text-sm font-medium text-gray-700">Overall Progress</span>
@@ -67,25 +67,77 @@ export default function NotionProgressBar({ committeeTasks, eventDate }: NotionP
                     </span>
                 </div>
 
-                {/* Notion-style Progress Bar */}
-                <div className="relative h-2 bg-gray-100 rounded-full overflow-hidden">
-                    <motion.div
-                        className="absolute inset-y-0 left-0 bg-blue-500 rounded-full"
-                        initial={{ width: 0 }}
-                        animate={{ width: `${progressPercentage}%` }}
-                        transition={{
-                            duration: 0.8,
-                            delay: 0.2,
-                            ease: [0.25, 0.1, 0.25, 1]
-                        }}
-                    />
-                </div>
+                {/* Notion-style Progress Timeline with Checkpoints */}
+                <div className="space-y-2">
+                    <div className="relative h-2 bg-gray-100 rounded-full overflow-hidden">
+                        {/* Filled progress line */}
+                        <motion.div
+                            className="absolute inset-y-0 left-0 bg-blue-500 rounded-full"
+                            initial={{ width: 0 }}
+                            animate={{ width: `${progressPercentage}%` }}
+                            transition={{
+                                duration: 0.8,
+                                delay: 0.2,
+                                ease: [0.25, 0.1, 0.25, 1]
+                            }}
+                        />
 
-                <div className="flex items-center gap-4 text-xs text-gray-500">
-                    <span>{Math.round(progressPercentage)}% complete</span>
-                    {totalTasks - completedTasks > 0 && (
-                        <span>• {totalTasks - completedTasks} remaining</span>
-                    )}
+                        {/* Checkpoints for each committee */}
+                        {committeeTasks.map((committee, index) => {
+                            const status = getCommitteeStatus(committee);
+                            const isCompleted = status === 'completed';
+                            const isInProgress = status === 'in_progress';
+                            const position =
+                                committeeTasks.length === 1
+                                    ? 50
+                                    : (index / (committeeTasks.length - 1)) * 100;
+
+                            return (
+                                <motion.div
+                                    key={committee.committee_name}
+                                    className="absolute -top-1.5"
+                                    style={{
+                                        left: `${position}%`,
+                                        transform: 'translateX(-50%)',
+                                    }}
+                                    initial={{ scale: 0.9, opacity: 0 }}
+                                    animate={{ scale: 1, opacity: 1 }}
+                                    transition={{
+                                        delay: 0.25 + index * 0.05,
+                                        duration: 0.25,
+                                        ease: [0.25, 0.1, 0.25, 1],
+                                    }}
+                                >
+                                    <div
+                                        className={`w-4 h-4 rounded-full border-2 bg-white flex items-center justify-center ${
+                                            isCompleted
+                                                ? 'border-green-500'
+                                                : isInProgress
+                                                    ? 'border-blue-500'
+                                                    : 'border-gray-300'
+                                        }`}
+                                    >
+                                        <div
+                                            className={`w-2 h-2 rounded-full ${
+                                                isCompleted
+                                                    ? 'bg-green-500'
+                                                    : isInProgress
+                                                        ? 'bg-blue-500'
+                                                        : 'bg-gray-300'
+                                            }`}
+                                        />
+                                    </div>
+                                </motion.div>
+                            );
+                        })}
+                    </div>
+
+                    <div className="flex items-center justify-between text-xs text-gray-500">
+                        <span>{Math.round(progressPercentage)}% complete</span>
+                        {totalTasks - completedTasks > 0 && (
+                            <span>{totalTasks - completedTasks} tasks remaining</span>
+                        )}
+                    </div>
                 </div>
             </motion.div>
 

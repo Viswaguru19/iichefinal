@@ -5,16 +5,18 @@ import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
 import { FileText, Upload, Download, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { uploadDocument, getCommitteeDocuments, deleteDocument } from '@/lib/document-utils';
+import type { Document } from '@/types/database';
 
 export default function DocumentsPage() {
-  const [documents, setDocuments] = useState<any[]>([]);
+  const [documents, setDocuments] = useState<Document[]>([]);
   const [committees, setCommittees] = useState<any[]>([]);
   const [userCommittees, setUserCommittees] = useState<any[]>([]);
   const [selectedCommittee, setSelectedCommittee] = useState('');
   const [showUpload, setShowUpload] = useState(false);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [documentUrl, setDocumentUrl] = useState('');
+  const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const supabase = createClient();
   const router = useRouter();
@@ -40,11 +42,7 @@ export default function DocumentsPage() {
     setCommittees(allComs || []);
 
     if (selectedCommittee) {
-      const { data } = await supabase
-        .from('committee_documents')
-        .select('*, uploader:profiles(name), committees(name)')
-        .eq('committee_id', selectedCommittee)
-        .order('created_at', { ascending: false });
+      const data = await getCommitteeDocuments(selectedCommittee);
       setDocuments(data || []);
     }
   }
@@ -54,25 +52,29 @@ export default function DocumentsPage() {
     setLoading(true);
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user || !file) {
+        throw new Error('Please select a file');
+      }
 
-      const { error } = await (supabase as any)
-        .from('committee_documents')
-        .insert({
-          committee_id: selectedCommittee,
+      await uploadDocument(
+        file,
+        {
           title,
-          description,
-          document_url: documentUrl,
-          uploaded_by: user?.id
-        });
-
-      if (error) throw error;
+          document_type: 'general',
+          committee_id: selectedCommittee,
+          tags: description ? [description] : [],
+        },
+        user.id
+      );
 
       toast.success('Document uploaded!');
       setShowUpload(false);
       setTitle('');
       setDescription('');
-      setDocumentUrl('');
+      setFile(null);
       loadData();
     } catch (error: any) {
       toast.error(error.message);
@@ -85,12 +87,12 @@ export default function DocumentsPage() {
     if (!confirm('Delete this document?')) return;
 
     try {
-      const { error } = await supabase
-        .from('committee_documents')
-        .delete()
-        .eq('id', docId);
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authorized');
 
-      if (error) throw error;
+      await deleteDocument(docId, user.id);
 
       toast.success('Document deleted!');
       loadData();
@@ -159,15 +161,16 @@ export default function DocumentsPage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-2">Document URL *</label>
+                <label className="block text-sm font-medium mb-2">Document File *</label>
                 <input
-                  type="url"
-                  value={documentUrl}
-                  onChange={(e) => setDocumentUrl(e.target.value)}
+                  type="file"
+                  onChange={(e) => setFile(e.target.files?.[0] || null)}
                   required
-                  placeholder="https://drive.google.com/..."
                   className="w-full px-4 py-2 border rounded-lg"
                 />
+                <p className="text-xs text-gray-500 mt-1">
+                  Files are stored securely and listed for this committee.
+                </p>
               </div>
               <button
                 type="submit"
@@ -192,14 +195,18 @@ export default function DocumentsPage() {
                         <FileText className="w-5 h-5 text-blue-600" />
                         {doc.title}
                       </h3>
-                      {doc.description && <p className="text-sm text-gray-600 mt-1">{doc.description}</p>}
+                      {doc.metadata?.original_name && (
+                        <p className="text-sm text-gray-600 mt-1">
+                          Original file: {doc.metadata.original_name}
+                        </p>
+                      )}
                       <p className="text-xs text-gray-500 mt-2">
-                        Uploaded by: {doc.uploader?.name} • {new Date(doc.created_at).toLocaleDateString('en-IN')}
+                        Uploaded on {new Date(doc.created_at).toLocaleDateString('en-IN')}
                       </p>
                     </div>
                     <div className="flex gap-2">
                       <a
-                        href={doc.document_url}
+                        href={doc.file_url}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2"

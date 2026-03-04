@@ -5,7 +5,9 @@ import { Users } from 'lucide-react';
 export default async function CommitteesPage() {
   const supabase = await createClient();
 
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   const isLoggedIn = !!user;
 
   const { data: committees } = await supabase
@@ -15,14 +17,29 @@ export default async function CommitteesPage() {
     .order('name');
 
   // Get members separately
-  const { data: allMembers, error: membersError } = await supabase
+  const { data: allMembersRaw } = await supabase
     .from('committee_members')
     .select('committee_id, position, profiles(id, name, avatar_url)')
     .in('position', ['head', 'co_head']);
 
-  console.log('Committees:', committees?.length);
-  console.log('Members:', allMembers?.length);
-  console.log('Members error:', membersError);
+  // Resolve avatar URLs from storage paths so public site shows latest profile photos
+  const allMembers =
+    allMembersRaw?.map((m: any) => {
+      let avatarUrl: string | null = null;
+      if (m.profiles?.avatar_url) {
+        const { data } = supabase.storage
+          .from('avatars')
+          .getPublicUrl(m.profiles.avatar_url);
+        avatarUrl = data.publicUrl;
+      }
+      return {
+        ...m,
+        profiles: {
+          ...m.profiles,
+          avatar_url: avatarUrl,
+        },
+      };
+    }) || [];
 
   return (
     <div className="min-h-screen bg-gray-50">

@@ -76,8 +76,9 @@ export default function ProposeEventPage() {
         .insert({
           title,
           description,
-          date: eventDate,
-          location,
+          event_date: eventDate || new Date().toISOString(), // Use event_date and provide default
+          date: eventDate || null, // Also set date for new column
+          location: location || null,
           budget: budget ? parseFloat(budget) : null,
           committee_id: userCommittee.id,
           proposed_by: user.id,
@@ -85,7 +86,10 @@ export default function ProposeEventPage() {
           supporting_documents: supportingDocUrl ? [supportingDocUrl] : []
         });
 
-      if (error) throw error;
+      if (error) {
+        console.error('Insert error:', error);
+        throw error;
+      }
 
       toast.success('Event proposal submitted successfully!');
       router.push('/dashboard/proposals');

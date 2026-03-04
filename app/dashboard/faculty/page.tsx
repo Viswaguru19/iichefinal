@@ -7,12 +7,10 @@ import {
     DollarSign,
     Calendar,
     CheckCircle,
-    Clock,
     TrendingUp,
     FileText,
     Mail,
     Image as ImageIcon,
-    Users,
     AlertCircle,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -131,12 +129,39 @@ export default function FacultyDashboard() {
     async function loadPendingApprovals() {
         const { data: events } = await supabase
             .from('events')
-            .select('*, committee:committees(name), proposed_by_profile:profiles!events_proposed_by_fkey(name)')
+            .select(`
+                *,
+                committee:committees(name),
+                proposed_by_profile:profiles!events_proposed_by_fkey(name),
+                head_approver:profiles!events_head_approved_by_fkey(name)
+            `)
             .eq('status', 'pending_faculty_approval')
             .order('created_at', { ascending: false })
             .limit(5);
 
-        setPendingApprovals(events || []);
+        if (!events) {
+            setPendingApprovals([]);
+            return;
+        }
+
+        // Fetch EC approvals for each event
+        const eventsWithApprovals = await Promise.all(
+            events.map(async (event) => {
+                const { data: ecApprovals } = await supabase
+                    .from('ec_approvals')
+                    .select('user_id, approved_at, profiles(name, executive_role)')
+                    .eq('event_id', event.id)
+                    .eq('approved', true)
+                    .order('approved_at', { ascending: true });
+
+                return {
+                    ...event,
+                    ec_approvals: ecApprovals || [],
+                };
+            })
+        );
+
+        setPendingApprovals(eventsWithApprovals);
     }
 
     async function loadFinanceOverview() {
@@ -213,40 +238,45 @@ export default function FacultyDashboard() {
 
     async function approveEvent(eventId: string) {
         try {
-            const { error } = await supabase
-                .from('events')
-                .update({
-                    status: 'active',
-                    faculty_approved_by: profile.id,
-                    faculty_approved_at: new Date().toISOString(),
-                })
-                .eq('id', eventId);
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) throw new Error('Not authenticated');
 
-            if (error) throw error;
+            // Import and use the approval workflow function
+            const { approveEventAsFaculty } = await import('@/lib/approval-workflow');
 
-            toast.success('Event approved successfully');
-            loadDashboardData();
+            await approveEventAsFaculty(eventId, user.id, 'faculty_advisor');
+
+            toast.success('Event approved and activated successfully');
+            await loadDashboardData();
         } catch (error: any) {
-            toast.error(error.message);
+            console.error('Approval error:', error);
+            toast.error(error.message || 'Failed to approve event');
         }
     }
 
     async function rejectEvent(eventId: string) {
-        const reason = prompt('Enter rejection reason:');
-        if (!reason) return;
+        const reason = prompt('Enter rejection reason (required):');
+
+        // Validate rejection reason is non-empty
+        if (!reason || reason.trim().length === 0) {
+            toast.error('Rejection reason is required');
+            return;
+        }
 
         try {
-            const { error } = await supabase
-                .from('events')
-                .update({ status: 'cancelled' })
-                .eq('id', eventId);
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) throw new Error('Not authenticated');
 
-            if (error) throw error;
+            // Import and use the approval workflow function
+            const { rejectEvent: rejectEventWorkflow } = await import('@/lib/approval-workflow');
+
+            await rejectEventWorkflow(eventId, user.id, 'faculty_advisor', reason);
 
             toast.success('Event rejected');
-            loadDashboardData();
+            await loadDashboardData();
         } catch (error: any) {
-            toast.error(error.message);
+            console.error('Rejection error:', error);
+            toast.error(error.message || 'Failed to reject event');
         }
     }
 
@@ -282,6 +312,106 @@ export default function FacultyDashboard() {
             </div>
 
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                {/* Pending Approvals Section - Prominently at Top */}
+                {pendingApprovals.length > 0 && (
+                    <div className="bg-white rounded-xl shadow-lg p-6 mb-8 border-l-4 border-orange-500">
+                        <h2 className="text-2xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+                            <AlertCircle className="w-7 h-7 text-orange-600" />
+                            Pending Event Approvals
+                            <span className="ml-auto text-sm font-normal bg-orange-100 text-orange-700 px-3 py-1 rounded-full">
+                                {pendingApprovals.length} pending
+                            </span>
+                        </h2>
+                        <div className="space-y-4">
+                            {pendingApprovals.map((event) => (
+                                <div key={event.id} className="border rounded-lg p-5 hover:shadow-md transition bg-gray-50">
+                                    <div className="flex justify-between items-start mb-3">
+                                        <div className="flex-1">
+                                            <h3 className="font-bold text-gray-900 text-lg">{event.title}</h3>
+                                            <p className="text-sm text-gray-600 mt-1">
+                                                <span className="font-medium">{event.committee?.name}</span>
+                                                {' • '}
+                                                Proposed by {event.proposed_by_profile?.name}
+                                            </p>
+                                        </div>
+                                        {event.budget && (
+                                            <div className="text-right ml-4">
+                                                <p className="text-xs text-gray-500">Budget</p>
+                                                <p className="text-lg font-bold text-blue-600">
+                                                    ₹{event.budget.toLocaleString()}
+                                                </p>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+                                        <div className="flex items-center gap-2 text-sm text-gray-600">
+                                            <Calendar className="w-4 h-4" />
+                                            <span>
+                                                {event.event_date
+                                                    ? new Date(event.event_date).toLocaleDateString('en-IN', {
+                                                        weekday: 'short',
+                                                        month: 'short',
+                                                        day: 'numeric',
+                                                        year: 'numeric'
+                                                    })
+                                                    : 'TBA'}
+                                            </span>
+                                        </div>
+                                        <div className="flex items-center gap-2 text-sm text-gray-600">
+                                            <CheckCircle className="w-4 h-4 text-green-600" />
+                                            <span>Head: {event.head_approver?.name || 'Approved'}</span>
+                                        </div>
+                                    </div>
+
+                                    {/* EC Approval History */}
+                                    <div className="bg-white rounded-lg p-3 mb-3">
+                                        <p className="text-xs font-semibold text-gray-700 mb-2">
+                                            EC Approvals ({event.ec_approvals?.length || 0}/2 required)
+                                        </p>
+                                        {event.ec_approvals && event.ec_approvals.length > 0 ? (
+                                            <div className="space-y-1">
+                                                {event.ec_approvals.map((approval: any, idx: number) => (
+                                                    <div key={idx} className="flex items-center gap-2 text-xs text-gray-600">
+                                                        <CheckCircle className="w-3 h-3 text-green-600" />
+                                                        <span className="font-medium">{approval.profiles?.name}</span>
+                                                        <span className="text-gray-400">
+                                                            ({approval.profiles?.executive_role?.replace(/_/g, ' ')})
+                                                        </span>
+                                                        <span className="text-gray-400 ml-auto">
+                                                            {new Date(approval.approved_at).toLocaleDateString('en-IN', {
+                                                                month: 'short',
+                                                                day: 'numeric'
+                                                            })}
+                                                        </span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            <p className="text-xs text-gray-500">No EC approvals yet</p>
+                                        )}
+                                    </div>
+
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={() => approveEvent(event.id)}
+                                            className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-medium transition"
+                                        >
+                                            Approve
+                                        </button>
+                                        <button
+                                            onClick={() => rejectEvent(event.id)}
+                                            className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm font-medium transition"
+                                        >
+                                            Reject
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
                 {/* Stats Grid */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
                     <StatCard
@@ -344,46 +474,7 @@ export default function FacultyDashboard() {
                     </div>
                 )}
 
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                    {/* Pending Approvals */}
-                    <div className="bg-white rounded-xl shadow-lg p-6">
-                        <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
-                            <AlertCircle className="w-6 h-6 text-orange-600" />
-                            Pending Event Approvals
-                        </h2>
-                        {pendingApprovals.length === 0 ? (
-                            <p className="text-gray-500 text-center py-8">No pending approvals</p>
-                        ) : (
-                            <div className="space-y-4">
-                                {pendingApprovals.map((event) => (
-                                    <div key={event.id} className="border rounded-lg p-4">
-                                        <h3 className="font-semibold text-gray-900">{event.title}</h3>
-                                        <p className="text-sm text-gray-600 mt-1">
-                                            {event.committee?.name} • Proposed by {event.proposed_by_profile?.name}
-                                        </p>
-                                        <p className="text-sm text-gray-500 mt-1">
-                                            {new Date(event.event_date).toLocaleDateString()}
-                                        </p>
-                                        <div className="flex gap-2 mt-3">
-                                            <button
-                                                onClick={() => approveEvent(event.id)}
-                                                className="flex-1 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm"
-                                            >
-                                                Approve
-                                            </button>
-                                            <button
-                                                onClick={() => rejectEvent(event.id)}
-                                                className="flex-1 px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm"
-                                            >
-                                                Reject
-                                            </button>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-
+                <div className="grid grid-cols-1 lg:grid-cols-1 gap-8">
                     {/* Task Progress */}
                     <div className="bg-white rounded-xl shadow-lg p-6">
                         <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
