@@ -22,17 +22,26 @@ export default function FormSubmitPage() {
   }, []);
 
   async function fetchForm() {
-    const { data: formData } = await supabase
+    console.log('Fetching form with ID:', params.id);
+
+    const { data: formData, error: formError } = await supabase
       .from('forms')
       .select('*')
       .eq('id', params.id)
       .single();
 
-    const { data: fieldsData } = await supabase
+    console.log('Form data:', formData);
+    console.log('Form error:', formError);
+
+    const { data: fieldsData, error: fieldsError } = await supabase
       .from('form_fields')
       .select('*')
       .eq('form_id', params.id)
       .order('order_index');
+
+    console.log('Fields data:', fieldsData);
+    console.log('Fields error:', fieldsError);
+    console.log('Number of fields:', fieldsData?.length || 0);
 
     setForm(formData);
     setFields(fieldsData || []);
@@ -45,16 +54,36 @@ export default function FormSubmitPage() {
 
     const formData = new FormData(e.currentTarget);
     const responses: any = {};
+    const { data: { user } } = await supabase.auth.getUser();
 
-    fields.forEach(field => {
+    // Process each field
+    for (const field of fields) {
       if (field.field_type === 'checkbox') {
         responses[field.id] = formData.getAll(field.id);
+      } else if (field.field_type === 'file') {
+        const file = formData.get(field.id) as File;
+        if (file && file.size > 0) {
+          // Upload file to storage
+          const fileExt = file.name.split('.').pop();
+          const fileName = `${user?.id}/${Date.now()}.${fileExt}`;
+
+          const { data: uploadData, error: uploadError } = await supabase.storage
+            .from('documents')
+            .upload(fileName, file);
+
+          if (uploadError) {
+            toast.error(`Failed to upload ${field.label}`);
+            setSubmitting(false);
+            return;
+          }
+
+          // Store the file path in responses
+          responses[field.id] = fileName;
+        }
       } else {
         responses[field.id] = formData.get(field.id);
       }
-    });
-
-    const { data: { user } } = await supabase.auth.getUser();
+    }
 
     const { error } = await (supabase as any)
       .from('form_responses')
@@ -111,6 +140,17 @@ export default function FormSubmitPage() {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-1">
+          {fields.length === 0 && (
+            <div className="bg-white shadow-md p-8 rounded-xl text-center">
+              <p className="text-gray-600 text-lg mb-4">
+                This form has no fields yet.
+              </p>
+              <p className="text-gray-500 text-sm">
+                The form creator needs to add fields to this form before it can be filled out.
+              </p>
+            </div>
+          )}
+
           {fields.map((field, index) => (
             <div key={field.id} className="bg-white shadow-md p-6 hover:shadow-lg transition">
               <label className="block text-lg font-medium text-gray-900 mb-4">
@@ -167,6 +207,21 @@ export default function FormSubmitPage() {
                 />
               )}
 
+              {field.field_type === 'file' && (
+                <div>
+                  <input
+                    type="file"
+                    name={field.id}
+                    required={field.required}
+                    accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.gif"
+                    className="w-full border-2 border-dashed border-gray-300 focus:border-purple-600 outline-none px-4 py-3 text-gray-900 rounded-lg cursor-pointer hover:bg-gray-50"
+                  />
+                  <p className="text-xs text-gray-500 mt-2">
+                    Accepted formats: PDF, DOC, DOCX, TXT, JPG, PNG, GIF (Max 10MB)
+                  </p>
+                </div>
+              )}
+
               {field.field_type === 'dropdown' && (
                 <select
                   name={field.id}
@@ -215,15 +270,17 @@ export default function FormSubmitPage() {
             </div>
           ))}
 
-          <div className="bg-white shadow-md p-6 rounded-b-xl">
-            <button
-              type="submit"
-              disabled={submitting}
-              className="bg-purple-600 text-white px-8 py-3 rounded-lg hover:bg-purple-700 disabled:opacity-50 font-medium"
-            >
-              {submitting ? 'Submitting...' : 'Submit'}
-            </button>
-          </div>
+          {fields.length > 0 && (
+            <div className="bg-white shadow-md p-6 rounded-b-xl">
+              <button
+                type="submit"
+                disabled={submitting}
+                className="bg-purple-600 text-white px-8 py-3 rounded-lg hover:bg-purple-700 disabled:opacity-50 font-medium"
+              >
+                {submitting ? 'Submitting...' : 'Submit'}
+              </button>
+            </div>
+          )}
         </form>
       </div>
     </div>

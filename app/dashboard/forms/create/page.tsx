@@ -48,13 +48,13 @@ export default function CreateFormPage() {
     const formData = new FormData(e.currentTarget);
     const { data: { user } } = await supabase.auth.getUser();
 
+    // Create the form first
     const { data: form, error: formError } = await (supabase as any)
       .from('forms')
       .insert({
         title: formData.get('title'),
         description: formData.get('description'),
-        created_by: user?.id,
-        fields: fields // Store fields as JSONB
+        created_by: user?.id
       })
       .select()
       .single();
@@ -64,6 +64,29 @@ export default function CreateFormPage() {
       toast.error('Failed to create form');
       setLoading(false);
       return;
+    }
+
+    // Insert form fields into form_fields table
+    if (fields.length > 0) {
+      const fieldsToInsert = fields.map(field => ({
+        form_id: form.id,
+        field_type: field.field_type,
+        label: field.label,
+        options: field.options.length > 0 ? field.options : null,
+        required: field.required,
+        order_index: field.order_index
+      }));
+
+      const { error: fieldsError } = await supabase
+        .from('form_fields')
+        .insert(fieldsToInsert);
+
+      if (fieldsError) {
+        console.error('Fields creation error:', fieldsError);
+        toast.error('Failed to create form fields');
+        setLoading(false);
+        return;
+      }
     }
 
     const formLink = `${window.location.origin}/dashboard/forms/${form.id}`;
@@ -142,6 +165,7 @@ export default function CreateFormPage() {
                         <option value="number">Number</option>
                         <option value="textarea">Long Text</option>
                         <option value="date">Date</option>
+                        <option value="file">File Upload</option>
                         <option value="dropdown">Dropdown</option>
                         <option value="checkbox">Checkbox</option>
                         <option value="radio">Radio</option>

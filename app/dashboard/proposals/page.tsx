@@ -27,20 +27,33 @@ export default function ProposalsPage() {
     if (!user) return router.push('/login');
 
     // Get user profile with committee memberships
-    const { data: profile } = await supabase
+    const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('*, committee_members(position, committee_id)')
       .eq('id', user.id)
       .single();
 
+    if (profileError) {
+      console.error('Profile error:', profileError);
+      toast.error('Failed to load profile');
+      return;
+    }
+
+    console.log('Profile loaded:', profile);
+    console.log('Committee members:', (profile as any)?.committee_members);
+
     setUserProfile(profile);
     const committeeIds = (profile as any)?.committee_members?.map((m: any) => m.committee_id) || [];
     setUserCommittees(committeeIds);
+
+    console.log('Committee IDs:', committeeIds);
 
     const isHead = (profile as any)?.committee_members?.some((m: any) => m.position === 'head' || m.position === 'co_head');
     const isEC = (profile as any)?.executive_role !== null;
     const isFaculty = (profile as any)?.is_faculty;
     const isAdmin = (profile as any)?.is_admin;
+
+    console.log('User roles:', { isHead, isEC, isFaculty, isAdmin });
 
     // ============================================
     // SIMPLIFIED ROLE-BASED VISIBILITY
@@ -67,16 +80,30 @@ export default function ProposalsPage() {
     // Apply filters based on role
     if (isFaculty || isAdmin || isEC) {
       // Faculty, Admin, and EC see all events
-      // No additional filters needed
+      console.log('Query: No filters (Faculty/Admin/EC)');
     } else if (isHead && committeeIds.length > 0) {
       // Committee heads see their committee's events
+      console.log('Query: Filtering by committee IDs:', committeeIds);
       query = query.in('committee_id', committeeIds);
     } else if (committeeIds.length > 0) {
       // Regular members see their committee's events
+      console.log('Query: Filtering by committee IDs (regular member):', committeeIds);
       query = query.in('committee_id', committeeIds);
+    } else {
+      console.warn('No committee IDs found! User might not see any events.');
     }
 
-    const { data } = await query;
+    const { data, error: eventsError } = await query;
+
+    if (eventsError) {
+      console.error('Events query error:', eventsError);
+      toast.error('Failed to load events');
+      return;
+    }
+
+    console.log('Events loaded:', data?.length, 'events');
+    console.log('Events:', data);
+
     setProposals(data || []);
 
     // Load EC approvals for pending EC proposals
