@@ -12,21 +12,42 @@ export default function MemberCardClient({ member }: { member: any }) {
   return (
     <Link
       href={`/profile/${member.profile?.id}`}
-      className="bg-white rounded-lg shadow-md p-6 flex items-center gap-4 hover:shadow-xl transition"
+      className="bg-white rounded-xl shadow-md p-6 hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1 block"
     >
-      {avatarUrl ? (
-        <img src={avatarUrl} alt={member.profile?.name} className="w-16 h-16 rounded-full object-cover" />
-      ) : (
-        <div className="w-16 h-16 rounded-full bg-blue-600 flex items-center justify-center text-white text-2xl font-bold">
-          {member.profile?.name?.charAt(0)}
-        </div>
-      )}
-      <div>
-        <h3 className="text-lg font-bold text-gray-900">{member.profile?.name}</h3>
-        {member.designation && (
-          <p className="text-sm text-gray-600 mt-1">{member.designation}</p>
+      <div className="flex flex-col items-center text-center">
+        {/* Profile Photo - 5cm x 5cm (192px) */}
+        {avatarUrl ? (
+          <img
+            src={avatarUrl}
+            alt={member.profile?.name}
+            className="w-48 h-48 rounded-lg object-cover mb-4 border-4 border-blue-100 shadow-lg"
+          />
+        ) : (
+          <div className="w-48 h-48 rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-white text-6xl font-bold mb-4 border-4 border-blue-100 shadow-lg">
+            {member.profile?.name?.charAt(0)}
+          </div>
         )}
-        <p className="text-sm text-gray-500 mt-1">{member.profile?.email}</p>
+
+        {/* Member Info */}
+        <h3 className="text-xl font-bold text-gray-900 mb-1">{member.profile?.name}</h3>
+
+        {member.designation && (
+          <p className="text-sm font-medium text-blue-600 mb-2">{member.designation}</p>
+        )}
+
+        <p className="text-sm text-gray-500 mb-3">{member.profile?.email}</p>
+
+        {/* Description */}
+        {member.profile?.description && (
+          <p className="text-sm text-gray-600 line-clamp-3 mt-2 px-2">
+            {member.profile.description}
+          </p>
+        )}
+
+        {/* View Profile Link */}
+        <div className="mt-4 text-blue-600 text-sm font-medium hover:text-blue-700">
+          View Full Profile →
+        </div>
       </div>
     </Link>
   );

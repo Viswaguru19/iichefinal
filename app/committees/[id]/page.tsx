@@ -24,7 +24,7 @@ export default async function CommitteeDetailPage({ params }: { params: { id: st
     .from('committee_members')
     .select(`
       *,
-      profile:profiles(id, name, email, avatar_url)
+      profile:profiles(id, name, email, avatar_url, description)
     `)
     .eq('committee_id', params.id)
     .order('position');

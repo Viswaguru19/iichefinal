@@ -35,7 +35,15 @@ export default function FormsPage() {
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-8 px-4">
       <div className="max-w-7xl mx-auto">
         <div className="flex items-center justify-between mb-6">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Forms</h1>
+          <div className="flex items-center gap-4">
+            <Link
+              href="/dashboard"
+              className="text-gray-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400"
+            >
+              ← Back to Dashboard
+            </Link>
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Forms</h1>
+          </div>
           <Link
             href="/dashboard/forms/create"
             className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"

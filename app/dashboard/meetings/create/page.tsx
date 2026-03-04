@@ -62,7 +62,8 @@ export default function CreateMeetingPage() {
       .single();
 
     if (error || !meeting) {
-      toast.error('Failed to create meeting');
+      console.error('Meeting creation error:', error);
+      toast.error(`Failed to create meeting: ${error?.message || 'Unknown error'}`);
       setLoading(false);
       return;
     }

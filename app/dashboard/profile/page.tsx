@@ -11,6 +11,7 @@ export default function ProfilePage() {
   const [name, setName] = useState('');
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
+  const [description, setDescription] = useState('');
   const [password, setPassword] = useState('');
   const [photo, setPhoto] = useState<File | null>(null);
   const [photoUrl, setPhotoUrl] = useState('');
@@ -41,6 +42,7 @@ export default function ProfilePage() {
       setName((data as any).name);
       setUsername((data as any).username || '');
       setEmail((data as any).email);
+      setDescription((data as any).description || '');
       setPhotoUrl((data as any).avatar_url || '');
     }
   };
@@ -81,6 +83,7 @@ export default function ProfilePage() {
       // Only update fields that users are allowed to change
       const updateData: any = {
         name,
+        description,
         avatar_url: avatarPath,
       };
 
@@ -137,7 +140,7 @@ export default function ProfilePage() {
         <div className="bg-white rounded-xl shadow-lg p-8">
           <div className="flex flex-col items-center mb-8">
             <div className="relative">
-              <div className="w-32 h-32 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden">
+              <div className="w-48 h-48 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden border-4 border-blue-100">
                 {previewUrl ? (
                   <img src={previewUrl} alt="Profile" className="w-full h-full object-cover" />
                 ) : photoUrl ? (
@@ -147,14 +150,15 @@ export default function ProfilePage() {
                     className="w-full h-full object-cover"
                   />
                 ) : (
-                  <Camera className="w-12 h-12 text-gray-400" />
+                  <Camera className="w-16 h-16 text-gray-400" />
                 )}
               </div>
-              <label className="absolute bottom-0 right-0 bg-blue-600 text-white p-2 rounded-full cursor-pointer hover:bg-blue-700">
-                <Camera className="w-4 h-4" />
+              <label className="absolute bottom-2 right-2 bg-blue-600 text-white p-3 rounded-full cursor-pointer hover:bg-blue-700 shadow-lg">
+                <Camera className="w-5 h-5" />
                 <input type="file" accept="image/*" onChange={handlePhotoUpload} className="hidden" />
               </label>
             </div>
+            <p className="mt-4 text-sm text-gray-500">Photo will display as 5cm x 5cm (approx 190px)</p>
           </div>
 
           <div className="space-y-6">
@@ -186,6 +190,18 @@ export default function ProfilePage() {
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
               />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Description / Bio</label>
+              <textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                rows={4}
+                placeholder="Tell us about yourself..."
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 resize-none"
+              />
+              <p className="mt-1 text-xs text-gray-500">This will be shown on your public profile</p>
             </div>
 
             <div>

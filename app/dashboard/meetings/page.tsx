@@ -97,17 +97,22 @@ export default function MeetingsPage() {
       <nav className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16 items-center">
-            <h1 className="text-2xl font-bold text-blue-600">Meetings</h1>
-            <div className="flex gap-4">
+            <div className="flex items-center gap-4">
               <Link
-                href="/dashboard/meetings/create"
-                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2"
+                href="/dashboard"
+                className="text-gray-600 hover:text-blue-600"
               >
-                <Plus className="w-5 h-5" />
-                Schedule Meeting
+                ← Back to Dashboard
               </Link>
-              <button onClick={() => router.back()} className="text-gray-600 hover:text-blue-600">← Back</button>
+              <h1 className="text-2xl font-bold text-blue-600">Meetings</h1>
             </div>
+            <Link
+              href="/dashboard/meetings/create"
+              className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2"
+            >
+              <Plus className="w-5 h-5" />
+              Schedule Meeting
+            </Link>
           </div>
         </div>
       </nav>
@@ -118,8 +123,8 @@ export default function MeetingsPage() {
           <button
             onClick={() => setFilter('upcoming')}
             className={`px-4 py-2 rounded-lg font-medium transition ${filter === 'upcoming'
-                ? 'bg-blue-600 text-white'
-                : 'bg-white text-gray-700 hover:bg-gray-50'
+              ? 'bg-blue-600 text-white'
+              : 'bg-white text-gray-700 hover:bg-gray-50'
               }`}
           >
             Upcoming ({upcomingMeetings.length})
@@ -127,8 +132,8 @@ export default function MeetingsPage() {
           <button
             onClick={() => setFilter('past')}
             className={`px-4 py-2 rounded-lg font-medium transition ${filter === 'past'
-                ? 'bg-blue-600 text-white'
-                : 'bg-white text-gray-700 hover:bg-gray-50'
+              ? 'bg-blue-600 text-white'
+              : 'bg-white text-gray-700 hover:bg-gray-50'
               }`}
           >
             Past ({pastMeetings.length})
@@ -136,8 +141,8 @@ export default function MeetingsPage() {
           <button
             onClick={() => setFilter('all')}
             className={`px-4 py-2 rounded-lg font-medium transition ${filter === 'all'
-                ? 'bg-blue-600 text-white'
-                : 'bg-white text-gray-700 hover:bg-gray-50'
+              ? 'bg-blue-600 text-white'
+              : 'bg-white text-gray-700 hover:bg-gray-50'
               }`}
           >
             All ({upcomingMeetings.length + pastMeetings.length})

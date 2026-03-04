@@ -30,12 +30,12 @@ export default function ProposeEventPage() {
       return;
     }
 
-    // Check if user is co-head
+    // Check if user is head or co-head
     const { data: membership } = await supabase
       .from('committee_members')
       .select('*, committee:committee_id(id, name)')
       .eq('user_id', user.id)
-      .eq('position', 'co_head')
+      .in('position', ['head', 'co_head'])
       .single();
 
     if (membership) {
@@ -43,7 +43,7 @@ export default function ProposeEventPage() {
       setUserCommittee(membership.committee);
     } else {
       setCanPropose(false);
-      toast.error('Only committee co-heads can propose events');
+      toast.error('Only committee heads and co-heads can propose events');
     }
   }
 

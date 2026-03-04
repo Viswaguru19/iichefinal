@@ -1,7 +1,9 @@
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
+import Image from 'next/image';
 import { LogOut, Crown } from 'lucide-react';
+import DynamicLogo from '@/components/DynamicLogo';
 import AnimatedDashboardCard from '@/components/dashboard/AnimatedDashboardCard';
 import AnimatedEventProgress from '@/components/dashboard/AnimatedEventProgress';
 import AnimatedPendingApprovals from '@/components/dashboard/AnimatedPendingApprovals';
@@ -95,7 +97,10 @@ export default async function DashboardPage() {
       <nav className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16 items-center">
-            <h1 className="text-2xl font-bold text-blue-600">IIChE AVVU Dashboard</h1>
+            <Link href="/dashboard" className="flex items-center gap-3">
+              <DynamicLogo width={40} height={40} />
+              <h1 className="text-2xl font-bold text-blue-600">IIChE AVVU Dashboard</h1>
+            </Link>
             <div className="flex items-center gap-4">
               <Link href="/dashboard/profile" className="text-gray-700 hover:text-blue-600">Profile</Link>
               <span className="text-gray-700">{(profile as any).name}</span>
@@ -204,7 +209,7 @@ export default async function DashboardPage() {
         )}
 
         <AnimatedSection delay={0.5}>
-          <div className="mt-8 grid md:grid-cols-3 lg:grid-cols-5 gap-6">
+          <div className="mt-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             <AnimatedDashboardCard
               href="/dashboard/chat"
               iconName="MessageSquare"
@@ -345,7 +350,7 @@ export default async function DashboardPage() {
           <AnimatedSection delay={1.0}>
             <div className="mt-8">
               <h3 className="text-xl font-bold text-gray-900 mb-4">Committee Tools</h3>
-              <div className="grid md:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 <AnimatedDashboardCard
                   href="/dashboard/forms"
                   iconName="Users"

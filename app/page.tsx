@@ -1,12 +1,34 @@
 import Link from 'next/link';
+import Image from 'next/image';
 import { createClient } from '@/lib/supabase/server';
 import { Users, Crown, Calendar } from 'lucide-react';
+import HeroSlideshow from '@/components/home/HeroSlideshow';
+import DynamicLogo from '@/components/DynamicLogo';
 
 export default async function HomePage() {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
+
+  // Get slideshow photos
+  const { data: slideshowPhotos } = await supabase
+    .from('homepage_slideshow')
+    .select('*')
+    .eq('is_active', true)
+    .eq('approval_status', 'approved')
+    .order('display_order');
+
+  // Convert storage paths to public URLs
+  const slidesWithUrls = slideshowPhotos?.map((slide: any) => {
+    const { data } = supabase.storage
+      .from('slideshow-photos')
+      .getPublicUrl(slide.photo_url);
+    return {
+      ...slide,
+      photo_url: data.publicUrl
+    };
+  }) || [];
 
   // Get committees
   const { data: committees } = await supabase
@@ -48,7 +70,10 @@ export default async function HomePage() {
       <nav className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16 items-center">
-            <Link href="/" className="text-2xl font-bold text-blue-600">IIChE AVVU</Link>
+            <Link href="/" className="flex items-center gap-3">
+              <DynamicLogo width={40} height={40} />
+              <span className="text-2xl font-bold text-blue-600">IIChE AVVU</span>
+            </Link>
             <div className="flex gap-4">
               <Link href="/committees" className="text-gray-700 hover:text-blue-600">Committees</Link>
               <Link href="/events" className="text-gray-700 hover:text-blue-600">Events</Link>
@@ -64,27 +89,10 @@ export default async function HomePage() {
         </div>
       </nav>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20">
-        <div className="text-center mb-16">
-          <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold text-gray-900 mb-4">
-            Indian Institute of Chemical Engineers
-          </h1>
-          <p className="text-lg sm:text-xl text-gray-600">
-            Amrita Vishwa Vidyapeetham University · Student Chapter
-          </p>
-          <p className="mt-4 text-xl sm:text-2xl font-semibold text-blue-700">
-            "Fueled by Passion, Driven by Students"
-          </p>
-          <p className="mt-3 text-gray-500 max-w-2xl mx-auto">
-            Join a dynamic community where innovation, leadership, and collaboration
-            define the future of Chemical Engineering.
-          </p>
-          <div className="flex gap-4 justify-center">
-            <Link href="/committees" className="bg-blue-600 text-white px-8 py-3 rounded-lg text-lg font-semibold hover:bg-blue-700">Explore Committees</Link>
-            <Link href="/events" className="bg-white text-blue-600 px-8 py-3 rounded-lg text-lg font-semibold hover:bg-gray-50 border-2 border-blue-600">View Events</Link>
-          </div>
-        </div>
+      {/* Hero Slideshow */}
+      <HeroSlideshow slides={slidesWithUrls} />
 
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
         <div className="grid md:grid-cols-3 gap-8 mb-16">
           <div className="bg-white rounded-xl shadow-lg p-8 text-center">
             <div className="text-4xl font-bold text-blue-600 mb-2">8+</div>

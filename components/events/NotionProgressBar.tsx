@@ -109,22 +109,20 @@ export default function NotionProgressBar({ committeeTasks, eventDate }: NotionP
                                     }}
                                 >
                                     <div
-                                        className={`w-4 h-4 rounded-full border-2 bg-white flex items-center justify-center ${
-                                            isCompleted
-                                                ? 'border-green-500'
-                                                : isInProgress
-                                                    ? 'border-blue-500'
-                                                    : 'border-gray-300'
-                                        }`}
+                                        className={`w-4 h-4 rounded-full border-2 bg-white flex items-center justify-center ${isCompleted
+                                            ? 'border-green-500'
+                                            : isInProgress
+                                                ? 'border-blue-500'
+                                                : 'border-gray-300'
+                                            }`}
                                     >
                                         <div
-                                            className={`w-2 h-2 rounded-full ${
-                                                isCompleted
-                                                    ? 'bg-green-500'
-                                                    : isInProgress
-                                                        ? 'bg-blue-500'
-                                                        : 'bg-gray-300'
-                                            }`}
+                                            className={`w-2 h-2 rounded-full ${isCompleted
+                                                ? 'bg-green-500'
+                                                : isInProgress
+                                                    ? 'bg-blue-500'
+                                                    : 'bg-gray-300'
+                                                }`}
                                         />
                                     </div>
                                 </motion.div>
@@ -133,9 +131,9 @@ export default function NotionProgressBar({ committeeTasks, eventDate }: NotionP
                     </div>
 
                     <div className="flex items-center justify-between text-xs text-gray-500">
-                        <span>{Math.round(progressPercentage)}% complete</span>
+                        <span className="text-base font-bold text-blue-600">{Math.round(progressPercentage)}% complete</span>
                         {totalTasks - completedTasks > 0 && (
-                            <span>{totalTasks - completedTasks} tasks remaining</span>
+                            <span className="font-medium">{totalTasks - completedTasks} tasks remaining</span>
                         )}
                     </div>
                 </div>
@@ -201,24 +199,29 @@ export default function NotionProgressBar({ committeeTasks, eventDate }: NotionP
                                     </div>
 
                                     {/* Progress Percentage */}
-                                    <motion.span
+                                    <motion.div
                                         initial={{ opacity: 0 }}
                                         animate={{ opacity: 1 }}
                                         transition={{ delay: 0.5 + index * 0.1 }}
-                                        className="text-sm font-semibold text-gray-700"
+                                        className="flex flex-col items-end ml-3"
                                     >
-                                        {Math.round(progress)}%
-                                    </motion.span>
+                                        <span className="text-xl font-bold text-gray-900">
+                                            {Math.round(progress)}%
+                                        </span>
+                                        <span className="text-xs text-gray-500 whitespace-nowrap">
+                                            {committee.completed_tasks}/{committee.total_tasks} done
+                                        </span>
+                                    </motion.div>
                                 </div>
 
                                 {/* Progress Bar */}
                                 <div className="relative h-1.5 bg-gray-100 rounded-full overflow-hidden">
                                     <motion.div
                                         className={`absolute inset-y-0 left-0 rounded-full ${status === 'completed'
-                                                ? 'bg-green-500'
-                                                : status === 'in_progress'
-                                                    ? 'bg-blue-500'
-                                                    : 'bg-gray-300'
+                                            ? 'bg-green-500'
+                                            : status === 'in_progress'
+                                                ? 'bg-blue-500'
+                                                : 'bg-gray-300'
                                             }`}
                                         initial={{ width: 0 }}
                                         animate={{ width: `${progress}%` }}

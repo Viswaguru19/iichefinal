@@ -53,23 +53,15 @@ export default function CreateFormPage() {
       .insert({
         title: formData.get('title'),
         description: formData.get('description'),
-        created_by: user?.id
+        created_by: user?.id,
+        fields: fields // Store fields as JSONB
       })
       .select()
       .single();
 
     if (formError || !form) {
+      console.error('Form creation error:', formError);
       toast.error('Failed to create form');
-      setLoading(false);
-      return;
-    }
-
-    const { error: fieldsError } = await (supabase as any)
-      .from('form_fields')
-      .insert(fields.map(f => ({ ...f, form_id: form.id })));
-
-    if (fieldsError) {
-      toast.error('Failed to add fields');
       setLoading(false);
       return;
     }

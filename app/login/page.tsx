@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
+import DynamicLogo from '@/components/DynamicLogo';
 
 export default function LoginPage() {
   const [emailOrUsername, setEmailOrUsername] = useState('');
@@ -156,6 +157,9 @@ export default function LoginPage() {
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md">
         <div className="text-center mb-8">
+          <div className="flex items-center justify-center gap-3 mb-4">
+            <DynamicLogo width={60} height={60} />
+          </div>
           <Link href="/" className="text-3xl font-bold text-blue-600">IIChE AVVU</Link>
           <p className="text-gray-600 mt-2">Welcome back</p>
         </div>

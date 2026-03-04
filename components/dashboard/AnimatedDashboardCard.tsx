@@ -3,7 +3,7 @@
 import { motion } from 'framer-motion';
 import Link from 'next/link';
 import {
-    Users, Calendar, Trophy, DollarSign, Crown, Send, MessageSquare
+    Users, Calendar, Trophy, DollarSign, Crown, Send, MessageSquare, CheckCircle
 } from 'lucide-react';
 
 const iconMap = {
@@ -13,7 +13,8 @@ const iconMap = {
     DollarSign,
     Crown,
     Send,
-    MessageSquare
+    MessageSquare,
+    CheckCircle
 };
 
 interface AnimatedDashboardCardProps {
@@ -58,8 +59,8 @@ export default function AnimatedDashboardCard({
             <Link
                 href={href}
                 className={`block rounded-xl shadow-md p-6 transition-all duration-300 ${gradient
-                        ? `bg-gradient-to-r from-${gradientFrom} to-${gradientTo} text-white hover:shadow-xl`
-                        : 'bg-white hover:shadow-lg'
+                    ? `bg-gradient-to-r from-${gradientFrom} to-${gradientTo} text-white hover:shadow-xl`
+                    : 'bg-white hover:shadow-lg'
                     }`}
             >
                 <motion.div
