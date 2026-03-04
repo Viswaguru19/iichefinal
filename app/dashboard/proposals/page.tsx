@@ -37,33 +37,21 @@ export default function ProposalsPage() {
     const committeeIds = (profile as any)?.committee_members?.map((m: any) => m.committee_id) || [];
     setUserCommittees(committeeIds);
 
-    const isHead = (profile as any)?.committee_members?.some((m: any) => m.position === 'head');
+    const isHead = (profile as any)?.committee_members?.some((m: any) => m.position === 'head' || m.position === 'co_head');
     const isEC = (profile as any)?.executive_role !== null;
     const isFaculty = (profile as any)?.is_faculty;
     const isAdmin = (profile as any)?.is_admin;
 
     // ============================================
-    // ROLE-BASED VISIBILITY RULES
+    // SIMPLIFIED ROLE-BASED VISIBILITY
     // ============================================
-    // Build query based on role to enforce proper visibility at each approval stage:
+    // Query events based on user role with clear logic:
     //
-    // 1. Committee Heads (non-EC, non-faculty):
-    //    - See only their committee's proposals at 'pending_head_approval'
-    //    - Can approve to move to EC stage
-    //
-    // 2. EC Members (non-faculty):
-    //    - See proposals from 'pending_head_approval' onwards (READ-ONLY until head approves)
-    //    - At 'pending_head_approval': Can view details but cannot approve
-    //    - At 'pending_ec_approval': Can approve (2/6 threshold)
-    //    - This early visibility allows EC to prepare for review
-    //
-    // 3. Faculty & Admin:
-    //    - See all proposals at all stages
-    //    - Can perform final approval at 'pending_faculty_approval'
-    //
-    // 4. Regular Members:
-    //    - See only their committee's proposals
-    //    - Cannot approve
+    // 1. Committee Heads/Co-Heads: See their committee's pending events
+    // 2. EC Members: See all events at any status
+    // 3. Faculty/Admin: See all events
+    // 4. Regular Members: See their committee's events
+
     let query = supabase
       .from('events')
       .select(`
@@ -73,24 +61,22 @@ export default function ProposalsPage() {
         head_approver:head_approved_by(name),
         faculty_approver:faculty_approved_by(name),
         ec_approvals(user_id, approved, profiles(name, executive_role))
-      `);
+      `)
+      .order('created_at', { ascending: false });
 
-    if (isHead && !isEC && !isFaculty && !isAdmin) {
-      // Committee heads see their committee's pending proposals
-      query = query.in('committee_id', committeeIds).eq('status', 'pending_head_approval');
-    } else if (isEC && !isFaculty && !isAdmin) {
-      // EC members can see proposals from head stage onwards
-      // Including 'pending_head_approval' for read-only visibility
-      query = query.in('status', ['pending_head_approval', 'pending_ec_approval', 'pending_faculty_approval', 'active', 'cancelled']);
-    } else if (isFaculty || isAdmin) {
-      // Faculty and admin see all proposals
-      query = query.in('status', ['pending_head_approval', 'pending_ec_approval', 'pending_faculty_approval', 'active', 'cancelled']);
-    } else {
-      // Regular members see their committee's proposals
+    // Apply filters based on role
+    if (isFaculty || isAdmin || isEC) {
+      // Faculty, Admin, and EC see all events
+      // No additional filters needed
+    } else if (isHead && committeeIds.length > 0) {
+      // Committee heads see their committee's events
+      query = query.in('committee_id', committeeIds);
+    } else if (committeeIds.length > 0) {
+      // Regular members see their committee's events
       query = query.in('committee_id', committeeIds);
     }
 
-    const { data } = await query.order('created_at', { ascending: false });
+    const { data } = await query;
     setProposals(data || []);
 
     // Load EC approvals for pending EC proposals
@@ -247,7 +233,7 @@ export default function ProposalsPage() {
 
   const canApproveAsHead = (proposal: any) => {
     return userCommittees.includes(proposal.committee_id) &&
-      userProfile?.committee_members?.some((m: any) => m.position === 'head') &&
+      userProfile?.committee_members?.some((m: any) => (m.position === 'head' || m.position === 'co_head') && m.committee_id === proposal.committee_id) &&
       proposal.status === 'pending_head_approval';
   };
 

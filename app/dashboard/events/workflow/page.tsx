@@ -35,12 +35,12 @@ export default function EventWorkflowPage() {
     setCurrentUser(profile);
     setIsEC(profile?.executive_role !== null);
 
-    // Check if user is a committee head
+    // Check if user is a committee head or co-head
     const { data: membership } = await supabase
       .from('committee_members')
       .select('committee_id, position')
       .eq('user_id', user.id)
-      .eq('position', 'head')
+      .in('position', ['head', 'co_head'])
       .single();
 
     if (membership) {
@@ -168,8 +168,8 @@ export default function EventWorkflowPage() {
                     <p className="text-xs text-gray-500 mt-1">Proposed by {event.proposer?.name}</p>
                   </div>
                   <span className={`px-3 py-1 rounded-full text-sm font-medium ${event.status === 'pending_head_approval'
-                      ? 'bg-yellow-100 text-yellow-800'
-                      : 'bg-blue-100 text-blue-800'
+                    ? 'bg-yellow-100 text-yellow-800'
+                    : 'bg-blue-100 text-blue-800'
                     }`}>
                     {event.status === 'pending_head_approval' ? 'Pending Head' : 'Pending EC'}
                   </span>
