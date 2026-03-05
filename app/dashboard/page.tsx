@@ -330,49 +330,47 @@ export default async function DashboardPage() {
           </div>
         </AnimatedSection>
 
-        {!isStudent && (
-          <AnimatedSection delay={1.0}>
-            <div className="mt-8">
-              <h3 className="text-xl font-bold text-gray-900 mb-4">Committee Tools</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <AnimatedSection delay={1.0}>
+          <div className="mt-8">
+            <h3 className="text-xl font-bold text-gray-900 mb-4">Committee Tools</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <AnimatedDashboardCard
+                href="/dashboard/forms"
+                iconName="Users"
+                title="Forms"
+                description="Create and manage forms"
+                iconColor="blue-600"
+                index={0}
+              />
+              <AnimatedDashboardCard
+                href="/dashboard/meetings"
+                iconName="Calendar"
+                title="Meetings"
+                description="Schedule and track meetings"
+                iconColor="green-600"
+                index={1}
+              />
+              {isExecutive && (
                 <AnimatedDashboardCard
-                  href="/dashboard/forms"
-                  iconName="Users"
-                  title="Forms"
-                  description="Create and manage forms"
-                  iconColor="blue-600"
-                  index={0}
+                  href="/dashboard/events/workflow"
+                  iconName="Send"
+                  title="Event Approvals"
+                  description="Approve event proposals"
+                  iconColor="purple-600"
+                  index={2}
                 />
-                <AnimatedDashboardCard
-                  href="/dashboard/meetings"
-                  iconName="Calendar"
-                  title="Meetings"
-                  description="Schedule and track meetings"
-                  iconColor="green-600"
-                  index={1}
-                />
-                {isExecutive && (
-                  <AnimatedDashboardCard
-                    href="/dashboard/events/workflow"
-                    iconName="Send"
-                    title="Event Approvals"
-                    description="Approve event proposals"
-                    iconColor="purple-600"
-                    index={2}
-                  />
-                )}
-                <AnimatedDashboardCard
-                  href="/dashboard/events/progress"
-                  iconName="Trophy"
-                  title="Event Progress"
-                  description="Track tasks and updates"
-                  iconColor="yellow-600"
-                  index={3}
-                />
-              </div>
+              )}
+              <AnimatedDashboardCard
+                href="/dashboard/events/progress"
+                iconName="Trophy"
+                title="Event Progress"
+                description="Track tasks and updates"
+                iconColor="yellow-600"
+                index={3}
+              />
             </div>
-          </AnimatedSection>
-        )}
+          </div>
+        </AnimatedSection>
       </div>
     </div>
   );
