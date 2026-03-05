@@ -65,11 +65,11 @@ export default async function DashboardPage() {
     .eq('committee_id', '00000000-0000-0000-0000-000000000001')
     .order('position');
 
-  // Get upcoming events with progress
+  // Get upcoming events with progress (all non-completed events)
   const { data: eventProposals } = await supabase
     .from('events')
     .select('*, committees(name)')
-    .in('status', ['pending_head_approval', 'pending_ec_approval', 'approved', 'in_progress'])
+    .not('status', 'in', '(completed,cancelled,rejected)')
     .order('created_at', { ascending: false })
     .limit(10);
 
@@ -89,11 +89,35 @@ export default async function DashboardPage() {
     .eq('status', 'pending_head_approval')
     .order('created_at', { ascending: false });
 
-  // Calculate progress for each event
+  // Calculate progress for each event based on status
   const eventsWithProgress = eventProposals?.map((event: any) => {
     let progress = 0;
-    if (event.status === 'approved' || event.status === 'in_progress') progress = 20;
-    if (event.status === 'in_progress') progress = 60;
+
+    // Progress based on approval workflow
+    switch (event.status) {
+      case 'pending_head_approval':
+        progress = 10; // Just proposed
+        break;
+      case 'pending_ec_approval':
+        progress = 30; // Head approved, waiting for EC
+        break;
+      case 'pending_faculty_approval':
+        progress = 50; // EC approved, waiting for faculty
+        break;
+      case 'approved':
+        progress = 70; // Fully approved, ready to execute
+        break;
+      case 'active':
+      case 'in_progress':
+        progress = 85; // Event is happening
+        break;
+      case 'completed':
+        progress = 100; // Event completed
+        break;
+      default:
+        progress = 5; // Default for any other status
+    }
+
     return { ...event, progress };
   }) || [];
 
