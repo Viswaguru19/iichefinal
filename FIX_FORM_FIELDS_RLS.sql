@@ -1,23 +1,3 @@
-# Fix Forms Creation - Allow All Users
-
-## Issue
-Users are getting "failed to create form" error. This can be caused by:
-1. Restrictive RLS policy on forms table (FIXED - policy already exists)
-2. Missing RLS policies on form_fields table (NEEDS FIX)
-
-## Solution
-The forms table policy is already fixed. Now we need to fix the form_fields table policies.
-
-## Steps
-
-### Run This SQL in Supabase Dashboard
-1. Go to your Supabase Dashboard
-2. Navigate to SQL Editor
-3. Copy and paste the contents of `FIX_FORM_FIELDS_RLS.sql` (see below)
-4. Click "Run"
-
-### SQL to Run:
-```sql
 -- Fix form_fields RLS policies to allow form creators to add fields
 
 -- Enable RLS on form_fields if not already enabled
@@ -80,18 +60,3 @@ CREATE POLICY "Form creators can delete fields"
       AND (forms.created_by = auth.uid() OR is_admin(auth.uid()))
     )
   );
-```
-
-## Verification
-After running the migration:
-1. Log in as any user
-2. Go to Dashboard → Forms → Create Form
-3. Try creating a form with fields
-4. Should work without errors!
-
-## What This Does
-- Enables RLS on form_fields table
-- Allows form creators to add/edit/delete fields in their forms
-- Allows admins to manage all form fields
-- Allows everyone to view fields of active forms
-
