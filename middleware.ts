@@ -61,22 +61,20 @@ export async function middleware(request: NextRequest) {
 
     const { data: { user } } = await supabase.auth.getUser();
 
-  // Protected routes
-  if (request.nextUrl.pathname.startsWith('/dashboard') || 
-      request.nextUrl.pathname.startsWith('/admin') ||
-      request.nextUrl.pathname.startsWith('/executive') ||
-      request.nextUrl.pathname.startsWith('/committee')) {
-    if (!user) {
-      return NextResponse.redirect(new URL('/login', request.url));
+    // Protected routes (only /dashboard and /admin, not public pages)
+    if (request.nextUrl.pathname.startsWith('/dashboard') ||
+      request.nextUrl.pathname.startsWith('/admin')) {
+      if (!user) {
+        return NextResponse.redirect(new URL('/login', request.url));
+      }
     }
-  }
 
-  // Redirect to dashboard if already logged in and trying to access login
-  if (request.nextUrl.pathname === '/login' && user) {
-    return NextResponse.redirect(new URL('/dashboard', request.url));
-  }
+    // Redirect to dashboard if already logged in and trying to access login
+    if (request.nextUrl.pathname === '/login' && user) {
+      return NextResponse.redirect(new URL('/dashboard', request.url));
+    }
 
-  return response;
+    return response;
   } catch (err) {
     console.error('Middleware error - allowing request to proceed', err);
     return response;
