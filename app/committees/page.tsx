@@ -75,12 +75,12 @@ export default async function CommitteesPage() {
             const members = allMembers?.filter((m: any) => m.committee_id === committee.id) || [];
             const heads = members.filter((m: any) => m.position === 'head');
             const coHeads = members.filter((m: any) => m.position === 'co_head');
-            
+
             return (
               <Link
                 key={committee.id}
                 href={`/committees/${committee.id}`}
-                className="bg-white rounded-xl shadow-md hover:shadow-xl transition p-6 block"
+                className="bg-white rounded-xl shadow-md hover:shadow-xl transition p-6 block flex flex-col h-full"
               >
                 <div className="flex items-center gap-4 mb-4">
                   <div className="bg-blue-100 p-3 rounded-lg">
@@ -89,48 +89,50 @@ export default async function CommitteesPage() {
                   <h3 className="text-xl font-bold text-gray-900">{committee.name}</h3>
                 </div>
                 {committee.description && (
-                  <p className="text-gray-600 mb-4">{committee.description}</p>
+                  <p className="text-gray-600 mb-4 flex-grow">{committee.description}</p>
                 )}
-                
-                {heads.length > 0 && (
-                  <div className="mt-4">
-                    <p className="text-xs font-semibold text-gray-500 mb-2">HEADS</p>
-                    <div className="flex flex-wrap gap-2">
-                      {heads.map((member: any) => (
-                        <div key={member.profiles.id} className="flex items-center gap-2 bg-gray-50 rounded-full px-3 py-1">
-                          {member.profiles.avatar_url ? (
-                            <img src={member.profiles.avatar_url} alt={member.profiles.name} className="w-6 h-6 rounded-full object-cover" />
-                          ) : (
-                            <div className="w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-bold">
-                              {member.profiles.name.charAt(0)}
-                            </div>
-                          )}
-                          <span className="text-sm text-gray-700">{member.profiles.name}</span>
-                        </div>
-                      ))}
+
+                <div className="mt-auto space-y-3">
+                  {heads.length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold text-gray-500 mb-2">HEADS</p>
+                      <div className="flex flex-wrap gap-2">
+                        {heads.map((member: any) => (
+                          <div key={member.profiles.id} className="flex items-center gap-2 bg-gray-50 rounded-full px-3 py-1">
+                            {member.profiles.avatar_url ? (
+                              <img src={member.profiles.avatar_url} alt={member.profiles.name} className="w-6 h-6 rounded-full object-cover" />
+                            ) : (
+                              <div className="w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-bold">
+                                {member.profiles.name.charAt(0)}
+                              </div>
+                            )}
+                            <span className="text-sm text-gray-700">{member.profiles.name}</span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                )}
-                
-                {coHeads.length > 0 && (
-                  <div className="mt-3">
-                    <p className="text-xs font-semibold text-gray-500 mb-2">CO-HEADS</p>
-                    <div className="flex flex-wrap gap-2">
-                      {coHeads.map((member: any) => (
-                        <div key={member.profiles.id} className="flex items-center gap-2 bg-gray-50 rounded-full px-3 py-1">
-                          {member.profiles.avatar_url ? (
-                            <img src={member.profiles.avatar_url} alt={member.profiles.name} className="w-6 h-6 rounded-full object-cover" />
-                          ) : (
-                            <div className="w-6 h-6 rounded-full bg-green-600 flex items-center justify-center text-white text-xs font-bold">
-                              {member.profiles.name.charAt(0)}
-                            </div>
-                          )}
-                          <span className="text-sm text-gray-700">{member.profiles.name}</span>
-                        </div>
-                      ))}
+                  )}
+
+                  {coHeads.length > 0 && (
+                    <div>
+                      <p className="text-xs font-semibold text-gray-500 mb-2">CO-HEADS</p>
+                      <div className="flex flex-wrap gap-2">
+                        {coHeads.map((member: any) => (
+                          <div key={member.profiles.id} className="flex items-center gap-2 bg-gray-50 rounded-full px-3 py-1">
+                            {member.profiles.avatar_url ? (
+                              <img src={member.profiles.avatar_url} alt={member.profiles.name} className="w-6 h-6 rounded-full object-cover" />
+                            ) : (
+                              <div className="w-6 h-6 rounded-full bg-green-600 flex items-center justify-center text-white text-xs font-bold">
+                                {member.profiles.name.charAt(0)}
+                              </div>
+                            )}
+                            <span className="text-sm text-gray-700">{member.profiles.name}</span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
               </Link>
             );
           })}

@@ -125,13 +125,21 @@ export default function FormSubmitPage() {
             <Link href="/dashboard/forms" className="text-purple-600 hover:text-purple-700">
               <ArrowLeft className="w-6 h-6" />
             </Link>
-            <button
-              onClick={copyLink}
-              className="flex items-center gap-2 text-purple-600 hover:text-purple-700 font-medium"
-            >
-              {copied ? <Check className="w-5 h-5" /> : <Share2 className="w-5 h-5" />}
-              {copied ? 'Copied!' : 'Share'}
-            </button>
+            <div className="flex gap-2">
+              <Link
+                href={`/dashboard/forms/${params.id}/responses`}
+                className="flex items-center gap-2 text-purple-600 hover:text-purple-700 font-medium px-4 py-2 border border-purple-600 rounded-lg"
+              >
+                View Responses
+              </Link>
+              <button
+                onClick={copyLink}
+                className="flex items-center gap-2 text-purple-600 hover:text-purple-700 font-medium"
+              >
+                {copied ? <Check className="w-5 h-5" /> : <Share2 className="w-5 h-5" />}
+                {copied ? 'Copied!' : 'Share'}
+              </button>
+            </div>
           </div>
           <h1 className="text-4xl font-bold text-gray-900 mb-2">{form?.title}</h1>
           {form?.description && (

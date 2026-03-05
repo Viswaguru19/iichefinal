@@ -24,6 +24,11 @@ export default async function HomePage() {
     const { data } = supabase.storage
       .from('slideshow-photos')
       .getPublicUrl(slide.photo_url);
+    console.log('Slideshow photo:', {
+      id: slide.id,
+      filename: slide.photo_url,
+      publicUrl: data.publicUrl
+    });
     return {
       ...slide,
       photo_url: data.publicUrl
@@ -57,32 +62,42 @@ export default async function HomePage() {
       return { ...member, avatar_url: avatarUrl };
     }) || [];
 
-  // Get upcoming events
+  // Get upcoming events (only approved/active events)
   const { data: upcomingEvents } = await supabase
     .from('events')
     .select('*')
+    .eq('status', 'active')
     .gte('date', new Date().toISOString())
     .order('date')
     .limit(5);
 
+  // Get forms to show on homepage
+  const { data: homepageForms } = await supabase
+    .from('forms')
+    .select('*')
+    .eq('is_active', true)
+    .eq('show_on_homepage', true)
+    .order('created_at', { ascending: false })
+    .limit(3);
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-      <nav className="bg-white shadow-sm">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50 to-indigo-50">
+      <nav className="bg-white/80 backdrop-blur-md shadow-sm sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16 items-center">
             <Link href="/" className="flex items-center gap-3">
               <DynamicLogo width={40} height={40} />
-              <span className="text-2xl font-bold text-blue-600">IIChE AVVU</span>
+              <span className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">IIChE AVVU</span>
             </Link>
-            <div className="flex gap-4">
-              <Link href="/committees" className="text-gray-700 hover:text-blue-600">Committees</Link>
-              <Link href="/events" className="text-gray-700 hover:text-blue-600">Events</Link>
-              <Link href="/kickoff" className="text-gray-700 hover:text-blue-600">Kickoff</Link>
-              <Link href="/hiring" className="text-gray-700 hover:text-blue-600">Hiring</Link>
+            <div className="flex gap-6">
+              <Link href="/committees" className="text-gray-700 hover:text-blue-600 transition font-medium">Committees</Link>
+              <Link href="/events" className="text-gray-700 hover:text-blue-600 transition font-medium">Events</Link>
+              <Link href="/kickoff" className="text-gray-700 hover:text-blue-600 transition font-medium">Kickoff</Link>
+              <Link href="/hiring" className="text-gray-700 hover:text-blue-600 transition font-medium">Hiring</Link>
               {user ? (
-                <Link href="/dashboard" className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">Dashboard</Link>
+                <Link href="/dashboard" className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-5 py-2 rounded-full hover:shadow-lg transition-all hover:scale-105">Dashboard</Link>
               ) : (
-                <Link href="/login" className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">Login</Link>
+                <Link href="/login" className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-5 py-2 rounded-full hover:shadow-lg transition-all hover:scale-105">Login</Link>
               )}
             </div>
           </div>
@@ -90,39 +105,36 @@ export default async function HomePage() {
       </nav>
 
       {/* Hero Slideshow */}
-      <HeroSlideshow slides={slidesWithUrls} />
+      <div className="max-w-7xl mx-auto">
+        <HeroSlideshow slides={slidesWithUrls} />
+      </div>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        <div className="grid md:grid-cols-3 gap-8 mb-16">
-          <div className="bg-white rounded-xl shadow-lg p-8 text-center">
-            <div className="text-4xl font-bold text-blue-600 mb-2">8+</div>
-            <div className="text-gray-600">Active Committees</div>
+        <div className="grid md:grid-cols-3 gap-6 mb-16">
+          <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-xl p-8 text-center hover:shadow-2xl transition-all hover:scale-105">
+            <div className="text-5xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent mb-2">8+</div>
+            <div className="text-gray-700 font-medium">Active Committees</div>
           </div>
-          <div className="bg-white rounded-xl shadow-lg p-8 text-center">
-            <div className="text-4xl font-bold text-blue-600 mb-2">100+</div>
-            <div className="text-gray-600">Active Members</div>
+          <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-xl p-8 text-center hover:shadow-2xl transition-all hover:scale-105">
+            <div className="text-5xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent mb-2">100+</div>
+            <div className="text-gray-700 font-medium">Active Members</div>
           </div>
-          <div className="bg-white rounded-xl shadow-lg p-8 text-center">
-            <div className="text-4xl font-bold text-blue-600 mb-2">50+</div>
-            <div className="text-gray-600">Events Organized</div>
+          <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-xl p-8 text-center hover:shadow-2xl transition-all hover:scale-105">
+            <div className="text-5xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent mb-2">50+</div>
+            <div className="text-gray-700 font-medium">Events Organized</div>
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl shadow-xl p-12 mb-16">
-          <h2 className="text-3xl font-bold text-gray-900 mb-6 text-center">About IIChE AVVU</h2>
-          <div className="max-w-4xl mx-auto space-y-4">
+        <div className="bg-white/80 backdrop-blur-sm rounded-3xl shadow-2xl p-10 md:p-14 mb-16">
+          <h2 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent mb-8 text-center">About IIChE AVVU</h2>
+          <div className="max-w-4xl mx-auto space-y-6">
             <p className="text-lg text-gray-700 leading-relaxed">
-              Welcome to the Indian Institute of Chemical Engineers (IIChE) Student Chapter of Amrita Vishwa Vidyapeetham,
-              a growing center of chemical expertise. Our chapter is a lighthouse for people who are passionate about chemical
-              engineering, tucked away in the lush hallways of higher learning. We cordially encourage you to join us on a
-              journey that goes beyond the conventional bounds of education in this dynamic environment, where creativity and
-              curiosity collide and innovation ignites with every contact.
+              Welcome to the Indian Institute of Chemical Engineers (IIChE) Student Chapter at Amrita Vishwa Vidyapeetham.
+              We're a vibrant community of chemical engineering enthusiasts, fostering innovation and excellence in our field.
             </p>
             <p className="text-lg text-gray-700 leading-relaxed">
-              The IIChE-AVVU student chapter was formed in February 2023. The full functioning of the chapter was started in
-              April 2023 by the formation of 10 executive committees with 22 members, including a secretary, joint secretary,
-              and treasurer. One discovery at a time, we are collaborating to shape chemical engineering students' futures.
-              Welcome to a voyage where knowledge is the only restriction and the possibilities are endless.
+              Founded in February 2023, our chapter has grown to include 10 executive committees with 22 dedicated members.
+              Together, we're shaping the future of chemical engineering through collaboration, learning, and hands-on experience.
             </p>
           </div>
         </div>

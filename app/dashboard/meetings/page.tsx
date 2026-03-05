@@ -118,6 +118,10 @@ export default function MeetingsPage() {
       </nav>
 
       <div className="max-w-7xl mx-auto px-4 py-8">
+        <p className="text-sm text-gray-600 mb-6">
+          All members can schedule and manage meetings. Meetings are visible to everyone.
+        </p>
+
         {/* Filter Tabs */}
         <div className="flex gap-2 mb-6">
           <button
@@ -159,7 +163,7 @@ export default function MeetingsPage() {
             return (
               <div
                 key={meeting.id}
-                className={`bg-white rounded-xl shadow-lg p-6 hover:shadow-xl transition ${isPast ? 'opacity-75' : ''
+                className={`bg-white rounded-xl shadow-lg p-6 hover:shadow-xl transition flex flex-col h-full ${isPast ? 'opacity-75' : ''
                   }`}
               >
                 {/* Meeting Type Badge */}
@@ -187,26 +191,28 @@ export default function MeetingsPage() {
 
                 {/* Description */}
                 {meeting.description && (
-                  <p className="text-sm text-gray-700 mb-4 line-clamp-2">{meeting.description}</p>
+                  <p className="text-sm text-gray-700 mb-4 line-clamp-2 flex-grow">{meeting.description}</p>
                 )}
 
-                {/* Date & Time */}
-                <div className="flex items-center gap-2 text-sm text-gray-600 mb-2">
-                  <Calendar className="w-4 h-4" />
-                  <span>{meetingDate.toLocaleDateString('en-IN', {
-                    weekday: 'short',
-                    year: 'numeric',
-                    month: 'short',
-                    day: 'numeric'
-                  })}</span>
-                </div>
+                <div className="mt-auto space-y-2">
+                  {/* Date & Time */}
+                  <div className="flex items-center gap-2 text-sm text-gray-600">
+                    <Calendar className="w-4 h-4" />
+                    <span>{meetingDate.toLocaleDateString('en-IN', {
+                      weekday: 'short',
+                      year: 'numeric',
+                      month: 'short',
+                      day: 'numeric'
+                    })}</span>
+                  </div>
 
-                <div className="flex items-center gap-2 text-sm text-gray-600 mb-4">
-                  <Clock className="w-4 h-4" />
-                  <span>{meetingDate.toLocaleTimeString('en-IN', {
-                    hour: '2-digit',
-                    minute: '2-digit'
-                  })} • {meeting.duration} min</span>
+                  <div className="flex items-center gap-2 text-sm text-gray-600">
+                    <Clock className="w-4 h-4" />
+                    <span>{meetingDate.toLocaleTimeString('en-IN', {
+                      hour: '2-digit',
+                      minute: '2-digit'
+                    })} • {meeting.duration} min</span>
+                  </div>
                 </div>
 
                 {/* Location/Platform */}

@@ -53,6 +53,8 @@ export default async function AdminDashboard() {
           <AdminCard href="/dashboard/admin/hiring" icon={<Users />} title="Hiring Management" desc="Manage job positions" color="yellow" />
           <AdminCard href="/dashboard/admin/logo" icon={<ImageIcon />} title="Logo Management" desc="Upload and manage portal logo" color="pink" />
           <AdminCard href="/dashboard/admin/slideshow" icon={<ImageIcon />} title="Slideshow" desc="Manage homepage slideshow" color="teal" />
+          <AdminCard href="/dashboard/admin/events" icon={<Calendar />} title="All Events" desc="View, edit, and delete all events" color="orange" />
+          <AdminCard href="/dashboard/proposals" icon={<FileText />} title="All Proposals" desc="View and manage all proposals" color="cyan" />
           <AdminCard href="/dashboard/workflow-config" icon={<Settings />} title="Workflow Config" desc="Configure approval workflows" color="indigo" />
           <AdminCard href="/dashboard/kickoff" icon={<Trophy />} title="Kickoff Control" desc="Tournament management" color="green" />
         </div>
@@ -117,6 +119,8 @@ function AdminCard({ href, icon, title, desc, color }: any) {
     red: 'from-red-600 to-red-700',
     pink: 'from-pink-600 to-pink-700',
     teal: 'from-teal-600 to-teal-700',
+    orange: 'from-orange-600 to-orange-700',
+    cyan: 'from-cyan-600 to-cyan-700',
   };
 
   return (

@@ -1,9 +1,8 @@
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
-import Image from 'next/image';
-import { LogOut, Crown } from 'lucide-react';
-import DynamicLogo from '@/components/DynamicLogo';
+import { Crown } from 'lucide-react';
+import DashboardNav from '@/components/dashboard/DashboardNav';
 import AnimatedDashboardCard from '@/components/dashboard/AnimatedDashboardCard';
 import AnimatedEventProgress from '@/components/dashboard/AnimatedEventProgress';
 import AnimatedPendingApprovals from '@/components/dashboard/AnimatedPendingApprovals';
@@ -31,8 +30,7 @@ export default async function DashboardPage() {
   }
 
   const isStudent = (profile as any).role === 'student';
-  const isAdmin = ['super_admin', 'secretary'].includes((profile as any).role);
-  const canManageKickoff = ['super_admin', 'secretary', 'committee_head'].includes((profile as any).role);
+  const isAdmin = ['super_admin', 'secretary'].includes((profile as any).role) || (profile as any).is_admin;
   const isExecutive = (profile as any).executive_role !== null;
   const isFaculty = (profile as any).is_faculty === true;
 
@@ -45,6 +43,13 @@ export default async function DashboardPage() {
     .single();
 
   const committeeRole = userCommittee ? `${(userCommittee as any).committees.name} ${(userCommittee as any).position === 'head' ? 'Head' : (userCommittee as any).position === 'co_head' ? 'Co-Head' : 'Member'}` : null;
+
+  // Check if user can manage kickoff (admin OR Social & Environmental Committee head/co-head)
+  const canManageKickoff = isAdmin || (
+    userCommittee &&
+    (userCommittee as any).committees?.name === 'Social and Environmental Committee' &&
+    ((userCommittee as any).position === 'head' || (userCommittee as any).position === 'co_head')
+  );
 
   // Get committees
   const { data: committees } = await supabase
@@ -68,11 +73,11 @@ export default async function DashboardPage() {
     .order('created_at', { ascending: false })
     .limit(10);
 
-  // Get upcoming events
+  // Get upcoming events (only active/approved events)
   const { data: upcomingEvents } = await supabase
     .from('events')
     .select('*')
-    .eq('status', 'approved')
+    .eq('status', 'active')
     .gte('date', new Date().toISOString())
     .order('date', { ascending: true })
     .limit(5);
@@ -94,28 +99,7 @@ export default async function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <nav className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16 items-center">
-            <Link href="/dashboard" className="flex items-center gap-3">
-              <DynamicLogo width={40} height={40} />
-              <h1 className="text-2xl font-bold text-blue-600">IIChE AVVU Dashboard</h1>
-            </Link>
-            <div className="flex items-center gap-4">
-              <Link href="/dashboard/profile" className="text-gray-700 hover:text-blue-600">Profile</Link>
-              <span className="text-gray-700">{(profile as any).name}</span>
-              <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
-                {(profile as any).role.replace('_', ' ').toUpperCase()}
-              </span>
-              <form action="/api/auth/signout" method="POST">
-                <button type="submit" className="text-gray-600 hover:text-red-600">
-                  <LogOut className="w-5 h-5" />
-                </button>
-              </form>
-            </div>
-          </div>
-        </div>
-      </nav>
+      <DashboardNav userName={(profile as any).name} userRole={(profile as any).role} />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <AnimatedSection delay={0.1}>

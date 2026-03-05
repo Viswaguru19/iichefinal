@@ -12,8 +12,8 @@ export default async function EventsPage() {
       *,
       committee:committees(name)
     `)
-    .eq('approved', true)
-    .order('event_date', { ascending: false });
+    .eq('status', 'active')
+    .order('date', { ascending: false });
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -54,7 +54,7 @@ export default async function EventsPage() {
               <div className="space-y-2 text-sm text-gray-500">
                 <div className="flex items-center gap-2">
                   <Calendar className="w-4 h-4" />
-                  <span>{format(new Date(event.event_date), 'PPP')}</span>
+                  <span>{format(new Date(event.date), 'PPP')}</span>
                 </div>
                 {event.location && (
                   <div className="flex items-center gap-2">

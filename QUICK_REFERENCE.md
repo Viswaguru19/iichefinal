@@ -1,143 +1,102 @@
-# Event Approval Workflow - Quick Reference
+# 🚀 Quick Reference Card
 
-## Workflow Overview
+## 📋 What to Do Right Now
 
-```
-Member Proposes Event
-        ↓
-[pending_head_approval]
-        ↓
-Committee Head Approves
-        ↓
-[pending_ec_approval]
-        ↓
-1 EC Member Approves
-        ↓
-[approved]
-        ↓
-Shows in Event Progress
-```
+### 1. Run SQL Setup (Choose One)
 
-## Status Values
-
-| Status | Meaning | Who Can Act |
-|--------|---------|-------------|
-| `pending_head_approval` | Waiting for committee head | Committee head only |
-| `pending_ec_approval` | Waiting for EC approval | Any 1 EC member |
-| `approved` | Ready for execution | Shows in Event Progress |
-| `cancelled` | Rejected | No further action |
-
-## User Roles & Permissions
-
-### Committee Head
-- **Can see**: Events from their committee at `pending_head_approval`
-- **Can do**: Approve or reject events
-- **Page**: `/dashboard/events/workflow`
-
-### EC Member (Any of 6)
-- **Can see**: 
-  - All events at `pending_head_approval` (read-only)
-  - All events at `pending_ec_approval` (can approve)
-- **Can do**: Approve or reject events at `pending_ec_approval`
-- **Note**: Only 1 approval needed (not 2)
-- **Page**: `/dashboard/events/workflow`
-
-### Regular Member
-- **Can see**: Approved events
-- **Can do**: Propose events (if head/co-head), view progress
-- **Page**: `/dashboard/propose-event`, `/dashboard/events/progress`
-
-## Key Pages
-
-| Page | URL | Purpose |
-|------|-----|---------|
-| Propose Event | `/dashboard/propose-event` | Submit new event proposal |
-| Event Workflow | `/dashboard/events/workflow` | Approve/reject events |
-| Event Progress | `/dashboard/events/progress` | Track approved events |
-| Dashboard | `/dashboard` | See pending approvals summary |
-
-## Database Tables
-
-### `events`
-Main table for all events
-- `status`: Current approval status
-- `proposed_by`: User who proposed
-- `head_approved_by`: Committee head who approved
-- `head_approved_at`: Timestamp of head approval
-- `committee_id`: Which committee owns the event
-
-### `ec_approvals`
-Tracks individual EC member approvals
-- `event_id`: Which event
-- `user_id`: Which EC member
-- `approved`: Boolean (true/false)
-- `approved_at`: Timestamp
-
-### `approval_logs`
-Audit trail of all approval actions
-- `action`: What happened (approve_as_head, approve_as_ec, etc.)
-- `previous_status`: Status before action
-- `new_status`: Status after action
-- `user_id`: Who performed the action
-
-## Common SQL Queries
-
-### See pending events
+#### Option A: All-in-One (Recommended)
 ```sql
-SELECT id, title, status, committee_id 
-FROM events 
-WHERE status IN ('pending_head_approval', 'pending_ec_approval');
+-- Copy and paste this entire file in Supabase SQL Editor:
+COMPLETE_DATABASE_SETUP.sql
 ```
 
-### See approved events
+#### Option B: Individual Files (If Option A fails)
 ```sql
-SELECT id, title, status 
-FROM events 
-WHERE status = 'approved';
+-- Run these in order:
+1. STEP1_ADD_ENUM_VALUES.sql
+2. STEP2_ADD_COLUMNS.sql
+3. ADD_ACTIVE_ENUM_VALUE.sql
+4. CREATE_EC_APPROVALS_TABLE.sql
+5. ADD_WORKFLOW_CONFIG_SETTINGS.sql
+6. CREATE_NOTIFICATIONS_SYSTEM.sql
 ```
 
-### Check who approved an event
+### 2. Restart Server
+```bash
+# Press Ctrl+C to stop
+npm run dev
+```
+
+### 3. Test
+1. Open http://localhost:3000/dashboard
+2. Look for bell icon 🔔 in top right
+3. Propose an event
+4. Check notifications as committee head
+
+## ✅ Success Indicators
+
+You'll know it's working when:
+- ✅ Bell icon appears in dashboard header
+- ✅ No errors in browser console
+- ✅ Proposing event creates notification
+- ✅ Clicking bell shows dropdown
+- ✅ Badge shows unread count
+
+## 🎯 What You Get
+
+### Notification Bell
+- Location: Dashboard header (top right)
+- Shows: Unread count badge
+- Click: Opens dropdown with recent notifications
+- Real-time: Updates automatically
+
+### Notifications Page
+- URL: `/dashboard/notifications`
+- Features: View all, filter, mark read, delete
+
+### Automatic Notifications
+- 📝 Event proposed → Committee heads
+- ✅ Head approves → EC members
+- ✅ Event active → Proposer
+- ❌ Event rejected → Proposer
+- 🔄 EC revokes → Proposer & Head
+
+## 📖 Documentation
+
+- `FINAL_IMPLEMENTATION_SUMMARY.md` - Complete overview
+- `NOTIFICATION_SYSTEM_COMPLETE.md` - Notification details
+- `RUN_NOTIFICATIONS_SETUP.md` - Setup instructions
+- `SESSION_SUMMARY.md` - Previous features
+
+## 🐛 Quick Fixes
+
+### Bell icon not showing?
+```bash
+# Restart server
+npm run dev
+# Hard refresh browser
+Ctrl + Shift + R
+```
+
+### SQL errors?
 ```sql
-SELECT e.title, p.name, ea.approved_at
-FROM ec_approvals ea
-JOIN events e ON ea.event_id = e.id
-JOIN profiles p ON ea.user_id = p.id
-WHERE ea.event_id = 'EVENT_ID_HERE';
+-- Check if tables exist
+SELECT table_name FROM information_schema.tables 
+WHERE table_name IN ('notifications', 'ec_approvals', 'workflow_config');
+
+-- Check enum values
+SELECT unnest(enum_range(NULL::event_status));
 ```
 
-## Troubleshooting
+### Notifications not working?
+1. Check Supabase Realtime is enabled
+2. Verify triggers exist in Supabase dashboard
+3. Check browser console for errors
 
-### Event not showing for head?
-- Check event's `committee_id` matches head's committee
-- Verify status is `pending_head_approval`
-- Check head's position in `committee_members` table
+## 🎉 That's It!
 
-### Event not showing for EC?
-- Check status is `pending_ec_approval`
-- Verify user has `executive_role` set in profiles
-- Check if user already approved (can only approve once)
+Run the SQL, restart server, and you're done!
 
-### Event not in Event Progress?
-- Verify status is `approved`
-- Check Event Progress page queries for `approved` status
-- Run: `SELECT * FROM events WHERE status = 'approved';`
+---
 
-## Testing Checklist
-
-- [ ] Member proposes event → status = `pending_head_approval`
-- [ ] Committee head sees event in workflow page
-- [ ] EC members see event (read-only)
-- [ ] Head approves → status = `pending_ec_approval`
-- [ ] EC member sees event (can approve)
-- [ ] EC member approves → status = `approved`
-- [ ] Event appears in Event Progress
-- [ ] Only 1 EC approval was needed
-- [ ] Rejection works with reason
-
-## Important Notes
-
-1. **Only 1 EC approval needed** - Changed from 2 to 1
-2. **No faculty approval** - Removed this step entirely
-3. **Committee heads see only their events** - Not all events
-4. **EC members see all events** - But can only approve after head
-5. **Status is `approved` not `active`** - Changed terminology
+**Need more help?** See `FINAL_IMPLEMENTATION_SUMMARY.md`

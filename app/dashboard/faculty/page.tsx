@@ -113,7 +113,7 @@ export default function FacultyDashboard() {
             .from('events')
             .select('*', { count: 'exact', head: true })
             .eq('status', 'active')
-            .gte('event_date', new Date().toISOString());
+            .gte('date', new Date().toISOString());
 
         setStats({
             pendingEvents: pendingEvents || 0,
@@ -196,8 +196,8 @@ export default function FacultyDashboard() {
             .from('events')
             .select('*, committee:committees(name)')
             .eq('status', 'active')
-            .gte('event_date', new Date().toISOString())
-            .order('event_date', { ascending: true })
+            .gte('date', new Date().toISOString())
+            .order('date', { ascending: true })
             .limit(5);
 
         setUpcomingEvents(data || []);

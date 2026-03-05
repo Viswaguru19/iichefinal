@@ -54,6 +54,7 @@ export default function CreateFormPage() {
       .insert({
         title: formData.get('title'),
         description: formData.get('description'),
+        show_on_homepage: formData.get('show_on_homepage') === 'on',
         created_by: user?.id
       })
       .select()
@@ -66,7 +67,7 @@ export default function CreateFormPage() {
       return;
     }
 
-    // Insert form fields into form_fields table
+    // Insert form fields into form_fields table (if any)
     if (fields.length > 0) {
       const fieldsToInsert = fields.map(field => ({
         form_id: form.id,
@@ -123,6 +124,20 @@ export default function CreateFormPage() {
               rows={3}
               className="w-full border border-gray-300 dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
             />
+          </div>
+
+          <div>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                name="show_on_homepage"
+                className="rounded"
+              />
+              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Show on Homepage</span>
+            </label>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              If checked, this form will be visible on the homepage for all users
+            </p>
           </div>
 
           <div>
@@ -214,11 +229,16 @@ export default function CreateFormPage() {
 
           <button
             type="submit"
-            disabled={loading || fields.length === 0}
+            disabled={loading}
             className="w-full bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50"
           >
             {loading ? 'Creating...' : 'Create Form'}
           </button>
+          {fields.length === 0 && (
+            <p className="text-sm text-gray-500 dark:text-gray-400 text-center">
+              You can create the form now and add fields later by editing it
+            </p>
+          )}
         </form>
       </div>
     </div>

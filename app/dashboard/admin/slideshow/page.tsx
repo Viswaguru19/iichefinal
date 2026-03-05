@@ -198,6 +198,7 @@ export default function SlideshowManagementPage() {
         const { data } = supabase.storage
             .from('slideshow-photos')
             .getPublicUrl(path);
+        console.log('Generated photo URL:', data.publicUrl);
         return data.publicUrl;
     };
 
@@ -363,6 +364,10 @@ export default function SlideshowManagementPage() {
                                             src={getPhotoUrl(photo.photo_url)}
                                             alt={photo.title || 'Slideshow photo'}
                                             className="w-full h-full object-cover"
+                                            onError={(e) => {
+                                                console.error('Failed to load image:', photo.photo_url);
+                                                e.currentTarget.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="200" height="200"%3E%3Crect fill="%23ddd" width="200" height="200"/%3E%3Ctext fill="%23999" x="50%25" y="50%25" text-anchor="middle" dy=".3em"%3EImage Error%3C/text%3E%3C/svg%3E';
+                                            }}
                                         />
                                         {!photo.is_active && (
                                             <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center">

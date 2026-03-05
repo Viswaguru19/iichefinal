@@ -2,10 +2,12 @@
 
 import { useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { Edit, Trash2 } from 'lucide-react';
+import { Edit, Trash2, Camera } from 'lucide-react';
 import EditUserModal from '@/components/dashboard/EditUserModal';
 import UserToggle from '@/components/dashboard/UserToggle';
 import CreateAuthButton from '@/components/dashboard/CreateAuthButton';
+import UserProfilePhotoModal from '@/components/admin/UserProfilePhotoModal';
+import Image from 'next/image';
 
 interface User {
   id: string;
@@ -15,7 +17,7 @@ interface User {
   role: string;
   executive_role: string | null;
   approved: boolean;
-  committees?: Array<{committee_id: string, position: string}>;
+  committees?: Array<{ committee_id: string, position: string }>;
 }
 
 interface UserTableProps {
@@ -26,6 +28,7 @@ interface UserTableProps {
 export default function UserTable({ initialUsers, committees }: UserTableProps) {
   const [users, setUsers] = useState(initialUsers);
   const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [photoUser, setPhotoUser] = useState<User | null>(null);
   const supabase = createClient();
 
   async function deleteUser(userId: string, userName: string) {
@@ -45,7 +48,7 @@ export default function UserTable({ initialUsers, committees }: UserTableProps) 
       .from('profiles')
       .select('*')
       .order('created_at', { ascending: false });
-    
+
     const { data: committeeMemberships } = await supabase
       .from('committee_members')
       .select('user_id, committee_id, position');
@@ -57,7 +60,7 @@ export default function UserTable({ initialUsers, committees }: UserTableProps) 
         position: m.position
       })) || []
     })) || [];
-    
+
     if (usersWithCommittees) setUsers(usersWithCommittees);
   }
 
@@ -67,6 +70,7 @@ export default function UserTable({ initialUsers, committees }: UserTableProps) 
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b">
+              <th className="text-left py-3 px-4">Photo</th>
               <th className="text-left py-3 px-4">Name</th>
               <th className="text-left py-3 px-4">Email</th>
               <th className="text-left py-3 px-4">Username</th>
@@ -80,6 +84,31 @@ export default function UserTable({ initialUsers, committees }: UserTableProps) 
           <tbody>
             {users?.map((u) => (
               <tr key={u.id} className="border-b hover:bg-gray-50">
+                <td className="py-3 px-4">
+                  <button
+                    onClick={() => setPhotoUser(u)}
+                    className="relative group"
+                    title="Click to change photo"
+                  >
+                    {(u as any).profile_photo ? (
+                      <div className="relative w-10 h-10 rounded-full overflow-hidden border-2 border-gray-200 group-hover:border-blue-500">
+                        <Image
+                          src={(u as any).profile_photo}
+                          alt={u.name}
+                          fill
+                          className="object-cover"
+                        />
+                        <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                          <Camera className="w-4 h-4 text-white" />
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center group-hover:bg-blue-100 transition-colors">
+                        <Camera className="w-4 h-4 text-gray-400 group-hover:text-blue-600" />
+                      </div>
+                    )}
+                  </button>
+                </td>
                 <td className="py-3 px-4">{u.name}</td>
                 <td className="py-3 px-4 text-xs">{u.email}</td>
                 <td className="py-3 px-4">
@@ -140,6 +169,17 @@ export default function UserTable({ initialUsers, committees }: UserTableProps) 
           onClose={() => setEditingUser(null)}
           onSuccess={() => {
             setEditingUser(null);
+            refreshUsers();
+          }}
+        />
+      )}
+
+      {photoUser && (
+        <UserProfilePhotoModal
+          user={photoUser}
+          onClose={() => setPhotoUser(null)}
+          onSuccess={() => {
+            setPhotoUser(null);
             refreshUsers();
           }}
         />

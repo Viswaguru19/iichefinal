@@ -29,11 +29,31 @@ export default function KickoffControlPage() {
 
     const { data: profile } = await supabase
       .from('profiles')
-      .select('role')
+      .select('role, is_admin')
       .eq('id', user.id)
       .single();
 
-    if (!profile || !['super_admin', 'secretary', 'program_head', 'committee_head'].includes((profile as any).role)) {
+    // Check if user is admin
+    const isAdmin = profile?.role === 'super_admin' || profile?.role === 'secretary' || profile?.is_admin;
+
+    if (isAdmin) {
+      return; // Admin has access
+    }
+
+    // Check if user is head or co-head of Social and Environmental Committee
+    const { data: membership } = await supabase
+      .from('committee_members')
+      .select('position, committees(name)')
+      .eq('user_id', user.id)
+      .single();
+
+    const isSocialEnvHead =
+      membership &&
+      (membership as any).committees?.name === 'Social and Environmental Committee' &&
+      ((membership as any).position === 'head' || (membership as any).position === 'co_head');
+
+    if (!isSocialEnvHead) {
+      toast.error('Access denied - Only admins and Social & Environmental Committee heads can access Kickoff Control');
       router.push('/dashboard');
     }
   };
@@ -110,7 +130,7 @@ export default function KickoffControlPage() {
 
   const generateSchedule = async () => {
     const approvedTeams = teams.filter(t => t.approved);
-    
+
     if (approvedTeams.length < 2) {
       toast.error('Need at least 2 approved teams');
       return;
@@ -180,11 +200,10 @@ export default function KickoffControlPage() {
             </div>
             <button
               onClick={toggleTournament}
-              className={`flex items-center gap-2 px-6 py-3 rounded-lg font-semibold transition ${
-                tournamentActive 
-                  ? 'bg-red-600 hover:bg-red-700 text-white' 
+              className={`flex items-center gap-2 px-6 py-3 rounded-lg font-semibold transition ${tournamentActive
+                  ? 'bg-red-600 hover:bg-red-700 text-white'
                   : 'bg-green-600 hover:bg-green-700 text-white'
-              }`}
+                }`}
             >
               <Power className="w-5 h-5" />
               {tournamentActive ? 'Deactivate Tournament' : 'Activate Tournament'}

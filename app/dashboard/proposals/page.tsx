@@ -3,18 +3,25 @@
 import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
-import { CheckCircle, XCircle, Clock, Users, Crown } from 'lucide-react';
+import { CheckCircle, XCircle, Clock, Users, Crown, Edit, AlertTriangle } from 'lucide-react';
 import toast from 'react-hot-toast';
+import EditEventModal from '@/components/proposals/EditEventModal';
+import RevokeModal from '@/components/proposals/RevokeModal';
+import EditHistoryView from '@/components/proposals/EditHistoryView';
 
 export default function ProposalsPage() {
   const [proposals, setProposals] = useState<any[]>([]);
   const [userProfile, setUserProfile] = useState<any>(null);
   const [userCommittees, setUserCommittees] = useState<string[]>([]);
   const [ecApprovals, setEcApprovals] = useState<any>({});
+  const [profilesMap, setProfilesMap] = useState<any>({});
   const [loading, setLoading] = useState(false);
   const [selectedProposal, setSelectedProposal] = useState<any>(null);
   const [rejectionReason, setRejectionReason] = useState('');
   const [showRejectModal, setShowRejectModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showRevokeModal, setShowRevokeModal] = useState(false);
+  const [workflowConfig, setWorkflowConfig] = useState<any>(null);
   const supabase = createClient();
   const router = useRouter();
 
@@ -25,6 +32,15 @@ export default function ProposalsPage() {
   async function loadProposals() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return router.push('/login');
+
+    // Load workflow configuration
+    const { data: configData } = await supabase
+      .from('workflow_config')
+      .select('*')
+      .eq('workflow_type', 'approval_thresholds')
+      .single();
+
+    setWorkflowConfig(configData?.config || { ec_approvals_required: 2 });
 
     // Get user profile with committee memberships
     const { data: profile, error: profileError } = await supabase
@@ -50,10 +66,9 @@ export default function ProposalsPage() {
 
     const isHead = (profile as any)?.committee_members?.some((m: any) => m.position === 'head' || m.position === 'co_head');
     const isEC = (profile as any)?.executive_role !== null;
-    const isFaculty = (profile as any)?.is_faculty;
     const isAdmin = (profile as any)?.is_admin;
 
-    console.log('User roles:', { isHead, isEC, isFaculty, isAdmin });
+    console.log('User roles:', { isHead, isEC, isAdmin });
 
     // ============================================
     // SIMPLIFIED ROLE-BASED VISIBILITY
@@ -62,25 +77,23 @@ export default function ProposalsPage() {
     //
     // 1. Committee Heads/Co-Heads: See their committee's pending events
     // 2. EC Members: See all events at any status
-    // 3. Faculty/Admin: See all events
+    // 3. Admin: See all events
     // 4. Regular Members: See their committee's events
 
     let query = supabase
       .from('events')
       .select(`
         *,
-        committee:committee_id(name),
-        proposer:proposed_by(name),
-        head_approver:head_approved_by(name),
-        faculty_approver:faculty_approved_by(name),
-        ec_approvals(user_id, approved, profiles(name, executive_role))
+        committee:committees(name),
+        proposer:profiles!events_proposed_by_fkey(name),
+        head_approver:profiles!events_head_approved_by_fkey(name)
       `)
       .order('created_at', { ascending: false });
 
     // Apply filters based on role
-    if (isFaculty || isAdmin || isEC) {
-      // Faculty, Admin, and EC see all events
-      console.log('Query: No filters (Faculty/Admin/EC)');
+    if (isAdmin || isEC) {
+      // Admin and EC see all events
+      console.log('Query: No filters (Admin/EC)');
     } else if (isHead && committeeIds.length > 0) {
       // Committee heads see their committee's events
       console.log('Query: Filtering by committee IDs:', committeeIds);
@@ -106,22 +119,31 @@ export default function ProposalsPage() {
 
     setProposals(data || []);
 
-    // Load EC approvals for pending EC proposals
-    if (data) {
-      const ecProposalIds = data.filter(p => p.status === 'pending_ec_approval').map(p => p.id);
-      if (ecProposalIds.length > 0) {
-        const { data: approvals } = await supabase
-          .from('ec_approvals')
-          .select('*')
-          .in('event_id', ecProposalIds);
+    // Load EC approvals separately for all events
+    if (data && data.length > 0) {
+      const eventIds = data.map(e => e.id);
+      const { data: approvals } = await supabase
+        .from('ec_approvals')
+        .select('*, profiles(name, executive_role)')
+        .in('event_id', eventIds);
 
-        const approvalsMap: any = {};
-        approvals?.forEach(a => {
-          if (!approvalsMap[a.event_id]) approvalsMap[a.event_id] = [];
-          approvalsMap[a.event_id].push(a);
-        });
-        setEcApprovals(approvalsMap);
-      }
+      const approvalsMap: any = {};
+      approvals?.forEach(a => {
+        if (!approvalsMap[a.event_id]) approvalsMap[a.event_id] = [];
+        approvalsMap[a.event_id].push(a);
+      });
+      setEcApprovals(approvalsMap);
+
+      // Load all profiles for edit history
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('id, name');
+
+      const profilesMap: any = {};
+      profiles?.forEach(p => {
+        profilesMap[p.id] = p;
+      });
+      setProfilesMap(profilesMap);
     }
   }
 
@@ -168,31 +190,30 @@ export default function ProposalsPage() {
       if (approvalError) throw approvalError;
 
       // ============================================
-      // EC APPROVAL THRESHOLD: 2 out of 6
+      // EC APPROVAL THRESHOLD: DYNAMIC FROM CONFIG
       // ============================================
-      // Check how many EC members have approved. Only 2 approvals are required
-      // to move the event to faculty approval stage. This threshold balances:
-      // - Oversight: Multiple EC members review each event
-      // - Efficiency: Events don't require unanimous EC consent
-      // - Speed: Events can proceed without waiting for all 6 EC members
+      // Check how many EC members have approved based on workflow config.
+      // Default is 2 approvals, but admin can configure this in workflow settings.
       const { data: allApprovals } = await supabase
         .from('ec_approvals')
         .select('*')
         .eq('event_id', proposalId)
         .eq('approved', true);
 
-      // Only 2 EC approvals are required to move forward
-      if (allApprovals && allApprovals.length >= 2) {
-        // Enough EC members approved, move to faculty approval
+      // Get required approvals from workflow config (default: 2)
+      const requiredApprovals = workflowConfig?.ec_approvals_required || 2;
+
+      if (allApprovals && allApprovals.length >= requiredApprovals) {
+        // Enough EC members approved, activate event immediately
         const { error: updateError } = await supabase
           .from('events')
-          .update({ status: 'pending_faculty_approval' })
+          .update({ status: 'active' })
           .eq('id', proposalId);
 
         if (updateError) throw updateError;
-        toast.success('Executive Committee approval complete! Sent to Faculty Advisor');
+        toast.success('Executive Committee approval complete! Event is now active.');
       } else {
-        toast.success(`Your approval recorded (${allApprovals?.length || 0}/2 EC approvals)`);
+        toast.success(`Your approval recorded (${allApprovals?.length || 0}/${requiredApprovals} EC approvals)`);
       }
 
       loadProposals();
@@ -203,30 +224,7 @@ export default function ProposalsPage() {
     }
   }
 
-  async function handleFacultyApprove(proposalId: string) {
-    setLoading(true);
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
 
-      const { error } = await supabase
-        .from('events')
-        .update({
-          status: 'active',
-          faculty_approved_by: user?.id,
-          faculty_approved_at: new Date().toISOString()
-        })
-        .eq('id', proposalId);
-
-      if (error) throw error;
-
-      toast.success('Event approved and activated!');
-      loadProposals();
-    } catch (error: any) {
-      toast.error(error.message);
-    } finally {
-      setLoading(false);
-    }
-  }
 
   async function handleReject() {
     if (!selectedProposal || !rejectionReason.trim()) {
@@ -236,17 +234,35 @@ export default function ProposalsPage() {
 
     setLoading(true);
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+
+      // Check if rejecting as head
+      const isHead = userProfile?.committee_members?.some(
+        (m: any) => m.committee_id === selectedProposal.committee_id && m.position === 'head'
+      );
+
+      const updateData: any = {
+        rejection_reason: rejectionReason
+      };
+
+      if (isHead) {
+        // Head rejection - use rejected_by_head status
+        updateData.status = 'rejected_by_head';
+        updateData.head_rejection_reason = rejectionReason;
+        updateData.head_rejected_at = new Date().toISOString();
+      } else {
+        // EC rejection - use cancelled status
+        updateData.status = 'cancelled';
+      }
+
       const { error } = await supabase
         .from('events')
-        .update({
-          status: 'cancelled',
-          rejection_reason: rejectionReason
-        })
+        .update(updateData)
         .eq('id', selectedProposal.id);
 
       if (error) throw error;
 
-      toast.success('Proposal rejected');
+      toast.success(isHead ? 'Proposal rejected. EC can review.' : 'Proposal rejected');
       setShowRejectModal(false);
       setSelectedProposal(null);
       setRejectionReason('');
@@ -258,21 +274,41 @@ export default function ProposalsPage() {
     }
   }
 
+  async function handleAcceptRejection(proposalId: string) {
+    setLoading(true);
+    try {
+      const { error } = await supabase
+        .from('events')
+        .update({ status: 'cancelled' })
+        .eq('id', proposalId);
+
+      if (error) throw error;
+
+      toast.success('Head rejection accepted. Event cancelled.');
+      loadProposals();
+    } catch (error: any) {
+      toast.error(error.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   const canApproveAsHead = (proposal: any) => {
-    return userCommittees.includes(proposal.committee_id) &&
-      userProfile?.committee_members?.some((m: any) => (m.position === 'head' || m.position === 'co_head') && m.committee_id === proposal.committee_id) &&
-      proposal.status === 'pending_head_approval';
+    // only the committee *head* should be able to perform this action. co-heads
+    // are allowed to see the proposal (they may assist) but shouldn't be able to
+    // self-approve especially if they created it themselves.
+    if (!userCommittees.includes(proposal.committee_id)) return false;
+    const membership = userProfile?.committee_members?.find((m: any) => m.committee_id === proposal.committee_id);
+    if (!membership || membership.position !== 'head') return false;
+    return proposal.status === 'pending_head_approval';
   };
 
   const canApproveAsEC = (proposal: any) => {
-    return userProfile?.executive_role !== null && proposal.status === 'pending_ec_approval';
+    return userProfile?.executive_role !== null &&
+      (proposal.status === 'pending_ec_approval' || proposal.status === 'rejected_by_head');
   };
 
-  const canApproveAsFaculty = (proposal: any) => {
-    // Faculty, admin, or any EC member can perform the final approval step
-    return (userProfile?.is_faculty || userProfile?.is_admin || userProfile?.executive_role !== null) &&
-      proposal.status === 'pending_faculty_approval';
-  };
+
 
   const hasECApproved = (proposal: any) => {
     const approvals = ecApprovals[proposal.id] || [];
@@ -295,6 +331,7 @@ export default function ProposalsPage() {
           {proposals.map((proposal) => {
             const approvals = ecApprovals[proposal.id] || [];
             const ecApprovalCount = approvals.filter((a: any) => a.approved).length;
+            const requiredApprovals = workflowConfig?.ec_approvals_required || 2;
 
             return (
               <div key={proposal.id} className="bg-white rounded-xl shadow-lg p-6">
@@ -306,8 +343,8 @@ export default function ProposalsPage() {
                   </div>
                   <span className={`px-3 py-1 rounded-full text-xs font-bold whitespace-nowrap ml-4 ${proposal.status === 'active' ? 'bg-green-100 text-green-800' :
                     proposal.status === 'cancelled' ? 'bg-red-100 text-red-800' :
-                      proposal.status === 'pending_faculty_approval' ? 'bg-purple-100 text-purple-800' :
-                        proposal.status === 'pending_ec_approval' ? 'bg-blue-100 text-blue-800' :
+                      proposal.status === 'pending_ec_approval' ? 'bg-blue-100 text-blue-800' :
+                        proposal.status === 'rejected_by_head' ? 'bg-red-100 text-red-800' :
                           'bg-yellow-100 text-yellow-800'
                     }`}>
                     {proposal.status.replace(/_/g, ' ').toUpperCase()}
@@ -332,20 +369,44 @@ export default function ProposalsPage() {
                   )}
                 </div>
 
+                {/* Supporting Documents */}
+                {proposal.documents && Array.isArray(proposal.documents) && proposal.documents.length > 0 && (
+                  <div className="mb-4 p-4 bg-gray-50 rounded-lg">
+                    <h4 className="font-semibold text-gray-900 mb-2">Supporting Documents</h4>
+                    <div className="space-y-2">
+                      {proposal.documents.map((doc: any, idx: number) => (
+                        <a
+                          key={idx}
+                          href={doc.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-700"
+                        >
+                          <span>📄</span>
+                          <span>{doc.name}</span>
+                          <span className="text-xs text-gray-500">
+                            ({new Date(doc.uploaded_at).toLocaleDateString()})
+                          </span>
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* EC Approval Progress */}
                 {/* Display approval progress when event is at EC approval stage.
-                    Shows X/2 progress (2 out of 6 EC members required) with visual
+                    Shows X/Y progress (configurable EC members required) with visual
                     progress bar and list of members who have approved. */}
                 {proposal.status === 'pending_ec_approval' && (
                   <div className="mb-4 p-4 bg-blue-50 rounded-lg">
                     <div className="flex items-center gap-2 mb-2">
                       <Users className="w-5 h-5 text-blue-600" />
-                      <span className="font-semibold text-blue-900">EC Approval Progress: {ecApprovalCount}/2</span>
+                      <span className="font-semibold text-blue-900">EC Approval Progress: {ecApprovalCount}/{requiredApprovals}</span>
                     </div>
                     <div className="w-full bg-blue-200 rounded-full h-2">
                       <div
                         className="bg-blue-600 h-2 rounded-full transition-all"
-                        style={{ width: `${(ecApprovalCount / 2) * 100}%` }}
+                        style={{ width: `${(ecApprovalCount / requiredApprovals) * 100}%` }}
                       />
                     </div>
                     {approvals.length > 0 && (
@@ -361,7 +422,7 @@ export default function ProposalsPage() {
                 )}
 
                 {/* Approval History */}
-                {(proposal.head_approved_by || proposal.faculty_approved_by) && (
+                {(proposal.head_approved_by || proposal.status === 'active') && (
                   <div className="mb-4 p-4 bg-gray-50 rounded-lg">
                     <h4 className="font-semibold text-gray-900 mb-2">Approval History</h4>
                     <div className="space-y-1 text-sm text-gray-600">
@@ -371,16 +432,10 @@ export default function ProposalsPage() {
                           <span>Committee Head: {proposal.head_approver?.name}</span>
                         </div>
                       )}
-                      {proposal.status === 'pending_faculty_approval' && (
+                      {proposal.status === 'active' && (
                         <div className="flex items-center gap-2">
                           <CheckCircle className="w-4 h-4 text-green-600" />
-                          <span>Executive Committee: Minimum approvals received</span>
-                        </div>
-                      )}
-                      {proposal.faculty_approved_by && (
-                        <div className="flex items-center gap-2">
-                          <CheckCircle className="w-4 h-4 text-green-600" />
-                          <span>Faculty Advisor: {proposal.faculty_approver?.name}</span>
+                          <span>Executive Committee: Approved and Active</span>
                         </div>
                       )}
                     </div>
@@ -395,17 +450,51 @@ export default function ProposalsPage() {
                   </div>
                 )}
 
+                {/* Edit History */}
+                {proposal.edit_history && Array.isArray(proposal.edit_history) && proposal.edit_history.length > 0 && (
+                  <EditHistoryView history={proposal.edit_history} profiles={profilesMap} />
+                )}
+
+                {/* Head Rejection Notice for EC */}
+                {proposal.status === 'rejected_by_head' && userProfile?.executive_role !== null && proposal.head_rejection_reason && (
+                  <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className="w-5 h-5 text-red-600 mt-0.5" />
+                      <div>
+                        <p className="text-sm font-semibold text-red-900">Rejected by Committee Head</p>
+                        <p className="text-sm text-red-800 mt-1">{proposal.head_rejection_reason}</p>
+                        {proposal.head_rejected_at && (
+                          <p className="text-xs text-red-700 mt-2">
+                            Rejected at: {new Date(proposal.head_rejected_at).toLocaleString('en-IN')}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Action Buttons */}
                 <div className="flex gap-2 mt-4">
                   {canApproveAsHead(proposal) && (
                     <>
+                      <button
+                        onClick={() => {
+                          setSelectedProposal(proposal);
+                          setShowEditModal(true);
+                        }}
+                        disabled={loading}
+                        className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                      >
+                        <Edit className="w-4 h-4" />
+                        Review & Edit
+                      </button>
                       <button
                         onClick={() => handleHeadApprove(proposal.id)}
                         disabled={loading}
                         className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 disabled:opacity-50"
                       >
                         <CheckCircle className="w-4 h-4" />
-                        Approve as Head
+                        Approve & Send to EC
                       </button>
                       <button
                         onClick={() => {
@@ -417,6 +506,31 @@ export default function ProposalsPage() {
                       >
                         <XCircle className="w-4 h-4" />
                         Reject
+                      </button>
+                    </>
+                  )}
+
+                  {/* EC Actions for Rejected Events */}
+                  {proposal.status === 'rejected_by_head' && canApproveAsEC(proposal) && (
+                    <>
+                      <button
+                        onClick={() => handleAcceptRejection(proposal.id)}
+                        disabled={loading}
+                        className="flex items-center gap-2 bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 disabled:opacity-50"
+                      >
+                        <CheckCircle className="w-4 h-4" />
+                        Accept Rejection
+                      </button>
+                      <button
+                        onClick={() => {
+                          setSelectedProposal(proposal);
+                          setShowRevokeModal(true);
+                        }}
+                        disabled={loading}
+                        className="flex items-center gap-2 bg-orange-600 text-white px-4 py-2 rounded-lg hover:bg-orange-700 disabled:opacity-50"
+                      >
+                        <AlertTriangle className="w-4 h-4" />
+                        Revoke & Review
                       </button>
                     </>
                   )}
@@ -450,30 +564,6 @@ export default function ProposalsPage() {
                       <CheckCircle className="w-5 h-5" />
                       You have approved this proposal
                     </span>
-                  )}
-
-                  {canApproveAsFaculty(proposal) && (
-                    <>
-                      <button
-                        onClick={() => handleFacultyApprove(proposal.id)}
-                        disabled={loading}
-                        className="flex items-center gap-2 bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 disabled:opacity-50"
-                      >
-                        <CheckCircle className="w-4 h-4" />
-                        Approve as Faculty
-                      </button>
-                      <button
-                        onClick={() => {
-                          setSelectedProposal(proposal);
-                          setShowRejectModal(true);
-                        }}
-                        disabled={loading}
-                        className="flex items-center gap-2 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 disabled:opacity-50"
-                      >
-                        <XCircle className="w-4 h-4" />
-                        Reject
-                      </button>
-                    </>
                   )}
 
                   {/* EC Read-Only View for pending_head_approval */}
@@ -553,6 +643,30 @@ export default function ProposalsPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Edit Modal */}
+      {showEditModal && selectedProposal && (
+        <EditEventModal
+          event={selectedProposal}
+          onClose={() => {
+            setShowEditModal(false);
+            setSelectedProposal(null);
+          }}
+          onSuccess={loadProposals}
+        />
+      )}
+
+      {/* Revoke Modal */}
+      {showRevokeModal && selectedProposal && (
+        <RevokeModal
+          event={selectedProposal}
+          onClose={() => {
+            setShowRevokeModal(false);
+            setSelectedProposal(null);
+          }}
+          onSuccess={loadProposals}
+        />
       )}
     </div>
   );
