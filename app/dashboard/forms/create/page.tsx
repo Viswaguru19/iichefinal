@@ -48,46 +48,45 @@ export default function CreateFormPage() {
     const formData = new FormData(e.currentTarget);
     const { data: { user } } = await supabase.auth.getUser();
 
-    // Create the form first
-    const { data: form, error: formError } = await (supabase as any)
+    if (!user) {
+      toast.error('You must be logged in to create a form');
+      setLoading(false);
+      return;
+    }
+
+    // Validate fields
+    if (fields.length === 0) {
+      toast.error('Please add at least one field to the form');
+      setLoading(false);
+      return;
+    }
+
+    // Validate that all fields have labels
+    const invalidFields = fields.filter(f => !f.label.trim());
+    if (invalidFields.length > 0) {
+      toast.error('All fields must have labels');
+      setLoading(false);
+      return;
+    }
+
+    // Create the form with fields as JSONB
+    const { data: form, error: formError } = await supabase
       .from('forms')
       .insert({
         title: formData.get('title'),
         description: formData.get('description'),
-        show_on_homepage: formData.get('show_on_homepage') === 'on',
-        created_by: user?.id
+        fields: fields, // Store fields as JSONB
+        created_by: user.id,
+        is_active: true
       })
       .select()
       .single();
 
     if (formError || !form) {
       console.error('Form creation error:', formError);
-      toast.error('Failed to create form');
+      toast.error(`Failed to create form: ${formError?.message || 'Unknown error'}`);
       setLoading(false);
       return;
-    }
-
-    // Insert form fields into form_fields table (if any)
-    if (fields.length > 0) {
-      const fieldsToInsert = fields.map(field => ({
-        form_id: form.id,
-        field_type: field.field_type,
-        label: field.label,
-        options: field.options.length > 0 ? field.options : null,
-        required: field.required,
-        order_index: field.order_index
-      }));
-
-      const { error: fieldsError } = await supabase
-        .from('form_fields')
-        .insert(fieldsToInsert);
-
-      if (fieldsError) {
-        console.error('Fields creation error:', fieldsError);
-        toast.error('Failed to create form fields');
-        setLoading(false);
-        return;
-      }
     }
 
     const formLink = `${window.location.origin}/dashboard/forms/${form.id}`;

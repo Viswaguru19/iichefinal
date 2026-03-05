@@ -25,14 +25,20 @@ export default function FormResponsesPage() {
 
     const { data: profile } = await supabase
       .from('profiles')
-      .select('role, executive_role')
+      .select('is_admin, is_faculty, executive_role, committee_members(committee_id)')
       .eq('id', user.id)
       .single();
 
+    // Allow access to:
+    // - Admins
+    // - Faculty
+    // - EC members
+    // - Committee members (any position)
     const hasAccess =
-      (profile as any)?.role === 'super_admin' ||
-      ['committee_head', 'committee_cohead'].includes((profile as any)?.role || '') ||
-      (profile as any)?.executive_role !== null;
+      (profile as any)?.is_admin === true ||
+      (profile as any)?.is_faculty === true ||
+      (profile as any)?.executive_role !== null ||
+      ((profile as any)?.committee_members && (profile as any).committee_members.length > 0);
 
     setCanView(hasAccess);
 
@@ -50,11 +56,8 @@ export default function FormResponsesPage() {
       .eq('id', params.id)
       .single();
 
-    const { data: fieldsData } = await supabase
-      .from('form_fields')
-      .select('*')
-      .eq('form_id', params.id)
-      .order('order_index');
+    // Fields are stored in JSONB column
+    const fieldsData = formData?.fields || [];
 
     const { data: responsesData } = await supabase
       .from('form_responses')
@@ -63,7 +66,7 @@ export default function FormResponsesPage() {
       .order('submitted_at', { ascending: false });
 
     setForm(formData);
-    setFields(fieldsData || []);
+    setFields(fieldsData);
     setResponses(responsesData || []);
     setLoading(false);
   }

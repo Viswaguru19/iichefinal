@@ -33,18 +33,20 @@ export default function FormSubmitPage() {
     console.log('Form data:', formData);
     console.log('Form error:', formError);
 
-    const { data: fieldsData, error: fieldsError } = await supabase
-      .from('form_fields')
-      .select('*')
-      .eq('form_id', params.id)
-      .order('order_index');
+    if (formError) {
+      console.error('Error fetching form:', formError);
+      toast.error('Failed to load form');
+      setLoading(false);
+      return;
+    }
 
-    console.log('Fields data:', fieldsData);
-    console.log('Fields error:', fieldsError);
-    console.log('Number of fields:', fieldsData?.length || 0);
+    // Fields are stored in the JSONB 'fields' column
+    const fieldsData = formData?.fields || [];
+    console.log('Fields from JSONB:', fieldsData);
+    console.log('Number of fields:', fieldsData.length);
 
     setForm(formData);
-    setFields(fieldsData || []);
+    setFields(fieldsData);
     setLoading(false);
   }
 
@@ -57,11 +59,14 @@ export default function FormSubmitPage() {
     const { data: { user } } = await supabase.auth.getUser();
 
     // Process each field
-    for (const field of fields) {
+    for (let i = 0; i < fields.length; i++) {
+      const field = fields[i];
+      const fieldKey = `field_${i}`; // Use index as key
+
       if (field.field_type === 'checkbox') {
-        responses[field.id] = formData.getAll(field.id);
+        responses[field.label] = formData.getAll(fieldKey);
       } else if (field.field_type === 'file') {
-        const file = formData.get(field.id) as File;
+        const file = formData.get(fieldKey) as File;
         if (file && file.size > 0) {
           // Upload file to storage
           const fileExt = file.name.split('.').pop();
@@ -78,14 +83,14 @@ export default function FormSubmitPage() {
           }
 
           // Store the file path in responses
-          responses[field.id] = fileName;
+          responses[field.label] = fileName;
         }
       } else {
-        responses[field.id] = formData.get(field.id);
+        responses[field.label] = formData.get(fieldKey);
       }
     }
 
-    const { error } = await (supabase as any)
+    const { error } = await supabase
       .from('form_responses')
       .insert({
         form_id: params.id,
@@ -94,6 +99,7 @@ export default function FormSubmitPage() {
       });
 
     if (error) {
+      console.error('Form submission error:', error);
       toast.error('Failed to submit form');
     } else {
       toast.success('Form submitted successfully');
@@ -160,7 +166,7 @@ export default function FormSubmitPage() {
           )}
 
           {fields.map((field, index) => (
-            <div key={field.id} className="bg-white shadow-md p-6 hover:shadow-lg transition">
+            <div key={index} className="bg-white shadow-md p-6 hover:shadow-lg transition">
               <label className="block text-lg font-medium text-gray-900 mb-4">
                 {field.label}
                 {field.required && <span className="text-red-600 ml-1">*</span>}
@@ -169,7 +175,7 @@ export default function FormSubmitPage() {
               {field.field_type === 'text' && (
                 <input
                   type="text"
-                  name={field.id}
+                  name={`field_${index}`}
                   required={field.required}
                   placeholder="Your answer"
                   className="w-full border-b-2 border-gray-300 focus:border-purple-600 outline-none px-2 py-2 text-gray-900"
@@ -179,7 +185,7 @@ export default function FormSubmitPage() {
               {field.field_type === 'email' && (
                 <input
                   type="email"
-                  name={field.id}
+                  name={`field_${index}`}
                   required={field.required}
                   placeholder="Your email"
                   className="w-full border-b-2 border-gray-300 focus:border-purple-600 outline-none px-2 py-2 text-gray-900"
@@ -189,7 +195,7 @@ export default function FormSubmitPage() {
               {field.field_type === 'number' && (
                 <input
                   type="number"
-                  name={field.id}
+                  name={`field_${index}`}
                   required={field.required}
                   placeholder="Your answer"
                   className="w-full border-b-2 border-gray-300 focus:border-purple-600 outline-none px-2 py-2 text-gray-900"
@@ -199,7 +205,7 @@ export default function FormSubmitPage() {
               {field.field_type === 'date' && (
                 <input
                   type="date"
-                  name={field.id}
+                  name={`field_${index}`}
                   required={field.required}
                   className="w-full border-b-2 border-gray-300 focus:border-purple-600 outline-none px-2 py-2 text-gray-900"
                 />
@@ -207,7 +213,7 @@ export default function FormSubmitPage() {
 
               {field.field_type === 'textarea' && (
                 <textarea
-                  name={field.id}
+                  name={`field_${index}`}
                   required={field.required}
                   rows={4}
                   placeholder="Long answer text"
@@ -219,7 +225,7 @@ export default function FormSubmitPage() {
                 <div>
                   <input
                     type="file"
-                    name={field.id}
+                    name={`field_${index}`}
                     required={field.required}
                     accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.gif"
                     className="w-full border-2 border-dashed border-gray-300 focus:border-purple-600 outline-none px-4 py-3 text-gray-900 rounded-lg cursor-pointer hover:bg-gray-50"
@@ -232,7 +238,7 @@ export default function FormSubmitPage() {
 
               {field.field_type === 'dropdown' && (
                 <select
-                  name={field.id}
+                  name={`field_${index}`}
                   required={field.required}
                   className="w-full border-b-2 border-gray-300 focus:border-purple-600 outline-none px-2 py-2 text-gray-900"
                 >

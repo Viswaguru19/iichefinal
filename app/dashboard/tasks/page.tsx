@@ -59,7 +59,7 @@ export default function TasksPage() {
       .from('task_assignments')
       .select(`
         *,
-        event:events(title, date, status, committee_id, committees(name)),
+        event:events(title, event_date, status, committee_id, committees(name)),
         assigned_to:assigned_to_committee(name),
         assigned_by:assigned_by_committee(name),
         assigner:assigned_by_user(name),
@@ -76,13 +76,19 @@ export default function TasksPage() {
         .in('status', ['approved', 'in_progress', 'completed']);
     }
 
-    const { data: tasksData } = await tasksQuery;
+    const { data: tasksData, error: tasksError } = await tasksQuery;
+
+    if (tasksError) {
+      console.error('Tasks query error:', tasksError);
+    }
+
+    console.log('Tasks loaded:', tasksData);
     setTasks(tasksData || []);
 
     // Load active/in_progress events for task assignment
     const { data: eventsData } = await supabase
       .from('events')
-      .select('id, title, date, status, committee_id, committees(name)')
+      .select('id, title, event_date, status, committee_id, committees(name)')
       .in('status', ['active', 'in_progress']);
     setEvents(eventsData || []);
 

@@ -61,7 +61,7 @@ export default function EventProgressPage() {
         faculty_approver:faculty_approved_by(name)
       `)
       .eq('status', 'active')
-      .order('date', { ascending: false });
+      .order('event_date', { ascending: false });
 
     // Debug logging
     console.log('=== EVENT PROGRESS DEBUG ===');
@@ -249,17 +249,17 @@ export default function EventProgressPage() {
 
   // Build committee task summary for progress bar
   // Only include tasks that have been approved by any EC member.
-  // Tasks at 'pending' status are excluded because they haven't been officially assigned yet.
+  // Tasks at 'pending_ec_approval' status are excluded because they haven't been officially assigned yet.
   const getCommitteeTaskSummary = () => {
     const committeeMap = new Map();
 
     tasks.forEach(task => {
       // Only include tasks that have been approved
-      if (task.status === 'pending' || !task.ec_approved_by) {
+      if (task.status === 'pending_ec_approval' || task.status === 'rejected') {
         return;
       }
 
-      const committeeName = task.assigned_committee?.name || 'Unassigned';
+      const committeeName = task.assigned_to?.name || 'Unassigned';
       if (!committeeMap.has(committeeName)) {
         committeeMap.set(committeeName, {
           committee_name: committeeName,
@@ -284,6 +284,9 @@ export default function EventProgressPage() {
 
     return Array.from(committeeMap.values());
   };
+
+  // Count pending tasks for EC approval
+  const pendingECApprovalCount = tasks.filter(t => t.status === 'pending_ec_approval').length;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -349,12 +352,25 @@ export default function EventProgressPage() {
               <>
                 {/* Ultra-Premium Interactive Progress */}
                 <div className="mb-6">
-                  <h2 className="text-3xl font-bold text-gray-900 mb-2">{selectedEvent.title}</h2>
-                  <p className="text-gray-600 mb-6">{selectedEvent.description}</p>
+                  <div className="flex justify-between items-start mb-4">
+                    <div>
+                      <h2 className="text-3xl font-bold text-gray-900 mb-2">{selectedEvent.title}</h2>
+                      <p className="text-gray-600">{selectedEvent.description}</p>
+                    </div>
+                    {isExecutive && pendingECApprovalCount > 0 && (
+                      <button
+                        onClick={() => router.push(`/dashboard/event-detail/${selectedEvent.id}`)}
+                        className="flex items-center gap-2 bg-yellow-600 text-white px-4 py-2 rounded-lg hover:bg-yellow-700 transition animate-pulse"
+                      >
+                        <AlertCircle className="w-5 h-5" />
+                        {pendingECApprovalCount} Task{pendingECApprovalCount > 1 ? 's' : ''} Awaiting Approval
+                      </button>
+                    )}
+                  </div>
 
                   <NotionProgressBar
                     committeeTasks={getCommitteeTaskSummary()}
-                    eventDate={selectedEvent.date}
+                    eventDate={selectedEvent.event_date}
                   />
                 </div>
 
@@ -399,26 +415,26 @@ export default function EventProgressPage() {
                       Users can toggle to see pending tasks if they want to review what's awaiting approval. */}
                   <div className="space-y-4">
                     {tasks
-                      .filter(task => showPendingTasks || (task.status !== 'pending' && task.ec_approved_by))
+                      .filter(task => showPendingTasks || (task.status !== 'pending_ec_approval' && task.status !== 'rejected' && task.ec_approved_by))
                       .map((task) => (
-                        <div key={task.id} className={`border rounded-lg p-4 hover:shadow-md transition ${task.status === 'pending' || !task.ec_approved_by ? 'border-yellow-300 bg-yellow-50' : 'border-gray-200'
+                        <div key={task.id} className={`border rounded-lg p-4 hover:shadow-md transition ${task.status === 'pending_ec_approval' ? 'border-yellow-300 bg-yellow-50' : 'border-gray-200'
                           }`}>
                           <div className="flex items-start justify-between mb-3">
                             <div className="flex-1">
                               <div className="flex items-center gap-2 mb-2">
                                 <h4 className="font-bold text-gray-900">{task.title}</h4>
-                                {(task.status === 'pending' || !task.ec_approved_by) && (
+                                {task.status === 'pending_ec_approval' && (
                                   <span className="px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 border border-yellow-300">
                                     Pending EC Approval
                                   </span>
                                 )}
-                                {task.ec_approved_by && task.status !== 'pending' && (
+                                {task.ec_approved_by && task.status !== 'pending_ec_approval' && (
                                   <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 border border-green-300">
                                     ✓ EC Approved
                                   </span>
                                 )}
                               </div>
-                              <p className="text-sm text-gray-600">{task.assigned_committee?.name}</p>
+                              <p className="text-sm text-gray-600">{task.assigned_to?.name}</p>
                               {task.description && (
                                 <p className="text-sm text-gray-500 mt-2">{task.description}</p>
                               )}
@@ -427,7 +443,7 @@ export default function EventProgressPage() {
                                   Approved by {task.approver?.name} on {new Date(task.ec_approved_at).toLocaleDateString()}
                                 </p>
                               )}
-                              {task.progress !== undefined && task.progress !== null && (
+                              {task.progress !== undefined && task.progress !== null && task.status !== 'pending_ec_approval' && (
                                 <div className="mt-2">
                                   <div className="flex items-center justify-between text-xs text-gray-600 mb-1">
                                     <span>Progress</span>
@@ -445,7 +461,7 @@ export default function EventProgressPage() {
                             <div className="flex items-center gap-2 ml-4">
                               <span className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1 ${task.status === 'completed' || task.completed_at ? 'bg-green-100 text-green-800' :
                                 task.status === 'in_progress' || (task.progress > 0 && task.progress < 100) ? 'bg-blue-100 text-blue-800' :
-                                  task.status === 'pending' || !task.ec_approved_by ? 'bg-yellow-100 text-yellow-800' :
+                                  task.status === 'pending_ec_approval' ? 'bg-yellow-100 text-yellow-800' :
                                     'bg-gray-100 text-gray-800'
                                 }`}>
                                 {task.status === 'completed' || task.completed_at ? <CheckCircle className="w-3 h-3" /> :
@@ -453,16 +469,16 @@ export default function EventProgressPage() {
                                     <AlertCircle className="w-3 h-3" />}
                                 {task.status ? task.status.replace(/_/g, ' ').toUpperCase() : 'PENDING'}
                               </span>
-                              {(task.status === 'pending' || !task.ec_approved_by) && isExecutive && (
+                              {task.status === 'pending_ec_approval' && isExecutive && (
                                 <button
-                                  onClick={() => approveTask(task.id)}
-                                  className="text-green-600 hover:text-green-700 px-3 py-1 rounded-lg bg-green-50 hover:bg-green-100 text-xs font-medium"
-                                  title="Approve task"
+                                  onClick={() => router.push(`/dashboard/event-detail/${selectedEvent.id}`)}
+                                  className="text-blue-600 hover:text-blue-700 px-3 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-xs font-medium"
+                                  title="Review and approve task"
                                 >
-                                  Approve
+                                  Review
                                 </button>
                               )}
-                              {task.status !== 'completed' && !task.completed_at && task.status !== 'pending' && task.ec_approved_by && isExecutive && (
+                              {task.status !== 'completed' && !task.completed_at && task.status !== 'pending_ec_approval' && task.ec_approved_by && isExecutive && (
                                 <button
                                   onClick={() => markComplete(task.id)}
                                   className="text-green-600 hover:text-green-700"
@@ -490,7 +506,7 @@ export default function EventProgressPage() {
                             </div>
                           )}
 
-                          {task.status !== 'pending' && task.ec_approved_by && (
+                          {task.status !== 'pending_ec_approval' && task.ec_approved_by && (
                             <button
                               onClick={() => {
                                 setSelectedTask(task);
@@ -504,7 +520,7 @@ export default function EventProgressPage() {
                         </div>
                       ))}
 
-                    {tasks.filter(task => showPendingTasks || (task.status !== 'pending' && task.ec_approved_by)).length === 0 && (
+                    {tasks.filter(task => showPendingTasks || (task.status !== 'pending_ec_approval' && task.status !== 'rejected' && task.ec_approved_by)).length === 0 && (
                       <div className="text-center py-12 text-gray-500">
                         <AlertCircle className="w-12 h-12 mx-auto mb-3 text-gray-400" />
                         <p>No tasks {showPendingTasks ? 'assigned' : 'approved'} yet</p>

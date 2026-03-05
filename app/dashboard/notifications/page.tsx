@@ -75,7 +75,7 @@ export default function NotificationsPage() {
     async function markAsRead(notificationId: string) {
         const { error } = await supabase
             .from('notifications')
-            .update({ read: true, updated_at: new Date().toISOString() })
+            .update({ read: true })
             .eq('id', notificationId);
 
         if (error) {
@@ -95,7 +95,7 @@ export default function NotificationsPage() {
 
             const { error } = await supabase
                 .from('notifications')
-                .update({ read: true, updated_at: new Date().toISOString() })
+                .update({ read: true })
                 .eq('user_id', user.id)
                 .eq('read', false);
 
