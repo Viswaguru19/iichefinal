@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { useWebRTC, type PeerState } from '@/hooks/useWebRTC';
 import type { ChatMessage, RoomParticipant } from '@/hooks/useWebRTC';
+import DynamicLogo from '@/components/DynamicLogo';
 
 interface Meeting {
     id: string;
@@ -47,6 +48,9 @@ export default function MeetingRoomPage() {
     const [pendingApproval, setPendingApproval] = useState(false);
     const [currentUserId, setCurrentUserId] = useState<string>('');
     const [currentUserName, setCurrentUserName] = useState<string>('');
+    const [currentUserRole, setCurrentUserRole] = useState<string | null>(null);
+    const [showGuestEntry, setShowGuestEntry] = useState(false);
+    const [guestName, setGuestName] = useState('');
 
     // Media state
     const [localStream, setLocalStream] = useState<MediaStream | null>(null);
@@ -72,6 +76,7 @@ export default function MeetingRoomPage() {
         roomId,
         userId: currentUserId,
         userName: currentUserName,
+        userRole: currentUserRole,
         localStream,
         enabled: !!meeting && !!currentUserId,
     });
@@ -92,6 +97,13 @@ export default function MeetingRoomPage() {
                     return;
                 }
 
+                if (accessResult.reason === 'guest_allowed') {
+                    setMeeting(accessResult.meeting);
+                    setShowGuestEntry(true);
+                    setLoading(false);
+                    return;
+                }
+
                 if (!accessResult.granted || !accessResult.meeting || !accessResult.userId) {
                     setAccessDenied(true);
                     setLoading(false);
@@ -103,6 +115,7 @@ export default function MeetingRoomPage() {
                 const meetingData = accessResult.meeting;
                 setMeeting(meetingData);
                 setCurrentUserId(accessResult.userId);
+                setCurrentUserRole(accessResult.userRole || null);
 
                 // 5. Fetch user profile name
                 const { data: profile } = await supabase
@@ -297,6 +310,43 @@ export default function MeetingRoomPage() {
         );
     }
 
+    // Guest entry screen
+    if (showGuestEntry) {
+        const joinAsGuest = async () => {
+            if (!guestName.trim()) return;
+            setShowGuestEntry(false);
+            setLoading(true);
+            setCurrentUserId(`guest-${Date.now()}`);
+            setCurrentUserName(guestName.trim());
+            setCurrentUserRole('Guest');
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                setLocalStream(stream);
+            } catch { console.warn('Camera/mic denied'); }
+            setLoading(false);
+        };
+
+        return (
+            <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+                    className="glass-dark rounded-2xl p-8 max-w-md w-full text-center">
+                    <UserCircle className="w-16 h-16 text-indigo-400 mx-auto mb-4" />
+                    <h2 className="text-xl font-bold text-white mb-2">Join as Guest</h2>
+                    <p className="text-white/60 text-sm mb-6">{meeting?.title}</p>
+                    <input type="text" value={guestName} onChange={e => setGuestName(e.target.value)}
+                        onKeyDown={e => e.key === 'Enter' && joinAsGuest()}
+                        placeholder="Enter your name" autoFocus
+                        className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/40 outline-none focus:border-indigo-500 mb-4 text-center" />
+                    <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+                        onClick={joinAsGuest} disabled={!guestName.trim()}
+                        className="w-full bg-gradient-to-r from-indigo-500 to-purple-500 text-white px-6 py-3 rounded-xl text-sm font-semibold disabled:opacity-40">
+                        Join Meeting
+                    </motion.button>
+                </motion.div>
+            </div>
+        );
+    }
+
     if (accessDenied || !meeting) {
         return (
             <div className="min-h-screen bg-slate-950 flex items-center justify-center">
@@ -372,16 +422,19 @@ export default function MeetingRoomPage() {
             <motion.div
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="relative z-10 flex items-center justify-between px-6 py-3 glass-dark border-b border-white/5"
+                className="relative z-10 flex items-center justify-between px-4 sm:px-6 py-2.5 glass-dark border-b border-white/5"
             >
                 <div className="flex items-center gap-3">
+                    <DynamicLogo width={28} height={28} />
+                    <span className="text-white/90 font-bold text-sm hidden sm:block">IIChE AVVU SC</span>
+                    <div className="w-px h-5 bg-white/10 mx-1" />
                     <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                    <h1 className="text-white font-semibold text-sm truncate max-w-xs">
+                    <h1 className="text-white font-semibold text-sm truncate max-w-[200px] sm:max-w-xs">
                         {meeting.title}
                     </h1>
                 </div>
-                <p className="text-white/40 text-xs">
-                    Room: {roomId}
+                <p className="text-white/40 text-xs hidden sm:block">
+                    Room: {roomId.slice(0, 8)}...
                 </p>
             </motion.div>
 
@@ -392,76 +445,40 @@ export default function MeetingRoomPage() {
                     layout
                     className="flex-1 p-4 overflow-y-auto"
                 >
-                    <div className={`w-full h-full grid gap-3 ${pinnedPeerId
-                        ? 'grid-cols-1'
-                        : peers.size === 0
-                            ? 'grid-cols-1'
-                            : peers.size <= 1
-                                ? 'grid-cols-1 md:grid-cols-2'
-                                : peers.size <= 3
-                                    ? 'grid-cols-2'
-                                    : 'grid-cols-2 md:grid-cols-3'
-                        }`}>
-
-                        {/* Pinned video takes full width */}
+                    <div className={`w-full h-full ${pinnedPeerId ? 'flex flex-col gap-3' : `grid gap-3 ${peers.size === 0 ? 'grid-cols-1' : peers.size <= 1 ? 'grid-cols-1 md:grid-cols-2' : peers.size <= 3 ? 'grid-cols-2' : 'grid-cols-2 md:grid-cols-3'}`}`}>
                         {pinnedPeerId && pinnedPeerId !== 'local' && peers.has(pinnedPeerId) && (
-                            <div className="col-span-full">
-                                <RemoteVideo
-                                    peer={peers.get(pinnedPeerId)!}
-                                    isPinned={true}
-                                    onPin={() => setPinnedPeerId(null)}
-                                />
-                            </div>
+                            <div className="flex-1 min-h-0"><RemoteVideo peer={peers.get(pinnedPeerId)!} isPinned={true} onPin={() => setPinnedPeerId(null)} /></div>
                         )}
-
                         {pinnedPeerId === 'local' && (
-                            <div className="col-span-full relative rounded-2xl overflow-hidden bg-slate-900/80 border border-white/5 aspect-video">
-                                {localStream && !isCameraOff ? (
-                                    <video ref={localVideoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
-                                ) : (
-                                    <div className="w-full h-full flex flex-col items-center justify-center gap-3">
-                                        <div className="w-20 h-20 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
-                                            <VideoOff className="w-8 h-8 text-white" />
-                                        </div>
-                                    </div>
-                                )}
+                            <div className="flex-1 min-h-0 relative rounded-2xl overflow-hidden bg-slate-900/80 border border-white/5">
+                                {localStream && !isCameraOff ? (<video ref={localVideoRef} autoPlay playsInline muted className="w-full h-full object-cover" />) : (<div className="w-full h-full flex flex-col items-center justify-center gap-3"><div className="w-20 h-20 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center"><VideoOff className="w-8 h-8 text-white" /></div></div>)}
                                 <div className="absolute bottom-3 left-3 glass-dark rounded-lg px-3 py-1.5"><p className="text-white text-xs font-medium">You (Pinned)</p></div>
                                 <button onClick={() => setPinnedPeerId(null)} className="absolute top-3 right-3 bg-indigo-500/80 rounded-full p-1.5 hover:bg-indigo-500"><PinOff className="w-3 h-3 text-white" /></button>
                                 {isMuted && <div className="absolute top-3 left-3 bg-red-500/80 rounded-full p-1.5"><MicOff className="w-3 h-3 text-white" /></div>}
                             </div>
                         )}
-
-                        {/* Local video (small if something is pinned) */}
-                        {pinnedPeerId !== 'local' && (
-                            <div className={`relative rounded-2xl overflow-hidden bg-slate-900/80 border border-white/5 aspect-video ${pinnedPeerId ? 'max-w-[200px]' : ''}`}>
-                                {localStream && !isCameraOff ? (
-                                    <video ref={localVideoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
-                                ) : (
-                                    <div className="w-full h-full flex flex-col items-center justify-center gap-3">
-                                        <div className="w-20 h-20 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
-                                            <VideoOff className="w-8 h-8 text-white" />
-                                        </div>
-                                        <p className="text-white/50 text-sm">{isCameraOff ? 'Camera is off' : 'No camera'}</p>
+                        {pinnedPeerId && (
+                            <div className="flex gap-2 overflow-x-auto pb-1">
+                                {pinnedPeerId !== 'local' && (
+                                    <div className="relative rounded-xl overflow-hidden bg-slate-900/80 border border-white/5 w-40 h-24 flex-shrink-0 cursor-pointer" onClick={() => setPinnedPeerId('local')}>
+                                        {localStream && !isCameraOff ? (<video ref={pinnedPeerId !== 'local' ? localVideoRef : undefined} autoPlay playsInline muted className="w-full h-full object-cover" />) : (<div className="w-full h-full flex items-center justify-center"><VideoOff className="w-5 h-5 text-white/40" /></div>)}
+                                        <div className="absolute bottom-1 left-1 bg-black/60 rounded px-1.5 py-0.5"><p className="text-white text-[10px]">You</p></div>
                                     </div>
                                 )}
+                                {Array.from(peers.entries()).filter(([pid]) => pid !== pinnedPeerId).map(([pid, peer]) => (
+                                    <RemoteVideo key={pid} peer={peer} isPinned={false} onPin={() => setPinnedPeerId(pid)} small />
+                                ))}
+                            </div>
+                        )}
+                        {!pinnedPeerId && (<>
+                            <div className="relative rounded-2xl overflow-hidden bg-slate-900/80 border border-white/5 aspect-video group">
+                                {localStream && !isCameraOff ? (<video ref={localVideoRef} autoPlay playsInline muted className="w-full h-full object-cover" />) : (<div className="w-full h-full flex flex-col items-center justify-center gap-3"><div className="w-20 h-20 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center"><VideoOff className="w-8 h-8 text-white" /></div><p className="text-white/50 text-sm">{isCameraOff ? 'Camera is off' : 'No camera'}</p></div>)}
                                 <div className="absolute bottom-3 left-3 glass-dark rounded-lg px-3 py-1.5"><p className="text-white text-xs font-medium">You</p></div>
                                 {isMuted && <div className="absolute top-3 right-3 bg-red-500/80 rounded-full p-1.5"><MicOff className="w-3 h-3 text-white" /></div>}
                                 <button onClick={() => setPinnedPeerId('local')} className="absolute top-3 left-3 bg-white/10 rounded-full p-1.5 opacity-0 group-hover:opacity-100 hover:bg-white/20 transition-opacity"><Pin className="w-3 h-3 text-white" /></button>
                             </div>
-                        )}
-
-                        {/* Remote peer videos (skip pinned one) */}
-                        {Array.from(peers.entries())
-                            .filter(([peerId]) => peerId !== pinnedPeerId)
-                            .map(([peerId, peer]) => (
-                                <RemoteVideo
-                                    key={peerId}
-                                    peer={peer}
-                                    isPinned={false}
-                                    onPin={() => setPinnedPeerId(peerId)}
-                                    small={!!pinnedPeerId}
-                                />
-                            ))}
+                            {Array.from(peers.entries()).map(([pid, peer]) => (<RemoteVideo key={pid} peer={peer} isPinned={false} onPin={() => setPinnedPeerId(pid)} />))}
+                        </>)}
                     </div>
                 </motion.div>
 
@@ -565,46 +582,36 @@ function RemoteVideo({ peer, isPinned, onPin, small }: { peer: PeerState; isPinn
     useEffect(() => {
         if (videoRef.current && peer.remoteStream) {
             videoRef.current.srcObject = peer.remoteStream;
-            // Check for video tracks
             setHasVideo(peer.remoteStream.getVideoTracks().some(t => t.enabled && !t.muted));
-            // Listen for track changes
-            const checkTracks = () => {
-                setHasVideo(peer.remoteStream!.getVideoTracks().some(t => t.enabled && !t.muted));
-            };
+            const checkTracks = () => { setHasVideo(peer.remoteStream!.getVideoTracks().some(t => t.enabled && !t.muted)); };
             peer.remoteStream.onaddtrack = checkTracks;
             peer.remoteStream.onremovetrack = checkTracks;
         }
     }, [peer.remoteStream]);
 
+    if (small) {
+        return (
+            <div className="relative rounded-xl overflow-hidden bg-slate-900/80 border border-white/5 w-40 h-24 flex-shrink-0 cursor-pointer group" onClick={onPin}>
+                <video ref={videoRef} autoPlay playsInline className={`w-full h-full object-cover ${hasVideo ? '' : 'hidden'}`} />
+                {!hasVideo && <div className="w-full h-full flex items-center justify-center"><UserCircle className="w-6 h-6 text-white/40" /></div>}
+                {peer.remoteStream && <AudioPlayer stream={peer.remoteStream} />}
+                <div className="absolute bottom-1 left-1 bg-black/60 rounded px-1.5 py-0.5"><p className="text-white text-[10px]">{peer.userName}</p></div>
+            </div>
+        );
+    }
+
     return (
-        <div className={`relative rounded-2xl overflow-hidden bg-slate-900/80 border border-white/5 aspect-video group ${small ? 'max-w-[200px]' : ''}`}>
-            {/* Always render video+audio element even if no video tracks — audio still plays */}
-            <video
-                ref={videoRef}
-                autoPlay
-                playsInline
-                className={`w-full h-full object-cover ${hasVideo ? '' : 'hidden'}`}
-            />
+        <div className={`relative rounded-2xl overflow-hidden bg-slate-900/80 border border-white/5 ${isPinned ? 'w-full h-full' : 'aspect-video'} group`}>
+            <video ref={videoRef} autoPlay playsInline className={`w-full h-full object-cover ${hasVideo ? '' : 'hidden'}`} />
             {!hasVideo && (
                 <div className="w-full h-full flex flex-col items-center justify-center gap-3">
-                    <div className="w-20 h-20 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center">
-                        <UserCircle className="w-8 h-8 text-white" />
-                    </div>
+                    <div className="w-20 h-20 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center"><UserCircle className="w-8 h-8 text-white" /></div>
                     <p className="text-white/50 text-sm">{peer.userName}</p>
                 </div>
             )}
-            {/* Hidden audio element as fallback to ensure audio always plays */}
-            {peer.remoteStream && (
-                <AudioPlayer stream={peer.remoteStream} />
-            )}
-            <div className="absolute bottom-3 left-3 glass-dark rounded-lg px-3 py-1.5">
-                <p className="text-white text-xs font-medium">{peer.userName}{isPinned ? ' (Pinned)' : ''}</p>
-            </div>
-            <button
-                onClick={onPin}
-                className="absolute top-3 right-3 bg-white/10 rounded-full p-1.5 opacity-0 group-hover:opacity-100 hover:bg-white/20 transition-opacity"
-                title={isPinned ? 'Unpin' : 'Pin'}
-            >
+            {peer.remoteStream && <AudioPlayer stream={peer.remoteStream} />}
+            <div className="absolute bottom-3 left-3 glass-dark rounded-lg px-3 py-1.5"><p className="text-white text-xs font-medium">{peer.userName}{isPinned ? ' (Pinned)' : ''}</p></div>
+            <button onClick={onPin} className="absolute top-3 right-3 bg-white/10 rounded-full p-1.5 opacity-0 group-hover:opacity-100 hover:bg-white/20 transition-opacity" title={isPinned ? 'Unpin' : 'Pin'}>
                 {isPinned ? <PinOff className="w-3 h-3 text-white" /> : <Pin className="w-3 h-3 text-white" />}
             </button>
         </div>
@@ -763,17 +770,33 @@ function ParticipantsPanel({
                             className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-white/5 transition-colors"
                         >
                             {/* Avatar */}
-                            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center flex-shrink-0">
+                            <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${p.userRole === 'Guest' ? 'bg-gradient-to-br from-gray-500 to-gray-600' :
+                                p.userRole === 'Faculty' ? 'bg-gradient-to-br from-amber-500 to-orange-600' :
+                                    p.userRole ? 'bg-gradient-to-br from-amber-400 to-yellow-500' :
+                                        'bg-gradient-to-br from-indigo-500 to-purple-600'
+                                }`}>
                                 <span className="text-white text-[10px] font-bold">{initials}</span>
                             </div>
-                            {/* Name + badge */}
+                            {/* Name + role badge */}
                             <div className="flex-1 min-w-0">
-                                <p className="text-white text-xs font-medium truncate">
-                                    {p.userName}
-                                    {isYou && (
-                                        <span className="ml-1.5 text-[10px] text-indigo-400 font-normal">(You)</span>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                    <p className="text-white text-xs font-medium truncate">
+                                        {p.userName}
+                                        {isYou && <span className="ml-1 text-[10px] text-indigo-400 font-normal">(You)</span>}
+                                    </p>
+                                    {p.userRole && (
+                                        <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-semibold ${p.userRole === 'Guest' ? 'bg-gray-500/30 text-gray-300' :
+                                            p.userRole === 'Faculty' ? 'bg-amber-500/30 text-amber-300' :
+                                                p.userRole === 'Admin' ? 'bg-red-500/30 text-red-300' :
+                                                    'bg-yellow-500/30 text-yellow-300'
+                                            }`}>
+                                            {p.userRole === 'Guest' ? '👤 Guest' :
+                                                p.userRole === 'Faculty' ? '🎓 Faculty' :
+                                                    p.userRole === 'Admin' ? '🛡️ Admin' :
+                                                        `👑 ${p.userRole}`}
+                                        </span>
                                     )}
-                                </p>
+                                </div>
                             </div>
                             {/* Online indicator */}
                             <div className="w-2 h-2 rounded-full bg-emerald-400 flex-shrink-0" />

@@ -222,7 +222,7 @@ export default function FormSubmitPage() {
           className="glass-strong rounded-t-3xl overflow-hidden mb-1 shadow-xl"
         >
           <div className="h-1.5 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500" />
-          {form?.banner_url && <img src={form.banner_url} alt="" className="w-full h-48 object-cover" />}
+          {(form?.banner_url || form?.settings?.banner_url) && <img src={form.banner_url || form.settings.banner_url} alt="" className="w-full h-48 object-cover" />}
           <div className="p-8">
             <div className="flex items-center justify-between mb-5">
               <Link href="/dashboard/forms" className="text-indigo-400 hover:text-indigo-600 transition-colors">

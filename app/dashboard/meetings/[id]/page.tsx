@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { useRouter, useParams } from 'next/navigation';
 import {
     ArrowLeft, Calendar, Clock, MapPin, Video, Users, Link2,
-    ExternalLink, FileText, Globe, Monitor
+    ExternalLink, FileText, Globe, Monitor, Mail, Send, Loader2, X, Plus
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import PageHeader from '@/components/PageHeader';
@@ -285,6 +285,9 @@ export default function MeetingDetailPage() {
                             <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-line">{meeting.agenda}</p>
                         </div>
                     )}
+
+                    {/* Invite by Email */}
+                    {isManager && <InviteByEmail meetingId={meeting.id} />}
                 </div>
 
                 {/* Attendance Section */}
@@ -304,6 +307,81 @@ export default function MeetingDetailPage() {
                     canEdit={isEditorial}
                 />
             </div>
+        </div>
+    );
+}
+
+function InviteByEmail({ meetingId }: { meetingId: string }) {
+    const [emails, setEmails] = useState<string[]>(['']);
+    const [sending, setSending] = useState(false);
+    const [showForm, setShowForm] = useState(false);
+
+    function addEmail() { setEmails(prev => [...prev, '']); }
+    function removeEmail(idx: number) { setEmails(prev => prev.filter((_, i) => i !== idx)); }
+    function updateEmail(idx: number, val: string) { setEmails(prev => prev.map((e, i) => i === idx ? val : e)); }
+
+    async function sendInvites() {
+        const valid = emails.filter(e => e.trim() && e.includes('@'));
+        if (valid.length === 0) { toast.error('Enter at least one valid email'); return; }
+        setSending(true);
+        try {
+            const res = await fetch('/api/meetings/send-invites', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ meetingId, customEmails: valid }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Failed to send');
+            toast.success(data.message);
+            setEmails(['']);
+            setShowForm(false);
+        } catch (err: any) { toast.error(err.message); }
+        finally { setSending(false); }
+    }
+
+    return (
+        <div className="mt-4">
+            {!showForm ? (
+                <button onClick={() => setShowForm(true)}
+                    className="flex items-center gap-2 text-xs font-semibold text-indigo-600 hover:text-indigo-800 px-3 py-2 rounded-lg hover:bg-indigo-50 transition">
+                    <Mail className="w-4 h-4" /> Invite by Email
+                </button>
+            ) : (
+                <div className="p-4 bg-indigo-50/60 rounded-xl border border-indigo-100">
+                    <div className="flex items-center justify-between mb-3">
+                        <p className="text-xs font-semibold text-indigo-600 uppercase tracking-wide flex items-center gap-1.5">
+                            <Mail className="w-4 h-4" /> Send Meeting Invite
+                        </p>
+                        <button onClick={() => { setShowForm(false); setEmails(['']); }} className="text-gray-400 hover:text-gray-600">
+                            <X className="w-4 h-4" />
+                        </button>
+                    </div>
+                    <div className="space-y-2 mb-3">
+                        {emails.map((email, idx) => (
+                            <div key={idx} className="flex items-center gap-2">
+                                <input type="email" value={email} onChange={e => updateEmail(idx, e.target.value)}
+                                    placeholder="email@example.com"
+                                    className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg outline-none focus:ring-1 focus:ring-indigo-300 bg-white" />
+                                {emails.length > 1 && (
+                                    <button onClick={() => removeEmail(idx)} className="text-red-400 hover:text-red-600 p-1">
+                                        <X className="w-4 h-4" />
+                                    </button>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <button onClick={addEmail} className="flex items-center gap-1 text-xs text-indigo-600 hover:text-indigo-800 font-medium">
+                            <Plus className="w-3.5 h-3.5" /> Add another
+                        </button>
+                        <div className="flex-1" />
+                        <button onClick={sendInvites} disabled={sending}
+                            className="flex items-center gap-1.5 bg-indigo-600 text-white px-4 py-2 rounded-lg text-xs font-semibold hover:bg-indigo-700 disabled:opacity-50">
+                            {sending ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Sending...</> : <><Send className="w-3.5 h-3.5" /> Send Invites</>}
+                        </button>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

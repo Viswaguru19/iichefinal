@@ -42,6 +42,7 @@ export interface ChatMessage {
 export interface RoomParticipant {
     userId: string;
     userName: string;
+    userRole?: string | null;
     joinedAt: string;
 }
 
@@ -50,8 +51,9 @@ interface UseWebRTCOptions {
     roomId: string;
     userId: string;
     userName: string;
+    userRole?: string | null;
     localStream: MediaStream | null;
-    enabled: boolean; // only start when meeting is loaded and user is authenticated
+    enabled: boolean;
 }
 
 export function useWebRTC({
@@ -59,6 +61,7 @@ export function useWebRTC({
     roomId,
     userId,
     userName,
+    userRole,
     localStream,
     enabled,
 }: UseWebRTCOptions) {
@@ -345,6 +348,7 @@ export function useWebRTC({
                     list.push({
                         userId: p.userId as string,
                         userName: p.userName as string,
+                        userRole: (p.userRole as string) || null,
                         joinedAt: p.online_at as string,
                     });
                 }
@@ -359,6 +363,7 @@ export function useWebRTC({
                 await channel.track({
                     userId,
                     userName,
+                    userRole: userRole || null,
                     online_at: new Date().toISOString(),
                 });
 

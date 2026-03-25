@@ -2,9 +2,10 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 export interface AccessCheckResult {
     granted: boolean;
-    reason: 'unauthenticated' | 'meeting_not_found' | 'not_participant' | 'pending_approval' | 'granted';
+    reason: 'unauthenticated' | 'meeting_not_found' | 'not_participant' | 'pending_approval' | 'granted' | 'guest_allowed';
     meeting?: any;
     userId?: string;
+    userRole?: string | null;
 }
 
 /**
@@ -23,12 +24,8 @@ export async function checkMeetingAccess(
 ): Promise<AccessCheckResult> {
     // 1. Authenticate
     const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
-        return { granted: false, reason: 'unauthenticated' };
-    }
 
     // 2. Fetch meeting by matching room_id in meeting_link
-    // The meeting_link format is: {origin}/meet/{roomId}
     const { data: meetings } = await supabase
         .from('meetings')
         .select('*')
@@ -39,24 +36,44 @@ export async function checkMeetingAccess(
         return { granted: false, reason: 'meeting_not_found' };
     }
 
-    // 3. General meetings — anyone authenticated can join
+    // 3. If not authenticated but meeting is general, allow as guest
+    if (authError || !user) {
+        if (meetingData.access_type === 'general') {
+            return { granted: false, reason: 'guest_allowed', meeting: meetingData };
+        }
+        return { granted: false, reason: 'unauthenticated' };
+    }
+
+    // 4. Fetch user profile for role info
+    const { data: profile } = await supabase
+        .from('profiles')
+        .select('executive_role, is_faculty, is_admin, name')
+        .eq('id', user.id)
+        .single();
+
+    let userRole: string | null = null;
+    if (profile?.is_faculty) userRole = 'Faculty';
+    else if (profile?.is_admin) userRole = 'Admin';
+    else if (profile?.executive_role) userRole = profile.executive_role.replace(/_/g, ' ');
+
+    // 5. General meetings — anyone authenticated can join
     if (meetingData.access_type === 'general') {
-        return { granted: true, reason: 'granted', meeting: meetingData, userId: user.id };
+        return { granted: true, reason: 'granted', meeting: meetingData, userId: user.id, userRole };
     }
 
-    // 4. Creator always has access
+    // 6. Creator always has access
     if (meetingData.created_by === user.id) {
-        return { granted: true, reason: 'granted', meeting: meetingData, userId: user.id };
+        return { granted: true, reason: 'granted', meeting: meetingData, userId: user.id, userRole };
     }
 
-    // 5. Check participants UUID array (if it exists)
+    // 7. Check participants UUID array
     if (meetingData.participants && Array.isArray(meetingData.participants)) {
         if (meetingData.participants.includes(user.id)) {
-            return { granted: true, reason: 'granted', meeting: meetingData, userId: user.id };
+            return { granted: true, reason: 'granted', meeting: meetingData, userId: user.id, userRole };
         }
     }
 
-    // 6. Check meeting_participants table
+    // 8. Check meeting_participants table
     const { data: participant } = await supabase
         .from('meeting_participants')
         .select('id')
@@ -65,21 +82,15 @@ export async function checkMeetingAccess(
         .single();
 
     if (participant) {
-        return { granted: true, reason: 'granted', meeting: meetingData, userId: user.id };
+        return { granted: true, reason: 'granted', meeting: meetingData, userId: user.id, userRole };
     }
 
-    // 7. EC members and faculty always have access
-    const { data: profile } = await supabase
-        .from('profiles')
-        .select('executive_role, is_faculty, is_admin')
-        .eq('id', user.id)
-        .single();
-
+    // 9. EC members and faculty always have access
     if (profile?.executive_role || profile?.is_faculty || profile?.is_admin) {
-        return { granted: true, reason: 'granted', meeting: meetingData, userId: user.id };
+        return { granted: true, reason: 'granted', meeting: meetingData, userId: user.id, userRole };
     }
 
-    // 8. If meeting requires approval, return pending
+    // 10. If meeting requires approval, return pending
     if (meetingData.require_approval) {
         return { granted: false, reason: 'pending_approval', meeting: meetingData, userId: user.id };
     }

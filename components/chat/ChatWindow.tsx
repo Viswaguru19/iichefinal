@@ -324,12 +324,12 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, onOpenProfi
                                                 <PollBubble poll={msg.poll_data} msgId={msg.id} myId={currentUser.id} onVote={votePoll} />
                                             ) : msg.file_url ? (
                                                 <a href={msg.file_url} target="_blank" rel="noopener noreferrer"
-                                                    className="flex items-center gap-2 text-[14px] text-emerald-300 hover:text-emerald-200 font-medium">
+                                                    className="flex items-center gap-2 text-[15px] text-emerald-300 hover:text-emerald-200 font-medium">
                                                     <Paperclip className="w-4 h-4" />
                                                     <span className="underline">{msg.message?.replace('📎 ', '') || 'Download File'}</span>
                                                 </a>
                                             ) : (
-                                                <p className="text-[14px] text-gray-100 break-words whitespace-pre-wrap leading-[20px]">{msg.message}</p>
+                                                <p className="text-[15px] text-gray-100 break-words whitespace-pre-wrap leading-[22px]">{msg.message}</p>
                                             )}
 
                                             <div className="flex items-center justify-end gap-1 -mb-0.5 mt-0.5">
