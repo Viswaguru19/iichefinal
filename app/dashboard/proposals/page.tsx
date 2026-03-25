@@ -5,11 +5,12 @@ import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
 import PageHeader from '@/components/PageHeader';
 import { motion, AnimatePresence } from 'framer-motion';
-import { CheckCircle, XCircle, Clock, Users, Crown, Edit, AlertTriangle, Ban, CalendarDays, Send, RotateCcw, Sparkles, ArrowLeft, Filter } from 'lucide-react';
+import { CheckCircle, XCircle, Clock, Users, Crown, Edit, AlertTriangle, Ban, CalendarDays, Send, RotateCcw, Sparkles, ArrowLeft, Filter, Bell } from 'lucide-react';
 import toast from 'react-hot-toast';
 import EditEventModal from '@/components/proposals/EditEventModal';
 import RevokeModal from '@/components/proposals/RevokeModal';
 import EditHistoryView from '@/components/proposals/EditHistoryView';
+import ReminderButton from '@/components/ReminderButton';
 
 const STATUS_LABELS: Record<string, string> = {
   draft: 'Draft', pending_head_approval: 'Under Head Review', review_by_cohead: 'Sent for Review (Co-Head)',
@@ -331,6 +332,10 @@ export default function ProposalsPage() {
 
                   {/* ACTION BUTTONS */}
                   <div className="flex flex-wrap gap-2 mt-4 relative z-10">
+                    {/* Remind button for pending proposals */}
+                    {['pending_head_approval', 'pending_ec_approval', 'pending_faculty_approval', 'review_by_cohead'].includes(proposal.status) && (
+                      <ReminderButton entityId={proposal.id} entityType="approval" />
+                    )}
                     {canApproveAsHead(proposal) && (<>
                       <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} onClick={() => { setSelectedProposal(proposal); setShowEditModal(true); }} disabled={loading} className="btn-gradient-blue px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 disabled:opacity-50"><Edit className="w-4 h-4" /> Review & Edit</motion.button>
                       <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} onClick={() => handleHeadApprove(proposal.id)} disabled={loading} className="btn-gradient-green px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 disabled:opacity-50"><CheckCircle className="w-4 h-4" /> Approve → EC</motion.button>
