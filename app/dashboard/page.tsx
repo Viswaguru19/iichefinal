@@ -9,6 +9,7 @@ import AnimatedSection from '@/components/dashboard/AnimatedSection';
 import AnimatedCommitteeCard from '@/components/dashboard/AnimatedCommitteeCard';
 import AnimatedUpcomingEvents from '@/components/dashboard/AnimatedUpcomingEvents';
 import FacultyApprovals from '@/components/dashboard/FacultyApprovals';
+import PastEvents from '@/components/dashboard/PastEvents';
 
 export const dynamic = 'force-dynamic';
 
@@ -65,13 +66,21 @@ export default async function DashboardPage() {
     .eq('committee_id', '00000000-0000-0000-0000-000000000001')
     .order('position');
 
-  // Get events that have been faculty-approved (active/in_progress/completed) for progress display
+  // Get events that have been faculty-approved (active/in_progress) for progress display — exclude completed
   const { data: eventProposals } = await supabase
     .from('events')
     .select('*, committees(name)')
     .in('status', ['active', 'in_progress', 'faculty_approved'])
     .order('created_at', { ascending: false })
     .limit(10);
+
+  // Get completed (past) events
+  const { data: pastEvents } = await supabase
+    .from('events')
+    .select('*, committees(name)')
+    .eq('status', 'completed')
+    .order('event_date', { ascending: false })
+    .limit(20);
 
   // Fetch tasks for each event
   const eventsWithTasks = await Promise.all(
@@ -111,15 +120,6 @@ export default async function DashboardPage() {
     .select('id', { count: 'exact', head: true })
     .eq('receiver_id', user.id)
     .eq('read', false);
-
-  // Get upcoming events (only active/approved events)
-  const { data: upcomingEvents } = await supabase
-    .from('events')
-    .select('*')
-    .eq('status', 'active')
-    .gte('date', new Date().toISOString())
-    .order('date', { ascending: true })
-    .limit(5);
 
   // Count pending approvals for the user (head approvals + EC approvals + faculty approvals)
   let pendingApprovalCount = 0;
@@ -371,16 +371,6 @@ export default async function DashboardPage() {
           </div>
         </AnimatedSection>
 
-        {/* Upcoming Events Section */}
-        <AnimatedSection delay={0.8}>
-          <div className="mt-8">
-            <h3 className="text-2xl font-bold text-gray-900 mb-4">Upcoming Events</h3>
-            <div className="glass rounded-2xl shadow-lg p-6">
-              <AnimatedUpcomingEvents events={upcomingEvents || []} />
-            </div>
-          </div>
-        </AnimatedSection>
-
         <AnimatedSection delay={1.0}>
           <div className="mt-8">
             <h3 className="text-xl font-bold text-gray-900 mb-4">Committee Tools</h3>
@@ -411,6 +401,14 @@ export default async function DashboardPage() {
                   index={2}
                 />
               )}
+              <AnimatedDashboardCard
+                href="/dashboard/past-events"
+                iconName="CheckCircle"
+                title="Past Events"
+                description="View completed events"
+                iconColor="emerald-600"
+                index={3}
+              />
             </div>
           </div>
         </AnimatedSection>

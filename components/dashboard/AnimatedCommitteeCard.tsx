@@ -31,14 +31,14 @@ export default function AnimatedCommitteeCard({ committee, index }: AnimatedComm
         >
             <Link
                 href={`/committees/${committee.id}`}
-                className="group block glass rounded-2xl p-5 hover:shadow-xl transition-all duration-300 relative overflow-hidden"
+                className="group block glass rounded-2xl p-5 hover:shadow-xl transition-all duration-300 relative overflow-hidden h-full min-h-[120px]"
             >
                 {/* Top gradient accent bar */}
                 <div className={`absolute top-0 left-0 right-0 h-1 bg-gradient-to-r ${accent} rounded-t-2xl`} />
                 {/* Hover orb */}
                 <div className={`absolute -bottom-6 -right-6 w-20 h-20 rounded-full bg-gradient-to-br ${accent} opacity-0 group-hover:opacity-15 blur-2xl transition-all duration-500`} />
 
-                <h4 className="font-bold text-gray-900 mt-1">{committee.name}</h4>
+                <h4 className="font-bold text-gray-900 mt-1 line-clamp-1">{committee.name}</h4>
                 <p className="text-sm text-gray-500 mt-1.5 line-clamp-2">{committee.description}</p>
             </Link>
         </motion.div>

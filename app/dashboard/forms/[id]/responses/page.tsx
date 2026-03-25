@@ -72,7 +72,7 @@ export default function FormResponsesPage() {
       .from('form_responses')
       .select('*')
       .eq('form_id', params.id)
-      .order('submitted_at', { ascending: false });
+      .order('created_at', { ascending: false });
 
     // If RLS blocks the query, responsesData will be null/empty - that's ok
     if (respError) {
@@ -128,7 +128,7 @@ export default function FormResponsesPage() {
     if (responses.length === 0) { toast.error('No responses to export'); return; }
     const headers = ['Submitted At', 'Name', 'Email', ...fields.map(f => f.label)];
     const rows = responses.map(r => [
-      new Date(r.submitted_at).toLocaleString(),
+      new Date(r.submitted_at || r.created_at).toLocaleString(),
       r.user?.name || 'Anonymous', r.user?.email || '-',
       ...fields.map(f => { const val = r.responses?.[f.label]; return Array.isArray(val) ? val.join('; ') : val ?? ''; }),
     ]);
@@ -212,7 +212,7 @@ export default function FormResponsesPage() {
           {[
             { icon: Users, value: responses.length, label: 'Total Responses', gradient: 'from-indigo-500 to-purple-500', glow: 'glow-purple' },
             { icon: FileText, value: fields.length, label: 'Questions', gradient: 'from-emerald-500 to-green-500', glow: 'glow-green' },
-            { icon: BarChart3, value: responses.length > 0 ? new Date(responses[0].submitted_at).toLocaleDateString() : '-', label: 'Latest Response', gradient: 'from-amber-500 to-orange-500', glow: 'glow-amber' },
+            { icon: BarChart3, value: responses.length > 0 ? new Date(responses[0].submitted_at || responses[0].created_at).toLocaleDateString() : '-', label: 'Latest Response', gradient: 'from-amber-500 to-orange-500', glow: 'glow-amber' },
           ].map((stat, i) => (
             <motion.div
               key={i}
@@ -369,7 +369,7 @@ export default function FormResponsesPage() {
                         </div>
                         <div>
                           <p className="font-semibold text-gray-800">{response.user?.name || 'Anonymous'}</p>
-                          <p className="text-xs text-gray-400">{response.user?.email || 'No email'} · {new Date(response.submitted_at).toLocaleString()}</p>
+                          <p className="text-xs text-gray-400">{response.user?.email || 'No email'} · {new Date(response.submitted_at || response.created_at).toLocaleString()}</p>
                         </div>
                       </div>
                       <motion.div animate={{ rotate: isExpanded ? 180 : 0 }} transition={{ duration: 0.2 }}>

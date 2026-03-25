@@ -3,14 +3,12 @@
 import { motion } from 'framer-motion';
 import Link from 'next/link';
 import {
-    Users, Calendar, Trophy, DollarSign, Crown, Send, MessageSquare, CheckCircle
+    Users, Calendar, Trophy, DollarSign, Crown, Send, MessageSquare, CheckCircle, FileText
 } from 'lucide-react';
 
 const iconMap = {
-    Users, Calendar, Trophy, DollarSign, Crown, Send, MessageSquare, CheckCircle
-};
-
-const GRADIENT_MAP: Record<string, string> = {
+    Users, Calendar, Trophy, DollarSign, Crown, Send, MessageSquare, CheckCircle, FileText
+}; const GRADIENT_MAP: Record<string, string> = {
     'blue-600': 'from-blue-500 to-indigo-600',
     'green-600': 'from-emerald-500 to-teal-600',
     'purple-600': 'from-violet-500 to-purple-600',

@@ -7,6 +7,21 @@ const ICE_SERVERS: RTCConfiguration = {
     iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
+        {
+            urls: 'turn:openrelay.metered.ca:80',
+            username: 'openrelayproject',
+            credential: 'openrelayproject',
+        },
+        {
+            urls: 'turn:openrelay.metered.ca:443',
+            username: 'openrelayproject',
+            credential: 'openrelayproject',
+        },
+        {
+            urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+            username: 'openrelayproject',
+            credential: 'openrelayproject',
+        },
     ],
 };
 
@@ -79,9 +94,18 @@ export function useWebRTC({
             // Handle incoming remote tracks
             const remoteStream = new MediaStream();
             pc.ontrack = (event) => {
+                // Add all tracks from the event
                 event.streams[0]?.getTracks().forEach((track) => {
-                    remoteStream.addTrack(track);
+                    if (!remoteStream.getTracks().find(t => t.id === track.id)) {
+                        remoteStream.addTrack(track);
+                    }
                 });
+                // Also add the track directly if no streams
+                if (!event.streams[0] && event.track) {
+                    if (!remoteStream.getTracks().find(t => t.id === event.track.id)) {
+                        remoteStream.addTrack(event.track);
+                    }
+                }
                 const existing = peersRef.current.get(peerId);
                 if (existing) {
                     existing.remoteStream = remoteStream;
@@ -107,8 +131,26 @@ export function useWebRTC({
 
             // Handle connection state changes
             pc.onconnectionstatechange = () => {
-                if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+                console.log(`Peer ${peerId} connection state: ${pc.connectionState}`);
+                if (pc.connectionState === 'failed') {
+                    // Attempt ICE restart instead of immediately removing
+                    pc.restartIce();
+                } else if (pc.connectionState === 'disconnected') {
+                    // Give it a few seconds to recover before removing
+                    setTimeout(() => {
+                        if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
+                            removePeer(peerId);
+                        }
+                    }, 5000);
+                } else if (pc.connectionState === 'closed') {
                     removePeer(peerId);
+                }
+            };
+
+            pc.oniceconnectionstatechange = () => {
+                console.log(`Peer ${peerId} ICE state: ${pc.iceConnectionState}`);
+                if (pc.iceConnectionState === 'failed') {
+                    pc.restartIce();
                 }
             };
 
@@ -246,9 +288,25 @@ export function useWebRTC({
             const peer = peersRef.current.get(senderId);
             if (peer) {
                 try {
-                    await peer.connection.addIceCandidate(
-                        new RTCIceCandidate(candidate),
-                    );
+                    // Wait for remote description to be set before adding candidates
+                    if (peer.connection.remoteDescription) {
+                        await peer.connection.addIceCandidate(
+                            new RTCIceCandidate(candidate),
+                        );
+                    } else {
+                        // Buffer and retry after a short delay
+                        const retryAdd = async (retries: number) => {
+                            if (retries <= 0) return;
+                            await new Promise(r => setTimeout(r, 200));
+                            const p = peersRef.current.get(senderId);
+                            if (p?.connection.remoteDescription) {
+                                await p.connection.addIceCandidate(new RTCIceCandidate(candidate));
+                            } else {
+                                await retryAdd(retries - 1);
+                            }
+                        };
+                        retryAdd(10).catch(console.error);
+                    }
                 } catch (err) {
                     console.error('Error adding ICE candidate:', err);
                 }
@@ -303,6 +361,9 @@ export function useWebRTC({
                     userName,
                     online_at: new Date().toISOString(),
                 });
+
+                // Small delay to ensure other peers' listeners are ready
+                await new Promise(r => setTimeout(r, 500));
 
                 // Broadcast that we've joined so existing peers create offers
                 channel.send({

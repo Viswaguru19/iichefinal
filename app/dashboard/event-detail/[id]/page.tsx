@@ -9,6 +9,7 @@ import PageHeader from '@/components/PageHeader';
 import ReminderButton from '@/components/ReminderButton';
 import ReminderLog from '@/components/ReminderLog';
 import StatusIndicator from '@/components/StatusIndicator';
+import EventReport from '@/components/EventReport';
 
 export default function EventDetailPage() {
   const [event, setEvent] = useState<any>(null);
@@ -18,6 +19,7 @@ export default function EventDetailPage() {
   const [isEC, setIsEC] = useState(false);
   const [isFaculty, setIsFaculty] = useState(false);
   const [isGraphics, setIsGraphics] = useState(false);
+  const [isEditorial, setIsEditorial] = useState(false);
   const [editingTask, setEditingTask] = useState<string | null>(null);
   const [editedTaskData, setEditedTaskData] = useState<any>({});
   const [eventPhotos, setEventPhotos] = useState<any[]>([]);
@@ -58,6 +60,12 @@ export default function EventDetailPage() {
       (m: any) => m.committees?.name?.toLowerCase().includes('graphics')
     );
     setIsGraphics(!!graphicsCommittee);
+
+    // Check if user is in Editorial committee
+    const editorialCommittee = profile?.committee_members?.find(
+      (m: any) => m.committees?.name?.toLowerCase().includes('editorial')
+    );
+    setIsEditorial(!!editorialCommittee);
   }
 
   async function loadEventDetails() {
@@ -282,6 +290,24 @@ export default function EventDetailPage() {
     if (updateError) {
       // Fallback: poster_status column might not exist yet, just update poster_url
       await supabase.from('events').update({ poster_url: filePath }).eq('id', event.id);
+    }
+
+    // Notify faculty about pending poster approval
+    const { data: facultyMembers } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('is_faculty', true);
+
+    if (facultyMembers && facultyMembers.length > 0) {
+      const notifications = facultyMembers.map((f: any) => ({
+        user_id: f.id,
+        type: 'poster_approval',
+        title: 'Poster Pending Approval 🎨',
+        message: `A poster for "${event.title}" has been uploaded by the Graphics team and needs your approval.`,
+        link: `/dashboard/event-detail/${event.id}`,
+        metadata: { event_id: event.id },
+      }));
+      await supabase.from('notifications').insert(notifications);
     }
 
     toast.success('Poster uploaded! Sent to faculty for approval.');
@@ -591,6 +617,13 @@ export default function EventDetailPage() {
             <ReminderLog entityId={event.id} />
           </div>
         </div>
+
+        {/* Event Report */}
+        <EventReport
+          event={event}
+          tasks={tasks}
+          canEdit={isEC || isFaculty || isEditorial}
+        />
 
         {/* Tasks */}
         <div className="glass rounded-2xl p-8">

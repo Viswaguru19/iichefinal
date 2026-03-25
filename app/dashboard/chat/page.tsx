@@ -83,7 +83,6 @@ export default function ChatPage() {
       .from('profiles')
       .select('*')
       .neq('id', user.id)
-      .eq('is_active', true)
       .order('name');
     // Resolve avatar URLs from storage paths to public URLs
     const usersWithAvatars = (users || []).map((u: any) => {

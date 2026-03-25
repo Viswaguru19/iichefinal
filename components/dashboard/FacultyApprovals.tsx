@@ -2,12 +2,13 @@
 
 import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { Calendar, CheckCircle, AlertCircle, TrendingUp } from 'lucide-react';
+import { Calendar, CheckCircle, AlertCircle, TrendingUp, ImageIcon, Check, X } from 'lucide-react';
 import { motion } from 'framer-motion';
 import toast from 'react-hot-toast';
 
 export default function FacultyApprovals() {
     const [pendingApprovals, setPendingApprovals] = useState<any[]>([]);
+    const [pendingPosters, setPendingPosters] = useState<any[]>([]);
     const [stats, setStats] = useState({ pendingEvents: 0, pendingEmails: 0, pendingPosters: 0, pendingFinance: 0 });
     const [taskProgress, setTaskProgress] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
@@ -16,8 +17,31 @@ export default function FacultyApprovals() {
     useEffect(() => { loadData(); }, []);
 
     async function loadData() {
-        await Promise.all([loadApprovals(), loadStats(), loadTaskProgress()]);
+        await Promise.all([loadApprovals(), loadPendingPosters(), loadStats(), loadTaskProgress()]);
         setLoading(false);
+    }
+
+    async function loadPendingPosters() {
+        const { data: events } = await supabase
+            .from('events')
+            .select('id, title, poster_url, poster_status, committees(name)')
+            .eq('poster_status', 'pending_faculty_approval')
+            .order('updated_at', { ascending: false });
+        setPendingPosters(events || []);
+    }
+
+    async function approvePoster(eventId: string) {
+        const { error } = await supabase.from('events').update({ poster_status: 'approved' }).eq('id', eventId);
+        if (error) { toast.error('Failed to approve poster'); return; }
+        toast.success('Poster approved!');
+        loadData();
+    }
+
+    async function rejectPoster(eventId: string) {
+        const { error } = await supabase.from('events').update({ poster_status: 'rejected', poster_url: null }).eq('id', eventId);
+        if (error) { toast.error('Failed to reject poster'); return; }
+        toast.success('Poster rejected');
+        loadData();
     }
 
     async function loadApprovals() {
@@ -42,7 +66,7 @@ export default function FacultyApprovals() {
         const [e, em, p, f] = await Promise.all([
             supabase.from('events').select('*', { count: 'exact', head: true }).eq('status', 'pending_faculty_approval'),
             supabase.from('pr_emails').select('*', { count: 'exact', head: true }).eq('status', 'pending_faculty'),
-            supabase.from('posters').select('*', { count: 'exact', head: true }).eq('status', 'pending_faculty'),
+            supabase.from('events').select('*', { count: 'exact', head: true }).eq('poster_status', 'pending_faculty_approval'),
             supabase.from('finance_transactions').select('*', { count: 'exact', head: true }).eq('approval_status', 'pending'),
         ]);
         setStats({ pendingEvents: e.count || 0, pendingEmails: em.count || 0, pendingPosters: p.count || 0, pendingFinance: f.count || 0 });
@@ -155,6 +179,39 @@ export default function FacultyApprovals() {
                                 </div>
                             </div>
                         ))}
+                    </div>
+                </div>
+            )}
+
+            {/* Pending Poster Approvals */}
+            {pendingPosters.length > 0 && (
+                <div className="glass rounded-2xl p-6 border-l-4 border-emerald-500">
+                    <h3 className="text-xl font-bold text-gradient mb-4 flex items-center gap-2">
+                        <ImageIcon className="w-6 h-6 text-emerald-500" />
+                        Poster Approvals
+                        <span className="ml-auto text-xs bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full font-semibold">{pendingPosters.length} pending</span>
+                    </h3>
+                    <div className="space-y-4">
+                        {pendingPosters.map((event: any) => {
+                            const { data: urlData } = supabase.storage.from('event-documents').getPublicUrl(event.poster_url);
+                            return (
+                                <div key={event.id} className="glass-strong rounded-xl p-4">
+                                    <p className="font-bold text-gray-900 mb-1">{event.title}</p>
+                                    <p className="text-xs text-gray-500 mb-3">{event.committees?.name}</p>
+                                    <img src={urlData.publicUrl} alt="Poster" className="w-full max-w-xs rounded-lg mb-3 shadow" />
+                                    <div className="flex gap-2">
+                                        <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => approvePoster(event.id)}
+                                            className="flex-1 flex items-center justify-center gap-1 bg-green-600 text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-green-700">
+                                            <Check className="w-4 h-4" /> Approve
+                                        </motion.button>
+                                        <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => rejectPoster(event.id)}
+                                            className="flex-1 flex items-center justify-center gap-1 bg-red-600 text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-red-700">
+                                            <X className="w-4 h-4" /> Reject
+                                        </motion.button>
+                                    </div>
+                                </div>
+                            );
+                        })}
                     </div>
                 </div>
             )}

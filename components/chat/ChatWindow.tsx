@@ -50,23 +50,62 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, onOpenProfi
     async function loadMessages() {
         setLoading(true);
         if (isDirect) {
-            const { data, error } = await supabase
+            const { data: sent, error: e1 } = await supabase
                 .from('direct_messages')
-                .select('*, sender:profiles!direct_messages_sender_id_fkey(name, avatar_url)')
-                .or(`and(sender_id.eq.${currentUser.id},receiver_id.eq.${chat.id}),and(sender_id.eq.${chat.id},receiver_id.eq.${currentUser.id})`)
+                .select('*')
+                .eq('sender_id', currentUser.id)
+                .eq('receiver_id', chat.id)
                 .order('created_at', { ascending: true });
-            if (error) console.error('DM load error:', error);
-            setMessages(data || []);
-            // Mark as read in background (don't await, don't block)
-            supabase.from('direct_messages').update({ read: true } as any).eq('receiver_id', currentUser.id).eq('sender_id', chat.id).then(() => { });
+
+            const { data: received, error: e2 } = await supabase
+                .from('direct_messages')
+                .select('*')
+                .eq('sender_id', chat.id)
+                .eq('receiver_id', currentUser.id)
+                .order('created_at', { ascending: true });
+
+            if (e1) console.error('DM sent load error:', e1);
+            if (e2) console.error('DM received load error:', e2);
+
+            if (!e1 || !e2) {
+                const all = [...(sent || []), ...(received || [])].sort(
+                    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+                );
+                // Attach sender info manually
+                const enriched = all.map(m => ({
+                    ...m,
+                    sender: m.sender_id === currentUser.id
+                        ? { name: currentUser.name, avatar_url: currentUser.avatar_url }
+                        : { name: chat.name, avatar_url: chat.avatar }
+                }));
+                if (enriched.length > 0 || (!e1 && !e2)) {
+                    setMessages(enriched);
+                }
+            }
+
+            if (!e2 && received && received.length > 0) {
+                supabase.from('direct_messages').update({ read: true } as any)
+                    .eq('receiver_id', currentUser.id).eq('sender_id', chat.id).eq('read', false).then(() => { });
+            }
         } else {
             const { data, error } = await supabase
                 .from('group_messages')
-                .select('*, sender:profiles(name, avatar_url)')
+                .select('*')
                 .eq('group_id', chat.id)
                 .order('created_at', { ascending: true });
-            if (error) console.error('Group msg load error:', error);
-            setMessages(data || []);
+            if (error) { console.error('Group msg load error:', error); setLoading(false); return; }
+            // Fetch sender profiles for group messages
+            const senderIds = [...new Set((data || []).map((m: any) => m.sender_id))];
+            let senderMap: Record<string, any> = {};
+            if (senderIds.length > 0) {
+                const { data: profiles } = await supabase.from('profiles').select('id, name, avatar_url').in('id', senderIds);
+                (profiles || []).forEach((p: any) => { senderMap[p.id] = p; });
+            }
+            const enriched = (data || []).map((m: any) => ({
+                ...m,
+                sender: senderMap[m.sender_id] || { name: 'Unknown', avatar_url: null }
+            }));
+            setMessages(enriched);
         }
         setLoading(false);
     }
@@ -76,20 +115,18 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, onOpenProfi
         const table = isDirect ? 'direct_messages' : 'group_messages';
         const ch = supabase.channel(`chat-${chat.type}-${chat.id}`)
             .on('postgres_changes', { event: 'INSERT', schema: 'public', table }, (payload) => {
-                // Only reload for messages from OTHER users (not our own sends)
                 const msg = payload.new as any;
-                if (msg.sender_id === currentUser.id) return; // Skip our own messages
+                // Only reload for messages from OTHER users
+                if (msg.sender_id === currentUser.id) return;
                 const isRelevant = isDirect
                     ? (msg.sender_id === chat.id && msg.receiver_id === currentUser.id)
                     : msg.group_id === chat.id;
                 if (isRelevant) loadMessages();
             })
             .on('postgres_changes', { event: 'UPDATE', schema: 'public', table }, (payload) => {
-                // For updates (poll votes, read status), reload only for relevant changes
-                // Skip read status updates to prevent reload loops
                 const msg = payload.new as any;
-                if (isDirect && msg.read !== undefined && msg.sender_id === currentUser.id) return; // Skip read receipts for our own messages
-                if (!isSendingRef.current) loadMessages();
+                // Only reload for poll votes (poll_data changes), ignore read status updates entirely
+                if (msg.poll_data && !isDirect) loadMessages();
             })
             .on('broadcast', { event: 'typing' }, ({ payload }) => {
                 if (payload.user_id !== currentUser.id) { setTyping(payload.name); setTimeout(() => setTyping(null), 3000); }
@@ -123,13 +160,21 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, onOpenProfi
 
         try {
             if (isDirect) {
-                const { error } = await supabase.from('direct_messages').insert({ sender_id: currentUser.id, receiver_id: chat.id, message: text, read: false } as any);
+                const { data: inserted, error } = await supabase.from('direct_messages').insert({ sender_id: currentUser.id, receiver_id: chat.id, message: text, read: false } as any).select().single();
                 if (error) { console.error('DM insert error:', error); toast.error('Failed to send: ' + error.message); setMessages(prev => prev.filter(m => m.id !== tempMsg.id)); setNewMessage(text); return; }
+                // Replace temp message with real one, add sender info manually
+                if (inserted) {
+                    const realMsg = { ...inserted, sender: { name: currentUser.name, avatar_url: currentUser.avatar_url } };
+                    setMessages(prev => prev.map(m => m.id === tempMsg.id ? realMsg : m));
+                }
             } else {
-                const { error } = await supabase.from('group_messages').insert({ group_id: chat.id, sender_id: currentUser.id, message: text } as any);
+                const { data: inserted, error } = await supabase.from('group_messages').insert({ group_id: chat.id, sender_id: currentUser.id, message: text } as any).select().single();
                 if (error) { console.error('Group msg insert error:', error); toast.error('Failed to send: ' + error.message); setMessages(prev => prev.filter(m => m.id !== tempMsg.id)); setNewMessage(text); return; }
+                if (inserted) {
+                    const realMsg = { ...inserted, sender: { name: currentUser.name, avatar_url: currentUser.avatar_url } };
+                    setMessages(prev => prev.map(m => m.id === tempMsg.id ? realMsg : m));
+                }
             }
-            await loadMessages();
             onMessageSent();
         } finally {
             isSendingRef.current = false;

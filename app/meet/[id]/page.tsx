@@ -18,6 +18,8 @@ import {
     Loader2,
     UserCircle,
     Send,
+    Pin,
+    PinOff,
 } from 'lucide-react';
 import { useWebRTC, type PeerState } from '@/hooks/useWebRTC';
 import type { ChatMessage, RoomParticipant } from '@/hooks/useWebRTC';
@@ -55,6 +57,9 @@ export default function MeetingRoomPage() {
     // Panel state
     const [isChatOpen, setIsChatOpen] = useState(false);
     const [isParticipantListOpen, setIsParticipantListOpen] = useState(false);
+
+    // Pin state
+    const [pinnedPeerId, setPinnedPeerId] = useState<string | null>(null);
 
     const localVideoRef = useRef<HTMLVideoElement>(null);
 
@@ -387,50 +392,76 @@ export default function MeetingRoomPage() {
                     layout
                     className="flex-1 p-4 overflow-y-auto"
                 >
-                    <div className={`w-full h-full grid gap-3 ${peers.size === 0
+                    <div className={`w-full h-full grid gap-3 ${pinnedPeerId
                         ? 'grid-cols-1'
-                        : peers.size <= 1
-                            ? 'grid-cols-1 md:grid-cols-2'
-                            : peers.size <= 3
-                                ? 'grid-cols-2'
-                                : 'grid-cols-2 md:grid-cols-3'
+                        : peers.size === 0
+                            ? 'grid-cols-1'
+                            : peers.size <= 1
+                                ? 'grid-cols-1 md:grid-cols-2'
+                                : peers.size <= 3
+                                    ? 'grid-cols-2'
+                                    : 'grid-cols-2 md:grid-cols-3'
                         }`}>
-                        {/* Local video */}
-                        <div className="relative rounded-2xl overflow-hidden bg-slate-900/80 border border-white/5 aspect-video">
-                            {localStream && !isCameraOff ? (
-                                <video
-                                    ref={localVideoRef}
-                                    autoPlay
-                                    playsInline
-                                    muted
-                                    className="w-full h-full object-cover"
-                                />
-                            ) : (
-                                <div className="w-full h-full flex flex-col items-center justify-center gap-3">
-                                    <div className="w-20 h-20 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
-                                        <VideoOff className="w-8 h-8 text-white" />
-                                    </div>
-                                    <p className="text-white/50 text-sm">
-                                        {isCameraOff ? 'Camera is off' : 'No camera available'}
-                                    </p>
-                                </div>
-                            )}
-                            {/* Name tag */}
-                            <div className="absolute bottom-3 left-3 glass-dark rounded-lg px-3 py-1.5">
-                                <p className="text-white text-xs font-medium">You</p>
-                            </div>
-                            {/* Mute indicator */}
-                            {isMuted && (
-                                <div className="absolute top-3 right-3 bg-red-500/80 rounded-full p-1.5">
-                                    <MicOff className="w-3 h-3 text-white" />
-                                </div>
-                            )}
-                        </div>
 
-                        {/* Remote peer videos */}
-                        {Array.from(peers.entries()).map(([peerId, peer]) => (
-                            <RemoteVideo key={peerId} peer={peer} />
-                        ))}
+                        {/* Pinned video takes full width */}
+                        {pinnedPeerId && pinnedPeerId !== 'local' && peers.has(pinnedPeerId) && (
+                            <div className="col-span-full">
+                                <RemoteVideo
+                                    peer={peers.get(pinnedPeerId)!}
+                                    isPinned={true}
+                                    onPin={() => setPinnedPeerId(null)}
+                                />
+                            </div>
+                        )}
+
+                        {pinnedPeerId === 'local' && (
+                            <div className="col-span-full relative rounded-2xl overflow-hidden bg-slate-900/80 border border-white/5 aspect-video">
+                                {localStream && !isCameraOff ? (
+                                    <video ref={localVideoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
+                                ) : (
+                                    <div className="w-full h-full flex flex-col items-center justify-center gap-3">
+                                        <div className="w-20 h-20 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
+                                            <VideoOff className="w-8 h-8 text-white" />
+                                        </div>
+                                    </div>
+                                )}
+                                <div className="absolute bottom-3 left-3 glass-dark rounded-lg px-3 py-1.5"><p className="text-white text-xs font-medium">You (Pinned)</p></div>
+                                <button onClick={() => setPinnedPeerId(null)} className="absolute top-3 right-3 bg-indigo-500/80 rounded-full p-1.5 hover:bg-indigo-500"><PinOff className="w-3 h-3 text-white" /></button>
+                                {isMuted && <div className="absolute top-3 left-3 bg-red-500/80 rounded-full p-1.5"><MicOff className="w-3 h-3 text-white" /></div>}
+                            </div>
+                        )}
+
+                        {/* Local video (small if something is pinned) */}
+                        {pinnedPeerId !== 'local' && (
+                            <div className={`relative rounded-2xl overflow-hidden bg-slate-900/80 border border-white/5 aspect-video ${pinnedPeerId ? 'max-w-[200px]' : ''}`}>
+                                {localStream && !isCameraOff ? (
+                                    <video ref={localVideoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
+                                ) : (
+                                    <div className="w-full h-full flex flex-col items-center justify-center gap-3">
+                                        <div className="w-20 h-20 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
+                                            <VideoOff className="w-8 h-8 text-white" />
+                                        </div>
+                                        <p className="text-white/50 text-sm">{isCameraOff ? 'Camera is off' : 'No camera'}</p>
+                                    </div>
+                                )}
+                                <div className="absolute bottom-3 left-3 glass-dark rounded-lg px-3 py-1.5"><p className="text-white text-xs font-medium">You</p></div>
+                                {isMuted && <div className="absolute top-3 right-3 bg-red-500/80 rounded-full p-1.5"><MicOff className="w-3 h-3 text-white" /></div>}
+                                <button onClick={() => setPinnedPeerId('local')} className="absolute top-3 left-3 bg-white/10 rounded-full p-1.5 opacity-0 group-hover:opacity-100 hover:bg-white/20 transition-opacity"><Pin className="w-3 h-3 text-white" /></button>
+                            </div>
+                        )}
+
+                        {/* Remote peer videos (skip pinned one) */}
+                        {Array.from(peers.entries())
+                            .filter(([peerId]) => peerId !== pinnedPeerId)
+                            .map(([peerId, peer]) => (
+                                <RemoteVideo
+                                    key={peerId}
+                                    peer={peer}
+                                    isPinned={false}
+                                    onPin={() => setPinnedPeerId(peerId)}
+                                    small={!!pinnedPeerId}
+                                />
+                            ))}
                     </div>
                 </motion.div>
 
@@ -527,40 +558,68 @@ export default function MeetingRoomPage() {
 }
 
 // Separate component for remote video to manage its own ref
-function RemoteVideo({ peer }: { peer: PeerState }) {
+function RemoteVideo({ peer, isPinned, onPin, small }: { peer: PeerState; isPinned: boolean; onPin: () => void; small?: boolean }) {
     const videoRef = useRef<HTMLVideoElement>(null);
+    const [hasVideo, setHasVideo] = useState(false);
 
     useEffect(() => {
         if (videoRef.current && peer.remoteStream) {
             videoRef.current.srcObject = peer.remoteStream;
+            // Check for video tracks
+            setHasVideo(peer.remoteStream.getVideoTracks().some(t => t.enabled && !t.muted));
+            // Listen for track changes
+            const checkTracks = () => {
+                setHasVideo(peer.remoteStream!.getVideoTracks().some(t => t.enabled && !t.muted));
+            };
+            peer.remoteStream.onaddtrack = checkTracks;
+            peer.remoteStream.onremovetrack = checkTracks;
         }
     }, [peer.remoteStream]);
 
-    const hasVideo = peer.remoteStream && peer.remoteStream.getVideoTracks().length > 0;
-
     return (
-        <div className="relative rounded-2xl overflow-hidden bg-slate-900/80 border border-white/5 aspect-video">
-            {hasVideo ? (
-                <video
-                    ref={videoRef}
-                    autoPlay
-                    playsInline
-                    className="w-full h-full object-cover"
-                />
-            ) : (
+        <div className={`relative rounded-2xl overflow-hidden bg-slate-900/80 border border-white/5 aspect-video group ${small ? 'max-w-[200px]' : ''}`}>
+            {/* Always render video+audio element even if no video tracks — audio still plays */}
+            <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                className={`w-full h-full object-cover ${hasVideo ? '' : 'hidden'}`}
+            />
+            {!hasVideo && (
                 <div className="w-full h-full flex flex-col items-center justify-center gap-3">
                     <div className="w-20 h-20 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center">
                         <UserCircle className="w-8 h-8 text-white" />
                     </div>
-                    <p className="text-white/50 text-sm">Connecting...</p>
+                    <p className="text-white/50 text-sm">{peer.userName}</p>
                 </div>
             )}
-            {/* Name tag */}
+            {/* Hidden audio element as fallback to ensure audio always plays */}
+            {peer.remoteStream && (
+                <AudioPlayer stream={peer.remoteStream} />
+            )}
             <div className="absolute bottom-3 left-3 glass-dark rounded-lg px-3 py-1.5">
-                <p className="text-white text-xs font-medium">{peer.userName}</p>
+                <p className="text-white text-xs font-medium">{peer.userName}{isPinned ? ' (Pinned)' : ''}</p>
             </div>
+            <button
+                onClick={onPin}
+                className="absolute top-3 right-3 bg-white/10 rounded-full p-1.5 opacity-0 group-hover:opacity-100 hover:bg-white/20 transition-opacity"
+                title={isPinned ? 'Unpin' : 'Pin'}
+            >
+                {isPinned ? <PinOff className="w-3 h-3 text-white" /> : <Pin className="w-3 h-3 text-white" />}
+            </button>
         </div>
     );
+}
+
+// Separate audio element to guarantee audio playback even when video is hidden
+function AudioPlayer({ stream }: { stream: MediaStream }) {
+    const audioRef = useRef<HTMLAudioElement>(null);
+    useEffect(() => {
+        if (audioRef.current) {
+            audioRef.current.srcObject = stream;
+        }
+    }, [stream]);
+    return <audio ref={audioRef} autoPlay playsInline className="hidden" />;
 }
 
 // Chat panel component for in-room messaging

@@ -11,6 +11,7 @@ import toast from 'react-hot-toast';
 import PageHeader from '@/components/PageHeader';
 import { isAttendanceManager } from '@/lib/attendance-helpers';
 import AttendanceSection from '@/components/attendance/AttendanceSection';
+import MeetingMinutes from '@/components/MeetingMinutes';
 
 export default function MeetingDetailPage() {
     const [meeting, setMeeting] = useState<any>(null);
@@ -19,6 +20,7 @@ export default function MeetingDetailPage() {
     const [attendance, setAttendance] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [isManager, setIsManager] = useState(false);
+    const [isEditorial, setIsEditorial] = useState(false);
     const supabase = createClient();
     const router = useRouter();
     const params = useParams();
@@ -37,6 +39,18 @@ export default function MeetingDetailPage() {
             setCurrentUser(profile);
             const manager = profile ? isAttendanceManager(profile) : false;
             setIsManager(manager);
+
+            // Check if user is in editorial committee or is EC/faculty/admin
+            const isEcFacultyAdmin = profile?.executive_role != null || profile?.is_faculty === true || profile?.is_admin === true;
+            if (isEcFacultyAdmin) {
+                setIsEditorial(true);
+            } else {
+                const { data: editComm } = await (supabase as any).from('committees').select('id').ilike('name', '%editorial%').single();
+                if (editComm) {
+                    const { data: membership } = await (supabase as any).from('committee_members').select('id').eq('user_id', user.id).eq('committee_id', editComm.id).single();
+                    if (membership) setIsEditorial(true);
+                }
+            }
 
             // Fetch meeting with creator profile and committee name
             const { data: meetingData, error: meetingError } = await (supabase as any)
@@ -281,6 +295,13 @@ export default function MeetingDetailPage() {
                     participants={participants}
                     isManager={isManager}
                     onRefresh={loadData}
+                />
+
+                {/* Minutes of Meeting */}
+                <MeetingMinutes
+                    meeting={meeting}
+                    participants={participants}
+                    canEdit={isEditorial}
                 />
             </div>
         </div>
