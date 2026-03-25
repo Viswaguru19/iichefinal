@@ -15,7 +15,8 @@ export default function ApprovalActions({ user, committees }: any) {
   const router = useRouter();
 
   const handleApprove = async () => {
-    if (!selectedCommittee) {
+    const isFacultyRole = executiveRole === 'faculty_advisor';
+    if (!isFacultyRole && !selectedCommittee) {
       toast.error('Please select a committee');
       return;
     }

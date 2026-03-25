@@ -82,14 +82,6 @@ export default async function UserManagementPage() {
           <h2 className="text-xl font-bold text-gradient mb-6">All Users & Credentials</h2>
           <UserTable initialUsers={usersWithCommittees} committees={(committees as any) || []} />
 
-          <div className="mt-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-            <p className="text-sm text-yellow-800">
-              <strong>Default Password:</strong> All members use password <code className="bg-yellow-200 px-2 py-1 rounded">iichelogin</code>
-            </p>
-            <p className="text-xs text-yellow-700 mt-2">
-              Members can change their password at /dashboard/profile
-            </p>
-          </div>
         </div>
       </div>
     </div>

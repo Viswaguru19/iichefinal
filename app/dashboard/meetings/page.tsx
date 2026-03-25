@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
-import { Plus, Calendar, MapPin, Video, Users, Clock, Search, Copy, ExternalLink, Link2, Upload } from 'lucide-react';
+import { Plus, Calendar, MapPin, Video, Users, Clock, Search, Copy, ExternalLink, Link2, Upload, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import PageHeader from '@/components/PageHeader';
 import toast from 'react-hot-toast';
@@ -92,6 +92,15 @@ export default function MeetingsPage() {
     } finally {
       setUploadingMinutes(null);
     }
+  }
+
+  async function deleteMeeting(meetingId: string, e: React.MouseEvent) {
+    e.stopPropagation();
+    if (!confirm('Delete this meeting? This cannot be undone.')) return;
+    const { error } = await supabase.from('meetings').delete().eq('id', meetingId);
+    if (error) { toast.error('Failed to delete: ' + error.message); return; }
+    toast.success('Meeting deleted');
+    loadMeetings();
   }
 
   function handleJoinCode() {
@@ -401,6 +410,13 @@ export default function MeetingsPage() {
                               }} />
                           </label>
                         </div>
+                      )}
+                      {/* Delete button */}
+                      {isEditorial && (
+                        <button onClick={(e) => deleteMeeting(meeting.id, e)}
+                          className="text-red-400 hover:text-red-600 p-1 transition-colors" title="Delete Meeting">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       )}
                     </div>
                   </div>

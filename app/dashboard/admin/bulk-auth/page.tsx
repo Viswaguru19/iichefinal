@@ -28,11 +28,10 @@ export default function BulkAuthPage() {
     <div className="min-h-screen bg-gray-50 p-8">
       <div className="max-w-4xl mx-auto bg-white rounded-lg shadow-lg p-8">
         <h1 className="text-3xl font-bold mb-6">Bulk Create Auth Accounts</h1>
-        
+
         <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded">
           <p className="text-sm text-yellow-800">
             This will create authentication accounts for all users in the profiles table.
-            Default password: <code className="bg-yellow-200 px-2 py-1 rounded">iichelogin</code>
           </p>
         </div>
 

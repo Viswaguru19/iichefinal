@@ -147,12 +147,6 @@ export default function AddUserPage() {
               </div>
             )}
 
-            <div className="bg-yellow-50 border border-yellow-200 rounded p-3">
-              <p className="text-sm text-yellow-800">
-                Default password: <code className="bg-yellow-200 px-2 py-1 rounded">iichelogin</code>
-              </p>
-            </div>
-
             <button
               type="submit"
               disabled={loading}

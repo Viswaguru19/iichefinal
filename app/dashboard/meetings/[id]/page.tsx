@@ -287,7 +287,7 @@ export default function MeetingDetailPage() {
                     )}
 
                     {/* Invite by Email */}
-                    {isManager && <InviteByEmail meetingId={meeting.id} />}
+                    <InviteByEmail meetingId={meeting.id} />
                 </div>
 
                 {/* Attendance Section */}
