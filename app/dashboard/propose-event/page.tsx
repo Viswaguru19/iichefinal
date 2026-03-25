@@ -14,6 +14,12 @@ export default function ProposeEventPage() {
   const [eventDate, setEventDate] = useState('');
   const [location, setLocation] = useState('');
   const [budget, setBudget] = useState('');
+  const [duration, setDuration] = useState('');
+  const [guestName, setGuestName] = useState('');
+  const [expectedParticipants, setExpectedParticipants] = useState('');
+  const [isGuestLecture, setIsGuestLecture] = useState(false);
+  const [registrationFee, setRegistrationFee] = useState('');
+  const [prize, setPrize] = useState('');
   const [documents, setDocuments] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
   // legacy workflow checkboxes removed – tracked separately now
@@ -68,6 +74,16 @@ export default function ProposeEventPage() {
         .neq('committee_id', '00000000-0000-0000-0000-000000000001')
         .single();
 
+      // Check if user is an executive member
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('executive_role')
+        .eq('id', user.id)
+        .single();
+
+      const isExecutive = profile?.executive_role != null;
+      const initialStatus = isExecutive ? 'pending_faculty_approval' : 'pending_head_approval';
+
       // insert into the `events` table with the correct initial status. this
       // ensures the proposal appears in the proposals screen (which only
       // queries `events`) and routes to the committee head for approval.
@@ -76,12 +92,17 @@ export default function ProposeEventPage() {
         .insert({
           title,
           description,
-          date: new Date(eventDate).toISOString(),               // convert to proper timestamp
+          date: new Date(eventDate).toISOString(),
           location,
           budget: parseFloat(budget) || null,
+          event_duration: duration || null,
+          guest_name: isGuestLecture ? guestName || null : null,
+          expected_participants: parseInt(expectedParticipants) || null,
+          registration_fee: registrationFee || null,
+          prize: prize || null,
           committee_id: (membership as any)?.committee_id,
           proposed_by: user.id,
-          status: 'pending_head_approval',
+          status: initialStatus,
           created_by: user.id,
           documents: uploadedDocs
         });
@@ -133,9 +154,40 @@ export default function ProposeEventPage() {
               </div>
             </div>
 
+            <div className="grid md:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Duration</label>
+                <input type="text" value={duration} onChange={(e) => setDuration(e.target.value)} placeholder="e.g. 2 hours" className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Budget (₹)</label>
+                <input type="text" inputMode="numeric" pattern="[0-9]*" value={budget} onChange={(e) => setBudget(e.target.value.replace(/[^0-9]/g, ''))} placeholder="e.g. 3000" className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Expected Participants</label>
+                <input type="text" inputMode="numeric" pattern="[0-9]*" value={expectedParticipants} onChange={(e) => setExpectedParticipants(e.target.value.replace(/[^0-9]/g, ''))} placeholder="e.g. 50" className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
+              </div>
+            </div>
+
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Budget (₹)</label>
-              <input type="number" value={budget} onChange={(e) => setBudget(e.target.value)} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={isGuestLecture} onChange={(e) => setIsGuestLecture(e.target.checked)} className="w-4 h-4 text-blue-600 rounded" />
+                <span className="text-sm font-medium text-gray-700">This is a Guest Lecture</span>
+              </label>
+              {isGuestLecture && (
+                <input type="text" value={guestName} onChange={(e) => setGuestName(e.target.value)} placeholder="Name of the guest speaker" className="w-full mt-2 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
+              )}
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Registration Fee</label>
+                <input type="text" value={registrationFee} onChange={(e) => setRegistrationFee(e.target.value)} placeholder="e.g. Free / ₹100 / ₹50 per team" className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Prize</label>
+                <input type="text" value={prize} onChange={(e) => setPrize(e.target.value)} placeholder="e.g. ₹5000 / Certificates / Trophies" className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" />
+              </div>
             </div>
 
             <div>

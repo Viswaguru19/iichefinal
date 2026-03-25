@@ -49,7 +49,13 @@ export default function EventReport({ event, tasks, canEdit }: EventReportProps)
             description: event.description || '',
             venue: event.location || 'N/A',
             event_date: event.event_date ? new Date(event.event_date).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : 'TBA',
+            duration: event.event_duration || 'N/A',
             proposed_by: event.created_by_profile?.name || 'N/A',
+            guest_name: event.guest_name || null,
+            expected_participants: event.expected_participants || null,
+            registration_fee: event.registration_fee || null,
+            prize: event.prize || null,
+            budget: event.budget ? `₹${event.budget.toLocaleString()}` : 'N/A',
             status: event.status?.replace(/_/g, ' ').toUpperCase() || 'N/A',
             total_tasks: approvedTasks.length,
             completed_tasks: completedTasks.length,
@@ -288,8 +294,14 @@ ${report.additional_notes ? `<div class="notes"><h2 style="margin-top:0">Additio
                         <div><span className="font-semibold text-gray-500">Committee:</span> <span className="text-gray-800">{reportData.committee}</span></div>
                         <div><span className="font-semibold text-gray-500">Date:</span> <span className="text-gray-800">{reportData.event_date}</span></div>
                         <div><span className="font-semibold text-gray-500">Venue:</span> <span className="text-gray-800">{reportData.venue}</span></div>
+                        <div><span className="font-semibold text-gray-500">Duration:</span> <span className="text-gray-800">{reportData.duration}</span></div>
                         <div><span className="font-semibold text-gray-500">Proposed By:</span> <span className="text-gray-800">{reportData.proposed_by}</span></div>
+                        <div><span className="font-semibold text-gray-500">Budget:</span> <span className="text-gray-800">{reportData.budget}</span></div>
                         <div><span className="font-semibold text-gray-500">Status:</span> <span className="text-gray-800">{reportData.status}</span></div>
+                        {reportData.expected_participants && <div><span className="font-semibold text-gray-500">Expected Participants:</span> <span className="text-gray-800">{reportData.expected_participants}</span></div>}
+                        {reportData.guest_name && <div><span className="font-semibold text-gray-500">Guest Speaker:</span> <span className="text-gray-800">{reportData.guest_name}</span></div>}
+                        {reportData.registration_fee && <div><span className="font-semibold text-gray-500">Registration Fee:</span> <span className="text-gray-800">{reportData.registration_fee}</span></div>}
+                        {reportData.prize && <div><span className="font-semibold text-gray-500">Prize:</span> <span className="text-gray-800">{reportData.prize}</span></div>}
                     </div>
                     <div>
                         <p className="font-semibold text-gray-500 text-sm mb-1">Description</p>

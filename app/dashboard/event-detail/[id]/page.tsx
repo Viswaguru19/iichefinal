@@ -555,6 +555,42 @@ export default function EventDetailPage() {
                 <span>{event.location}</span>
               </div>
             )}
+            {event.event_duration && (
+              <div className="flex items-center gap-2 text-gray-600">
+                <Clock className="w-5 h-5" />
+                <span>Duration: {event.event_duration}</span>
+              </div>
+            )}
+            {event.expected_participants && (
+              <div className="flex items-center gap-2 text-gray-600">
+                <span className="text-lg">👥</span>
+                <span>Expected: {event.expected_participants} participants</span>
+              </div>
+            )}
+            {event.guest_name && (
+              <div className="flex items-center gap-2 text-gray-600">
+                <span className="text-lg">🎤</span>
+                <span>Guest: {event.guest_name}</span>
+              </div>
+            )}
+            {event.registration_fee && (
+              <div className="flex items-center gap-2 text-gray-600">
+                <span className="text-lg">🎟️</span>
+                <span>Fee: {event.registration_fee}</span>
+              </div>
+            )}
+            {event.prize && (
+              <div className="flex items-center gap-2 text-gray-600">
+                <span className="text-lg">🏆</span>
+                <span>Prize: {event.prize}</span>
+              </div>
+            )}
+            {event.budget && (
+              <div className="flex items-center gap-2 text-gray-600">
+                <span className="text-lg">💰</span>
+                <span>Budget: ₹{event.budget.toLocaleString()}</span>
+              </div>
+            )}
           </div>
 
           {/* Approval Pipeline */}

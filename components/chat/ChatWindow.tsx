@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { Send, Smile, Paperclip, BarChart3, Users, Check, CheckCheck } from 'lucide-react';
+import { Send, Smile, Paperclip, BarChart3, Users, Check, CheckCheck, ArrowLeft, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
 import DynamicLogo from '@/components/DynamicLogo';
@@ -14,11 +14,12 @@ interface Props {
     onlineUsers: Set<string>;
     onOpenProfile: (userId: string) => void;
     onMessageSent: () => void;
+    onBack?: () => void;
 }
 
 const EMOJIS = ['😀', '😂', '😊', '😍', '🤝', '👍', '🔥', '🙌', '🙏', '🎉', '❤️', '😎', '🤔', '😢', '😡', '🥳', '💯', '👏', '🫡', '✨', '😅', '🥰', '😤', '🤩', '😴', '🤗', '😇', '🤣', '💪', '🎊'];
 
-export default function ChatWindow({ chat, currentUser, onlineUsers, onOpenProfile, onMessageSent }: Props) {
+export default function ChatWindow({ chat, currentUser, onlineUsers, onOpenProfile, onMessageSent, onBack }: Props) {
     const [messages, setMessages] = useState<any[]>([]);
     const [newMessage, setNewMessage] = useState('');
     const [loading, setLoading] = useState(true);
@@ -28,6 +29,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, onOpenProfi
     const [pollOpts, setPollOpts] = useState(['', '']);
     const [pollMultiple, setPollMultiple] = useState(false);
     const [typing, setTyping] = useState<string | null>(null);
+    const [menuMsgId, setMenuMsgId] = useState<string | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const fileRef = useRef<HTMLInputElement>(null);
     const supabase = createClient();
@@ -235,26 +237,41 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, onOpenProfi
         isSendingRef.current = false;
     }
 
+    async function deleteMessage(msgId: string) {
+        const table = isDirect ? 'direct_messages' : 'group_messages';
+        const { error } = await supabase.from(table).delete().eq('id', msgId);
+        if (error) { toast.error('Failed to delete'); return; }
+        setMessages(prev => prev.filter(m => m.id !== msgId));
+        setMenuMsgId(null);
+        onMessageSent();
+    }
+
     return (
-        <div className="flex-1 flex flex-col h-full bg-[#efeae2]">
+        <div className="flex-1 flex flex-col h-full bg-[#0b141a]">
             {/* Header */}
-            <div className="px-4 py-2.5 bg-[#f0f2f5] flex items-center gap-3 border-b border-gray-200 cursor-pointer"
-                onClick={() => isDirect && onOpenProfile(chat.id)}>
-                <div className="relative">
-                    {chat.avatar ? (
-                        <img src={chat.avatar} alt="" className="w-10 h-10 rounded-full object-cover" />
-                    ) : (
-                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-white font-semibold text-sm">
-                            {chat.type === 'group' ? <Users className="w-5 h-5" /> : chat.name[0]?.toUpperCase()}
-                        </div>
-                    )}
-                    {isOnline && <div className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 rounded-full border-2 border-[#f0f2f5]" />}
-                </div>
-                <div className="flex-1">
-                    <h2 className="font-semibold text-gray-900 text-sm">{chat.name}</h2>
-                    <p className="text-xs text-gray-500">
-                        {typing ? <span className="text-emerald-600 italic">{typing} is typing...</span> : isOnline ? 'Online' : chat.type === 'group' ? 'Group chat' : 'Offline'}
-                    </p>
+            <div className="px-2 sm:px-4 py-2.5 bg-[#202c33] flex items-center gap-2 sm:gap-3 border-b border-[#2a3942]">
+                {onBack && (
+                    <button onClick={onBack} className="sm:hidden text-gray-400 hover:text-white p-1">
+                        <ArrowLeft className="w-5 h-5" />
+                    </button>
+                )}
+                <div className="flex items-center gap-3 flex-1 cursor-pointer" onClick={() => isDirect && onOpenProfile(chat.id)}>
+                    <div className="relative">
+                        {chat.avatar ? (
+                            <img src={chat.avatar} alt="" className="w-10 h-10 rounded-full object-cover" />
+                        ) : (
+                            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-white font-semibold text-sm">
+                                {chat.type === 'group' ? <Users className="w-5 h-5" /> : chat.name[0]?.toUpperCase()}
+                            </div>
+                        )}
+                        {isOnline && <div className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 rounded-full border-2 border-[#202c33]" />}
+                    </div>
+                    <div className="flex-1">
+                        <h2 className="font-semibold text-white text-sm">{chat.name}</h2>
+                        <p className="text-xs text-gray-400">
+                            {typing ? <span className="text-emerald-400 italic">{typing} is typing...</span> : isOnline ? 'Online' : chat.type === 'group' ? 'Group chat' : 'Offline'}
+                        </p>
+                    </div>
                 </div>
             </div>
 
@@ -272,13 +289,13 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, onOpenProfi
                         <div className="space-y-3">
                             {[1, 2, 3, 4, 5].map(i => (
                                 <div key={i} className={`flex ${i % 2 === 0 ? 'justify-end' : 'justify-start'}`}>
-                                    <div className={`h-10 rounded-lg shimmer ${i % 2 === 0 ? 'w-48 bg-emerald-100' : 'w-56 bg-white'}`} />
+                                    <div className={`h-10 rounded-lg shimmer ${i % 2 === 0 ? 'w-48 bg-[#005c4b]/30' : 'w-56 bg-[#202c33]'}`} />
                                 </div>
                             ))}
                         </div>
                     ) : messages.length === 0 ? (
                         <div className="flex items-center justify-center h-full">
-                            <p className="bg-white/80 px-4 py-2 rounded-lg text-sm text-gray-500 shadow-sm">No messages yet. Say hello! 👋</p>
+                            <p className="bg-[#202c33] px-4 py-2 rounded-lg text-sm text-gray-400 shadow-sm">No messages yet. Say hello! 👋</p>
                         </div>
                     ) : (
                         messages.map((msg, idx) => {
@@ -292,33 +309,45 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, onOpenProfi
                                 <div key={msg.id}>
                                     {showDate && (
                                         <div className="flex justify-center my-3">
-                                            <span className="bg-white/90 text-gray-500 text-[11px] px-3 py-1 rounded-lg shadow-sm font-medium">
+                                            <span className="bg-[#182229] text-gray-400 text-[11px] px-3 py-1 rounded-lg shadow-sm font-medium">
                                                 {new Date(msg.created_at).toLocaleDateString('en-IN', { weekday: 'short', month: 'short', day: 'numeric' })}
                                             </span>
                                         </div>
                                     )}
                                     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.15 }}
-                                        className={`flex ${isSent ? 'justify-end' : 'justify-start'} mb-0.5`}>
-                                        <div className={`max-w-[65%] px-3 py-1.5 rounded-lg shadow-sm ${isSent ? 'bg-[#d9fdd3]' : 'bg-white'}`}>
-                                            {showName && <p className="text-[11px] font-semibold text-indigo-600 mb-0.5">{msg.sender?.name}</p>}
+                                        className={`flex ${isSent ? 'justify-end' : 'justify-start'} mb-0.5 group/msg relative`}>
+                                        <div className={`max-w-[65%] px-3 py-1.5 rounded-lg shadow-sm relative ${isSent ? 'bg-[#005c4b]' : 'bg-[#202c33]'}`}
+                                            onClick={() => isSent && setMenuMsgId(menuMsgId === msg.id ? null : msg.id)}>
+                                            {showName && <p className="text-[12px] font-semibold text-emerald-400 mb-0.5">{msg.sender?.name}</p>}
 
                                             {isPoll ? (
                                                 <PollBubble poll={msg.poll_data} msgId={msg.id} myId={currentUser.id} onVote={votePoll} />
                                             ) : msg.file_url ? (
                                                 <a href={msg.file_url} target="_blank" rel="noopener noreferrer"
-                                                    className="flex items-center gap-2 text-[13.5px] text-indigo-600 hover:text-indigo-800 font-medium">
+                                                    className="flex items-center gap-2 text-[14px] text-emerald-300 hover:text-emerald-200 font-medium">
                                                     <Paperclip className="w-4 h-4" />
                                                     <span className="underline">{msg.message?.replace('📎 ', '') || 'Download File'}</span>
                                                 </a>
                                             ) : (
-                                                <p className="text-[13.5px] text-gray-900 break-words whitespace-pre-wrap leading-[19px]">{msg.message}</p>
+                                                <p className="text-[14px] text-gray-100 break-words whitespace-pre-wrap leading-[20px]">{msg.message}</p>
                                             )}
 
                                             <div className="flex items-center justify-end gap-1 -mb-0.5 mt-0.5">
                                                 <span className="text-[10.5px] text-gray-500">{new Date(msg.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
-                                                {isSent && isDirect && (msg.read ? <CheckCheck className="w-3.5 h-3.5 text-blue-500" /> : <CheckCheck className="w-3.5 h-3.5 text-gray-400" />)}
-                                                {isSent && !isDirect && <Check className="w-3.5 h-3.5 text-gray-400" />}
+                                                {isSent && isDirect && (msg.read ? <CheckCheck className="w-3.5 h-3.5 text-blue-400" /> : <CheckCheck className="w-3.5 h-3.5 text-gray-500" />)}
+                                                {isSent && !isDirect && <Check className="w-3.5 h-3.5 text-gray-500" />}
                                             </div>
+
+                                            {/* Delete menu */}
+                                            {isSent && menuMsgId === msg.id && (
+                                                <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
+                                                    className="absolute -top-10 right-0 bg-[#233138] rounded-lg shadow-xl border border-[#2a3942] z-20 overflow-hidden">
+                                                    <button onClick={(e) => { e.stopPropagation(); deleteMessage(msg.id); }}
+                                                        className="flex items-center gap-2 px-4 py-2 text-red-400 hover:bg-[#2a3942] text-xs font-medium whitespace-nowrap">
+                                                        <Trash2 className="w-3.5 h-3.5" /> Delete
+                                                    </button>
+                                                </motion.div>
+                                            )}
                                         </div>
                                     </motion.div>
                                 </div>
@@ -330,34 +359,34 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, onOpenProfi
             </div>
 
             {/* Input */}
-            <form onSubmit={sendMessage} className="px-3 py-2 bg-[#f0f2f5] flex items-center gap-2 relative">
+            <form onSubmit={sendMessage} className="px-3 py-2 bg-[#202c33] flex items-center gap-2 relative">
                 <div className="relative">
-                    <button type="button" onClick={() => setShowEmoji(v => !v)} className="p-2 text-gray-500 hover:text-gray-700 transition-colors">
+                    <button type="button" onClick={() => setShowEmoji(v => !v)} className="p-2 text-gray-400 hover:text-white transition-colors">
                         <Smile className="w-6 h-6" />
                     </button>
                     <AnimatePresence>
                         {showEmoji && (
                             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }}
-                                className="absolute bottom-14 left-0 bg-white rounded-2xl shadow-2xl p-4 grid grid-cols-6 gap-2 z-50 border border-gray-200 w-[280px]">
+                                className="absolute bottom-14 left-0 bg-[#233138] rounded-2xl shadow-2xl p-4 grid grid-cols-6 gap-2 z-50 border border-[#2a3942] w-[280px]">
                                 {EMOJIS.map(e => (
                                     <button key={e} type="button" onClick={() => { setNewMessage(p => p + e); setShowEmoji(false); }}
-                                        className="text-2xl hover:bg-gray-100 rounded-lg p-2 transition-colors flex items-center justify-center">{e}</button>
+                                        className="text-2xl hover:bg-[#2a3942] rounded-lg p-2 transition-colors flex items-center justify-center">{e}</button>
                                 ))}
                             </motion.div>
                         )}
                     </AnimatePresence>
                 </div>
-                <button type="button" onClick={() => fileRef.current?.click()} className="p-2 text-gray-500 hover:text-gray-700 transition-colors">
+                <button type="button" onClick={() => fileRef.current?.click()} className="p-2 text-gray-400 hover:text-white transition-colors">
                     <Paperclip className="w-5 h-5" />
                 </button>
-                <button type="button" onClick={() => setShowPoll(true)} className="p-2 text-gray-500 hover:text-gray-700 transition-colors">
+                <button type="button" onClick={() => setShowPoll(true)} className="p-2 text-gray-400 hover:text-white transition-colors">
                     <BarChart3 className="w-5 h-5" />
                 </button>
                 <input ref={fileRef} type="file" className="hidden" accept="image/*,.pdf,.doc,.docx" onChange={e => { const f = e.target.files?.[0]; if (f) sendFile(f); e.target.value = ''; }} />
                 <input type="text" value={newMessage} onChange={e => { setNewMessage(e.target.value); handleTyping(); }} placeholder="Type a message"
-                    className="flex-1 px-4 py-2.5 bg-white rounded-lg text-sm outline-none focus:ring-1 focus:ring-indigo-200 transition-all" />
+                    className="flex-1 px-4 py-2.5 bg-[#2a3942] rounded-lg text-sm text-white placeholder-gray-500 outline-none focus:ring-1 focus:ring-emerald-500/30 transition-all" />
                 <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} type="submit" disabled={!newMessage.trim()}
-                    className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center text-white disabled:opacity-40 shadow-md">
+                    className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-white disabled:opacity-40 shadow-md">
                     <Send className="w-4 h-4" />
                 </motion.button>
             </form>

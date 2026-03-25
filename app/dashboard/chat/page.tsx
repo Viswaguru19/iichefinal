@@ -101,27 +101,48 @@ export default function ChatPage() {
   }
 
   async function loadChats(userId: string) {
-    // Direct messages
-    const { data: dms } = await supabase
+    // Direct messages — fetch without profile joins (they fail)
+    const { data: dms, error: dmErr } = await supabase
       .from('direct_messages')
-      .select('*, sender:profiles!direct_messages_sender_id_fkey(id, name, avatar_url), receiver:profiles!direct_messages_receiver_id_fkey(id, name, avatar_url)')
+      .select('*')
       .or(`sender_id.eq.${userId},receiver_id.eq.${userId}`)
       .order('created_at', { ascending: false });
 
-    const convos = new Map<string, ChatItem>();
-    const unread: Record<string, number> = {};
-    dms?.forEach((msg: any) => {
-      const otherId = msg.sender_id === userId ? msg.receiver_id : msg.sender_id;
-      const other = msg.sender_id === userId ? msg.receiver : msg.sender;
-      if (msg.receiver_id === userId && !msg.read) unread[otherId] = (unread[otherId] || 0) + 1;
-      if (!convos.has(otherId)) {
-        let avatarUrl = other?.avatar_url || null;
+    if (dmErr) console.error('DM load error:', dmErr);
+
+    // Collect unique other-user IDs
+    const otherIds = new Set<string>();
+    (dms || []).forEach((msg: any) => {
+      otherIds.add(msg.sender_id === userId ? msg.receiver_id : msg.sender_id);
+    });
+
+    // Fetch profiles for those users
+    let profileMap: Record<string, any> = {};
+    if (otherIds.size > 0) {
+      const { data: profiles } = await supabase
+        .from('profiles')
+        .select('id, name, avatar_url')
+        .in('id', Array.from(otherIds));
+      (profiles || []).forEach((p: any) => {
+        let avatarUrl = p.avatar_url;
         if (avatarUrl && !avatarUrl.startsWith('http')) {
           const { data } = supabase.storage.from('avatars').getPublicUrl(avatarUrl);
           avatarUrl = data.publicUrl;
         }
+        profileMap[p.id] = { ...p, avatar_url: avatarUrl };
+      });
+    }
+
+    // Build conversation list
+    const convos = new Map<string, ChatItem>();
+    const unread: Record<string, number> = {};
+    (dms || []).forEach((msg: any) => {
+      const otherId = msg.sender_id === userId ? msg.receiver_id : msg.sender_id;
+      const other = profileMap[otherId];
+      if (msg.receiver_id === userId && !msg.read) unread[otherId] = (unread[otherId] || 0) + 1;
+      if (!convos.has(otherId)) {
         convos.set(otherId, {
-          id: otherId, name: other?.name || 'Unknown', avatar: avatarUrl,
+          id: otherId, name: other?.name || 'Unknown', avatar: other?.avatar_url || null,
           lastMessage: msg.message, time: msg.created_at, type: 'direct', unreadCount: 0,
         });
       }
@@ -148,6 +169,13 @@ export default function ChatPage() {
 
     setChats(prev => {
       const newChats = [...directChats, ...specials, ...groupChats];
+      // Sort direct chats by most recent message first
+      newChats.sort((a, b) => {
+        if (a.type !== 'direct' && b.type !== 'direct') return 0;
+        if (a.type !== 'direct') return 1;
+        if (b.type !== 'direct') return -1;
+        return new Date(b.time).getTime() - new Date(a.time).getTime();
+      });
       // Preserve any active chat that was started but has no DB messages yet
       const activeId = activeChat?.id;
       if (activeId && activeChat?.type === 'direct' && !newChats.find(c => c.id === activeId && c.type === 'direct')) {
@@ -238,20 +266,22 @@ export default function ChatPage() {
 
   return (
     <div className="h-screen flex bg-gray-100 overflow-hidden">
-      {/* Sidebar */}
-      <ChatSidebar
-        chats={chats}
-        allUsers={allUsers}
-        activeChat={activeChat}
-        onlineUsers={onlineUsers}
-        onSelectChat={openChat}
-        onNewChat={startNewChat}
-        onCreateGroup={createGroup}
-        onBack={() => router.push('/dashboard')}
-      />
+      {/* Sidebar — full width on mobile, fixed width on desktop. Hidden on mobile when chat is active */}
+      <div className={`${activeChat ? 'hidden sm:flex' : 'flex'} flex-col sm:w-[420px] sm:min-w-[320px] w-full`}>
+        <ChatSidebar
+          chats={chats}
+          allUsers={allUsers}
+          activeChat={activeChat}
+          onlineUsers={onlineUsers}
+          onSelectChat={openChat}
+          onNewChat={startNewChat}
+          onCreateGroup={createGroup}
+          onBack={() => router.push('/dashboard')}
+        />
+      </div>
 
-      {/* Chat Window or Empty State */}
-      <div className="flex-1 flex">
+      {/* Chat Window or Empty State — hidden on mobile when no chat active */}
+      <div className={`flex-1 flex ${activeChat ? 'flex' : 'hidden sm:flex'}`}>
         {activeChat ? (
           <ChatWindow
             chat={activeChat}
@@ -259,6 +289,7 @@ export default function ChatPage() {
             onlineUsers={onlineUsers}
             onOpenProfile={openProfile}
             onMessageSent={refreshChats}
+            onBack={() => setActiveChat(null)}
           />
         ) : (
           <div className="flex-1 bg-[#f0f2f5] flex flex-col items-center justify-center">

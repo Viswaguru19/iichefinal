@@ -36,7 +36,7 @@ export default function ChatSidebar({ chats, allUsers, activeChat, onlineUsers, 
     const filteredUsers = allUsers.filter(u => u.name.toLowerCase().includes(userSearch.toLowerCase()));
 
     return (
-        <div className="w-[420px] min-w-[320px] flex flex-col border-r border-gray-200 bg-white h-full">
+        <div className="w-full sm:w-[420px] sm:min-w-[320px] flex flex-col border-r border-gray-200 bg-white h-full">
             {/* Header */}
             <div className="px-4 py-3 bg-[#f0f2f5] flex items-center justify-between">
                 <div className="flex items-center gap-3">
