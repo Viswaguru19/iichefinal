@@ -34,7 +34,7 @@ export async function POST(request: Request) {
         <p>${meetingData.description || ''}</p>
         <p><strong>Date & Time:</strong> ${meetingDate}</p>
         ${meetingDetails}
-        <p><a href="${process.env.NEXT_PUBLIC_SUPABASE_URL?.replace('.supabase.co', '') || 'http://localhost:3000'}/dashboard/meetings">View Meetings</a></p>`
+        <p><a href="${process.env.NEXT_PUBLIC_APP_URL || 'https://www.iicheavvu.in'}/dashboard/meetings">View Meetings</a></p>`
       );
     }
   }

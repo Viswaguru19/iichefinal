@@ -26,7 +26,7 @@ export async function POST(request: Request) {
         <p>A new task has been assigned to your committee for the event <strong>${proposal?.title}</strong>.</p>
         <h3>${taskTitle}</h3>
         <p>${taskDescription || 'No description provided.'}</p>
-        <p><a href="${process.env.NEXT_PUBLIC_SUPABASE_URL?.replace('.supabase.co', '') || 'http://localhost:3000'}/dashboard/tasks">View Tasks</a></p>`
+        <p><a href="${process.env.NEXT_PUBLIC_APP_URL || 'https://www.iicheavvu.in'}/dashboard/tasks">View Tasks</a></p>`
       );
     }
   }
