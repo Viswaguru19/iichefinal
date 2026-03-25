@@ -165,8 +165,13 @@ export default function KickoffControlPage() {
   };
 
   if (loading) {
-    return <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-      <p className="text-gray-600">Loading...</p>
+    return <div className="min-h-screen bg-mesh flex items-center justify-center">
+      <div className="text-center">
+        <div className="w-16 h-16 rounded-full bg-gradient-to-br from-amber-500 to-orange-500 mx-auto mb-4 animate-pulse-glow flex items-center justify-center">
+          <Trophy className="w-8 h-8 text-white" />
+        </div>
+        <p className="text-gray-400">Loading...</p>
+      </div>
     </div>;
   }
 
@@ -174,15 +179,15 @@ export default function KickoffControlPage() {
   const approvedTeams = teams.filter(t => t.approved);
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <nav className="bg-white shadow-sm">
+    <div className="min-h-screen bg-mesh">
+      <nav className="glass-strong shadow-lg shadow-indigo-500/5">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16 items-center">
-            <h1 className="text-2xl font-bold text-blue-600 flex items-center gap-2">
+            <h1 className="text-2xl font-bold text-gradient-warm flex items-center gap-2">
               <Trophy className="w-6 h-6" />
               Kickoff Control Panel
             </h1>
-            <Link href="/dashboard" className="text-gray-600 hover:text-blue-600">
+            <Link href="/dashboard" className="text-gray-500 hover:text-indigo-600 transition">
               ← Back to Dashboard
             </Link>
           </div>
@@ -190,19 +195,19 @@ export default function KickoffControlPage() {
       </nav>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
+        <div className="glass rounded-2xl p-6 mb-6">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-xl font-bold text-gray-900 mb-2">Tournament Control</h2>
-              <p className="text-gray-600">
+              <h2 className="text-xl font-bold text-gradient mb-2">Tournament Control</h2>
+              <p className="text-gray-500">
                 {tournamentActive ? 'Tournament is currently active and visible to public' : 'Tournament is inactive - showing past results'}
               </p>
             </div>
             <button
               onClick={toggleTournament}
-              className={`flex items-center gap-2 px-6 py-3 rounded-lg font-semibold transition ${tournamentActive
-                  ? 'bg-red-600 hover:bg-red-700 text-white'
-                  : 'bg-green-600 hover:bg-green-700 text-white'
+              className={`flex items-center gap-2 px-6 py-3 rounded-xl font-semibold transition ${tournamentActive
+                ? 'btn-gradient-red'
+                : 'btn-gradient-green'
                 }`}
             >
               <Power className="w-5 h-5" />
@@ -212,26 +217,26 @@ export default function KickoffControlPage() {
         </div>
 
         {pendingTeams.length > 0 && (
-          <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
-            <h2 className="text-xl font-bold text-gray-900 mb-4">Pending Team Approvals</h2>
+          <div className="glass rounded-2xl p-6 mb-6 border-l-4 border-amber-500">
+            <h2 className="text-xl font-bold text-gradient-warm mb-4">Pending Team Approvals</h2>
             <div className="space-y-4">
               {pendingTeams.map((team) => (
-                <div key={team.id} className="border rounded-lg p-4 flex justify-between items-center">
+                <div key={team.id} className="glass-strong rounded-xl p-4 flex justify-between items-center">
                   <div>
                     <h3 className="font-bold text-gray-900">{team.name}</h3>
-                    <p className="text-sm text-gray-600">{team.kickoff_players?.length || 0} players</p>
+                    <p className="text-sm text-gray-500">{team.kickoff_players?.length || 0} players</p>
                   </div>
                   <div className="flex gap-2">
                     <button
                       onClick={() => approveTeam(team.id)}
-                      className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 flex items-center gap-2"
+                      className="btn-gradient-green px-4 py-2 rounded-xl flex items-center gap-2 text-sm"
                     >
                       <Check className="w-4 h-4" />
                       Approve
                     </button>
                     <button
                       onClick={() => rejectTeam(team.id)}
-                      className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 flex items-center gap-2"
+                      className="btn-gradient-red px-4 py-2 rounded-xl flex items-center gap-2 text-sm"
                     >
                       <X className="w-4 h-4" />
                       Reject
@@ -243,31 +248,31 @@ export default function KickoffControlPage() {
           </div>
         )}
 
-        <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
+        <div className="glass rounded-2xl p-6 mb-6">
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-xl font-bold text-gray-900">Approved Teams ({approvedTeams.length})</h2>
+            <h2 className="text-xl font-bold text-gradient">Approved Teams ({approvedTeams.length})</h2>
             <button
               onClick={generateSchedule}
-              className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 font-semibold"
+              className="btn-gradient-blue px-6 py-2 rounded-xl font-semibold"
             >
               Generate Schedule
             </button>
           </div>
           <div className="grid md:grid-cols-3 gap-4">
             {approvedTeams.map((team) => (
-              <div key={team.id} className="border rounded-lg p-4">
+              <div key={team.id} className="glass-strong rounded-xl p-4">
                 <h3 className="font-bold text-gray-900">{team.name}</h3>
-                <p className="text-sm text-gray-600">{team.kickoff_players?.length || 0} players</p>
+                <p className="text-sm text-gray-500">{team.kickoff_players?.length || 0} players</p>
               </div>
             ))}
           </div>
         </div>
 
-        <div className="bg-white rounded-xl shadow-lg p-6">
-          <h2 className="text-xl font-bold text-gray-900 mb-4">Match Schedule ({matches.length})</h2>
+        <div className="glass rounded-2xl p-6">
+          <h2 className="text-xl font-bold text-gradient mb-4">Match Schedule ({matches.length})</h2>
           <div className="space-y-4">
             {matches.map((match) => (
-              <div key={match.id} className="border rounded-lg p-4">
+              <div key={match.id} className="glass-strong rounded-xl p-4">
                 <div className="flex justify-between items-center">
                   <div className="flex-1">
                     <div className="flex items-center justify-between mb-2">
@@ -282,7 +287,7 @@ export default function KickoffControlPage() {
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="font-bold">{match.team1?.name}</span>
-                      <span className="text-2xl font-bold mx-4">
+                      <span className="text-2xl font-bold mx-4 text-gradient">
                         {match.team1_score} - {match.team2_score}
                       </span>
                       <span className="font-bold">{match.team2?.name}</span>

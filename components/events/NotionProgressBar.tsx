@@ -14,12 +14,20 @@ interface CommitteeTask {
 interface NotionProgressBarProps {
     committeeTasks: CommitteeTask[];
     eventDate?: string;
+    headApproved?: boolean;
+    ecApproved?: boolean;
+    facultyApproved?: boolean;
 }
 
-export default function NotionProgressBar({ committeeTasks, eventDate }: NotionProgressBarProps) {
+export default function NotionProgressBar({ committeeTasks, eventDate, headApproved = false, ecApproved = false, facultyApproved = false }: NotionProgressBarProps) {
     const totalTasks = committeeTasks.reduce((sum, ct) => sum + ct.total_tasks, 0);
     const completedTasks = committeeTasks.reduce((sum, ct) => sum + ct.completed_tasks, 0);
-    const progressPercentage = totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0;
+
+    // 30% from approvals + 70% from tasks
+    const approvalProgress = (headApproved ? 10 : 0) + (ecApproved ? 10 : 0) + (facultyApproved ? 10 : 0);
+    const taskProgressRaw = totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0;
+    const taskProgress = Math.round((taskProgressRaw / 100) * 70);
+    const overallProgress = approvalProgress + taskProgress;
 
     const getCommitteeProgress = (committee: CommitteeTask) => {
         return committee.total_tasks > 0
@@ -53,91 +61,56 @@ export default function NotionProgressBar({ committeeTasks, eventDate }: NotionP
                 </span>
             </motion.div>
 
-            {/* Overall Progress - Notion Style */}
-            <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.4, delay: 0.1, ease: [0.25, 0.1, 0.25, 1] }}
-                className="space-y-3"
-            >
+            {/* Approval Pipeline */}
+            <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs font-medium text-gray-500 mr-1">Approvals:</span>
+                <div className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${headApproved ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'}`}>
+                    {headApproved ? <CheckCircle className="w-3 h-3" /> : <Circle className="w-3 h-3" />}
+                    Head
+                </div>
+                <div className={`w-4 h-0.5 ${headApproved ? 'bg-green-400' : 'bg-gray-200'}`} />
+                <div className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${ecApproved ? 'bg-green-100 text-green-700' : headApproved ? 'bg-amber-100 text-amber-600' : 'bg-gray-100 text-gray-400'}`}>
+                    {ecApproved ? <CheckCircle className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
+                    EC
+                </div>
+                <div className={`w-4 h-0.5 ${ecApproved ? 'bg-green-400' : 'bg-gray-200'}`} />
+                <div className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${facultyApproved ? 'bg-green-100 text-green-700' : ecApproved ? 'bg-amber-100 text-amber-600' : 'bg-gray-100 text-gray-400'}`}>
+                    {facultyApproved ? <CheckCircle className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
+                    Faculty
+                </div>
+                <div className={`w-4 h-0.5 ${facultyApproved ? 'bg-green-400' : 'bg-gray-200'}`} />
+                <div className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${facultyApproved ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-400'}`}>
+                    <Users className="w-3 h-3" />
+                    Tasks
+                </div>
+            </div>
+
+            {/* Overall Progress */}
+            <div className="space-y-2">
                 <div className="flex items-center justify-between">
                     <span className="text-sm font-medium text-gray-700">Overall Progress</span>
-                    <span className="text-sm font-semibold text-gray-900">
-                        {completedTasks}/{totalTasks} tasks
-                    </span>
+                    <span className="text-sm font-bold text-gray-900">{overallProgress}%</span>
                 </div>
-
-                {/* Notion-style Progress Timeline with Checkpoints */}
-                <div className="space-y-2">
-                    <div className="relative h-2 bg-gray-100 rounded-full overflow-hidden">
-                        {/* Filled progress line */}
-                        <motion.div
-                            className="absolute inset-y-0 left-0 bg-blue-500 rounded-full"
-                            initial={{ width: 0 }}
-                            animate={{ width: `${progressPercentage}%` }}
-                            transition={{
-                                duration: 0.8,
-                                delay: 0.2,
-                                ease: [0.25, 0.1, 0.25, 1]
-                            }}
-                        />
-
-                        {/* Checkpoints for each committee */}
-                        {committeeTasks.map((committee, index) => {
-                            const status = getCommitteeStatus(committee);
-                            const isCompleted = status === 'completed';
-                            const isInProgress = status === 'in_progress';
-                            const position =
-                                committeeTasks.length === 1
-                                    ? 50
-                                    : (index / (committeeTasks.length - 1)) * 100;
-
-                            return (
-                                <motion.div
-                                    key={committee.committee_name}
-                                    className="absolute -top-1.5"
-                                    style={{
-                                        left: `${position}%`,
-                                        transform: 'translateX(-50%)',
-                                    }}
-                                    initial={{ scale: 0.9, opacity: 0 }}
-                                    animate={{ scale: 1, opacity: 1 }}
-                                    transition={{
-                                        delay: 0.25 + index * 0.05,
-                                        duration: 0.25,
-                                        ease: [0.25, 0.1, 0.25, 1],
-                                    }}
-                                >
-                                    <div
-                                        className={`w-4 h-4 rounded-full border-2 bg-white flex items-center justify-center ${isCompleted
-                                            ? 'border-green-500'
-                                            : isInProgress
-                                                ? 'border-blue-500'
-                                                : 'border-gray-300'
-                                            }`}
-                                    >
-                                        <div
-                                            className={`w-2 h-2 rounded-full ${isCompleted
-                                                ? 'bg-green-500'
-                                                : isInProgress
-                                                    ? 'bg-blue-500'
-                                                    : 'bg-gray-300'
-                                                }`}
-                                        />
-                                    </div>
-                                </motion.div>
-                            );
-                        })}
-                    </div>
-
-                    <div className="flex items-center justify-between text-xs text-gray-500">
-                        <span className="text-base font-bold text-blue-600">{Math.round(progressPercentage)}% complete</span>
-                        {totalTasks - completedTasks > 0 && (
-                            <span className="font-medium">{totalTasks - completedTasks} tasks remaining</span>
+                <div className="relative h-2 bg-gray-100 rounded-full overflow-hidden">
+                    <div className="absolute inset-y-0 left-0 flex h-full rounded-full overflow-hidden" style={{ width: `${overallProgress}%` }}>
+                        {approvalProgress > 0 && (
+                            <div className="bg-green-500 h-full" style={{ width: `${(approvalProgress / overallProgress) * 100}%` }} />
+                        )}
+                        {taskProgress > 0 && (
+                            <div className="bg-blue-500 h-full" style={{ width: `${(taskProgress / overallProgress) * 100}%` }} />
                         )}
                     </div>
                 </div>
-            </motion.div>
+                <div className="flex justify-between text-xs text-gray-500">
+                    <span>
+                        <span className="inline-block w-2 h-2 rounded-full bg-green-500 mr-1" />
+                        Approvals {approvalProgress}%
+                        <span className="inline-block w-2 h-2 rounded-full bg-blue-500 ml-2 mr-1" />
+                        Tasks {taskProgress}%
+                    </span>
+                    <span>{completedTasks}/{totalTasks} tasks done</span>
+                </div>
+            </div>
 
             {/* Committee Progress Cards - Notion Style */}
             <div className="space-y-3 mt-6">

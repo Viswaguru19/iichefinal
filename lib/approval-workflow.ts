@@ -249,10 +249,10 @@ export async function approveEventAsEC(eventId: string, userId: string, userRole
 
     if (approvalError) throw approvalError;
 
-    // Single EC approval is sufficient - update event immediately to approved
+    // Single EC approval is sufficient - move to faculty approval
     const { error: updateError } = await supabase
         .from('events')
-        .update({ status: 'approved' })
+        .update({ status: 'pending_faculty_approval' })
         .eq('id', eventId);
 
     if (updateError) throw updateError;
@@ -265,12 +265,9 @@ export async function approveEventAsEC(eventId: string, userId: string, userRole
         entityId: eventId,
         action: 'approve_as_ec',
         previousStatus: event.status,
-        newStatus: 'approved',
-        metadata: { approvalCount: 1, threshold: 1, note: 'Single EC approval sufficient' },
+        newStatus: 'pending_faculty_approval',
+        metadata: { approvalCount: 1, threshold: 1, note: 'Single EC approval sufficient, moving to faculty' },
     });
-
-    // Send confirmation notification to the proposing committee
-    await sendEventApprovalNotification(eventId, event.proposed_by, event.committee_id);
 
     return { approvalCount: 1, thresholdReached: true };
 }
@@ -458,6 +455,196 @@ export async function rejectEvent(
         action: 'reject_event',
         previousStatus: event.status,
         newStatus: 'cancelled',
+        reason,
+    });
+}
+
+// ============================================
+// SEND FOR REVIEW
+// ============================================
+
+export async function sendEventForReview(
+    eventId: string,
+    userId: string,
+    userRole: UserRole,
+    targetRole: 'cohead' | 'head' | 'ec',
+    note?: string
+) {
+    const supabase = createClient();
+
+    const { data: event } = await supabase
+        .from('events')
+        .select('*')
+        .eq('id', eventId)
+        .single();
+
+    if (!event) throw new Error('Event not found');
+
+    const statusMap: Record<string, string> = {
+        cohead: 'review_by_cohead',
+        head: 'pending_head_approval',
+        ec: 'pending_ec_approval',
+    };
+
+    const newStatus = statusMap[targetRole];
+
+    const { error } = await supabase
+        .from('events')
+        .update({
+            status: newStatus,
+            review_note: note || null,
+            review_sent_by: userId,
+            review_sent_at: new Date().toISOString(),
+        })
+        .eq('id', eventId);
+
+    if (error) throw error;
+
+    await logApproval({
+        userId,
+        userRole,
+        entityType: 'event',
+        entityId: eventId,
+        action: `send_for_review_${targetRole}`,
+        previousStatus: event.status,
+        newStatus,
+        reason: note,
+    });
+}
+
+// ============================================
+// REVOKE (EC or Faculty can revoke a rejection)
+// ============================================
+
+export async function revokeEventRejection(
+    eventId: string,
+    userId: string,
+    userRole: UserRole,
+    restoreToStatus: string,
+    note?: string
+) {
+    const supabase = createClient();
+
+    const { data: event } = await supabase
+        .from('events')
+        .select('*')
+        .eq('id', eventId)
+        .single();
+
+    if (!event) throw new Error('Event not found');
+
+    const { error } = await supabase
+        .from('events')
+        .update({
+            status: restoreToStatus,
+            rejection_reason: null,
+            review_note: note || null,
+        })
+        .eq('id', eventId);
+
+    if (error) throw error;
+
+    await logApproval({
+        userId,
+        userRole,
+        entityType: 'event',
+        entityId: eventId,
+        action: 'revoke_rejection',
+        previousStatus: event.status,
+        newStatus: restoreToStatus,
+        reason: note,
+    });
+}
+
+// ============================================
+// CANCEL EVENT (EC or Faculty, any time)
+// ============================================
+
+export async function cancelEvent(
+    eventId: string,
+    userId: string,
+    userRole: UserRole,
+    reason: string
+) {
+    const supabase = createClient();
+
+    if (!reason || reason.trim().length === 0) {
+        throw new Error('Cancellation reason is required');
+    }
+
+    const { data: event } = await supabase
+        .from('events')
+        .select('*')
+        .eq('id', eventId)
+        .single();
+
+    if (!event) throw new Error('Event not found');
+
+    const { error } = await supabase
+        .from('events')
+        .update({
+            status: 'cancelled',
+            rejection_reason: reason,
+            cancelled_by: userId,
+            cancelled_at: new Date().toISOString(),
+        })
+        .eq('id', eventId);
+
+    if (error) throw error;
+
+    await logApproval({
+        userId,
+        userRole,
+        entityType: 'event',
+        entityId: eventId,
+        action: 'cancel_event',
+        previousStatus: event.status,
+        newStatus: 'cancelled',
+        reason,
+    });
+}
+
+// ============================================
+// CHANGE EVENT DATE (EC, Faculty, or proposing committee)
+// ============================================
+
+export async function changeEventDate(
+    eventId: string,
+    userId: string,
+    userRole: UserRole,
+    newDate: string,
+    reason?: string
+) {
+    const supabase = createClient();
+
+    const { data: event } = await supabase
+        .from('events')
+        .select('*')
+        .eq('id', eventId)
+        .single();
+
+    if (!event) throw new Error('Event not found');
+
+    const oldDate = event.date || event.event_date;
+
+    const { error } = await supabase
+        .from('events')
+        .update({
+            date: newDate,
+            event_date: newDate,
+        })
+        .eq('id', eventId);
+
+    if (error) throw error;
+
+    await logApproval({
+        userId,
+        userRole,
+        entityType: 'event',
+        entityId: eventId,
+        action: 'change_date',
+        previousStatus: oldDate,
+        newStatus: newDate,
         reason,
     });
 }

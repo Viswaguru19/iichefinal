@@ -3,8 +3,9 @@
 import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
-import { Plus, CheckCircle, Clock, AlertCircle, Calendar, Upload, FileText, Trash2, SlidersHorizontal } from 'lucide-react';
+import { Plus, CheckCircle, Clock, AlertCircle, Calendar, Upload, FileText, Trash2, SlidersHorizontal, Edit2 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import PageHeader from '@/components/PageHeader';
 
 export default function TasksPage() {
   const [tasks, setTasks] = useState<any[]>([]);
@@ -22,6 +23,7 @@ export default function TasksPage() {
   const [taskTitle, setTaskTitle] = useState('');
   const [taskDescription, setTaskDescription] = useState('');
   const [loading, setLoading] = useState(false);
+  const [pageLoading, setPageLoading] = useState(true);
   const [showProgressModal, setShowProgressModal] = useState(false);
   const [progressValue, setProgressValue] = useState(0);
   const [progressTask, setProgressTask] = useState<any>(null);
@@ -44,13 +46,16 @@ export default function TasksPage() {
       .single();
 
     let committeeIds: string[] = [];
+    let nonEcCommitteeIds: string[] = [];
     let isExec = false;
+    const EC_COMMITTEE_ID = '00000000-0000-0000-0000-000000000001';
 
     if (profile) {
       setUserProfile(profile);
-      isExec = profile.executive_role !== null || profile.is_admin === true;
+      isExec = profile.executive_role !== null || profile.is_admin === true || profile.is_faculty === true;
       setIsExecutive(isExec);
       committeeIds = (profile as any).committee_members?.map((cm: any) => cm.committee_id) || [];
+      nonEcCommitteeIds = committeeIds.filter(id => id !== EC_COMMITTEE_ID);
       setUserCommittees(committeeIds);
     }
 
@@ -59,21 +64,33 @@ export default function TasksPage() {
       .from('task_assignments')
       .select(`
         *,
-        event:events(title, event_date, status, committee_id, committees(name)),
+        event:event_id(title, event_date, status, committee_id, committees(name)),
         assigned_to:assigned_to_committee(name),
         assigned_by:assigned_by_committee(name),
-        assigner:assigned_by_user(name),
-        updates:task_updates(*, user:profiles(name)),
-        documents:task_documents(*, uploaded_by:profiles(name))
+        assigner:assigned_by_user(name)
       `)
       .order('created_at', { ascending: false });
 
-    // Filter based on role
-    if (!isExec && committeeIds.length > 0) {
-      // Regular members see tasks assigned to their committee (approved only)
-      tasksQuery = tasksQuery
-        .in('assigned_to_committee', committeeIds)
-        .in('status', ['approved', 'in_progress', 'completed']);
+    // Everyone sees only tasks assigned to their non-EC committees
+    // EC/admin/faculty can also see pending_ec_approval tasks for review
+    if (nonEcCommitteeIds.length > 0) {
+      if (isExec) {
+        // EC members see: tasks for their committees + tasks pending EC approval
+        tasksQuery = tasksQuery.or(
+          `assigned_to_committee.in.(${nonEcCommitteeIds.join(',')}),status.eq.pending_ec_approval`
+        );
+      } else {
+        tasksQuery = tasksQuery
+          .in('assigned_to_committee', nonEcCommitteeIds)
+          .not('status', 'eq', 'rejected');
+      }
+    } else if (isExec) {
+      // EC-only member (no regular committee) — see pending EC approval tasks only
+      tasksQuery = tasksQuery.eq('status', 'pending_ec_approval');
+    } else {
+      setTasks([]);
+      setPageLoading(false);
+      return;
     }
 
     const { data: tasksData, error: tasksError } = await tasksQuery;
@@ -82,7 +99,6 @@ export default function TasksPage() {
       console.error('Tasks query error:', tasksError);
     }
 
-    console.log('Tasks loaded:', tasksData);
     setTasks(tasksData || []);
 
     // Load active/in_progress events for task assignment
@@ -99,6 +115,7 @@ export default function TasksPage() {
       .eq('type', 'regular')
       .neq('id', '00000000-0000-0000-0000-000000000001'); // Exclude EC
     setCommittees(committeesData || []);
+    setPageLoading(false);
   }
 
   async function handleAssignTask(e: React.FormEvent) {
@@ -109,9 +126,11 @@ export default function TasksPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user || !userProfile) throw new Error('Not authenticated');
 
-      // Get user's committee
+      // Get user's committee (faculty can assign without being in a committee)
       const userCommittee = (userProfile as any).committee_members?.[0];
-      if (!userCommittee) throw new Error('You must be part of a committee to assign tasks');
+      if (!userCommittee && !userProfile?.is_faculty && !userProfile?.is_admin) {
+        throw new Error('You must be part of a committee to assign tasks');
+      }
 
       const { error } = await supabase
         .from('task_assignments')
@@ -120,14 +139,14 @@ export default function TasksPage() {
           title: taskTitle,
           description: taskDescription,
           assigned_to_committee: selectedCommittee,
-          assigned_by_committee: userCommittee.committee_id,
+          assigned_by_committee: userCommittee?.committee_id || selectedCommittee,
           assigned_by_user: user.id,
-          status: 'pending_ec_approval'
+          status: (userProfile?.is_faculty || userProfile?.is_admin || isExecutive) ? 'approved' : 'pending_ec_approval'
         });
 
       if (error) throw error;
 
-      toast.success('Task assigned! Waiting for EC approval');
+      toast.success((userProfile?.is_faculty || userProfile?.is_admin || isExecutive) ? 'Task assigned and approved!' : 'Task assigned! Waiting for EC approval');
       setShowAssign(false);
       setTaskTitle('');
       setTaskDescription('');
@@ -324,391 +343,445 @@ export default function TasksPage() {
   }
 
   function canAssignTasks() {
-    // User must be part of a committee with an active/in_progress event
+    // Faculty, admins, and EC can assign tasks to any committee
+    if (userProfile?.is_faculty || userProfile?.is_admin || isExecutive) return true;
+    // Committee heads/co-heads with active events can assign
     return userCommittees.length > 0 && events.some(e => userCommittees.includes(e.committee_id));
   }
 
   function canUpdateTask(task: any) {
-    return userCommittees.includes(task.assigned_to_committee) || userProfile?.is_admin;
+    // Only members of the assigned committee can start/update/complete the task
+    // EC/admin/faculty can only approve/reject (handled separately), not start/complete
+    return userCommittees.includes(task.assigned_to_committee);
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <nav className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16 items-center">
-            <h1 className="text-2xl font-bold text-blue-600">Task Management</h1>
-            <div className="flex gap-4">
-              {canAssignTasks() && (
-                <button
-                  onClick={() => setShowAssign(!showAssign)}
-                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2"
-                >
-                  <Plus className="w-4 h-4" />
-                  Assign Task
-                </button>
-              )}
-              <button onClick={() => router.back()} className="text-gray-600 hover:text-blue-600">
-                ← Back
-              </button>
-            </div>
-          </div>
-        </div>
-      </nav>
-
-      <div className="max-w-7xl mx-auto px-4 py-8">
-        {/* Assign Task Form */}
-        {showAssign && (
-          <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
-            <h2 className="text-xl font-bold mb-4">Assign Task to Committee</h2>
-            <form onSubmit={handleAssignTask} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-2">Event *</label>
-                <select
-                  value={selectedEvent}
-                  onChange={(e) => setSelectedEvent(e.target.value)}
-                  required
-                  className="w-full px-4 py-2 border rounded-lg"
-                >
-                  <option value="">Select event</option>
-                  {events.filter(e => userCommittees.includes(e.committee_id)).map((e) => (
-                    <option key={e.id} value={e.id}>
-                      {e.title} ({e.committees?.name})
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-2">Assign to Committee *</label>
-                <select
-                  value={selectedCommittee}
-                  onChange={(e) => setSelectedCommittee(e.target.value)}
-                  required
-                  className="w-full px-4 py-2 border rounded-lg"
-                >
-                  <option value="">Select committee</option>
-                  {committees.map((c) => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-2">Task Title *</label>
-                <input
-                  type="text"
-                  value={taskTitle}
-                  onChange={(e) => setTaskTitle(e.target.value)}
-                  required
-                  className="w-full px-4 py-2 border rounded-lg"
-                  placeholder="e.g., Design event poster"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-2">Description</label>
-                <textarea
-                  value={taskDescription}
-                  onChange={(e) => setTaskDescription(e.target.value)}
-                  rows={3}
-                  className="w-full px-4 py-2 border rounded-lg"
-                  placeholder="Provide details about the task..."
-                />
-              </div>
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                <p className="text-sm text-yellow-800">
-                  ℹ️ This task will be sent to EC for approval before being assigned to the committee.
-                </p>
-              </div>
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 disabled:opacity-50"
-              >
-                {loading ? 'Assigning...' : 'Assign Task (Pending EC Approval)'}
-              </button>
-            </form>
-          </div>
-        )}
-
-        {/* Tasks List */}
-        <div className="space-y-4">
-          {tasks.map((task) => {
-            const canUpdate = canUpdateTask(task);
-            const canECReview = isExecutive && task.status === 'pending_ec_approval';
-            const statusColors = {
-              pending_ec_approval: 'bg-yellow-100 text-yellow-800',
-              approved: 'bg-blue-100 text-blue-800',
-              in_progress: 'bg-purple-100 text-purple-800',
-              completed: 'bg-green-100 text-green-800',
-              rejected: 'bg-red-100 text-red-800'
-            };
-
-            return (
-              <div key={task.id} className="bg-white rounded-xl shadow-lg p-6">
-                {/* EC Approval Section */}
-                {canECReview && (
-                  <div className="mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-                    <p className="text-sm font-semibold text-yellow-900 mb-2">
-                      ⚠️ Pending EC Approval
-                    </p>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => handleECApprove(task.id)}
-                        disabled={loading}
-                        className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 text-sm disabled:opacity-50"
-                      >
-                        Approve Task
-                      </button>
-                      <button
-                        onClick={() => {
-                          const reason = prompt('Reason for rejection:');
-                          if (reason) handleECReject(task.id, reason);
-                        }}
-                        disabled={loading}
-                        className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 text-sm disabled:opacity-50"
-                      >
-                        Reject
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Task Header */}
-                <div className="flex justify-between items-start mb-4">
-                  <div className="flex-1">
-                    <h3 className="text-xl font-bold text-gray-900">{task.title}</h3>
-                    <p className="text-sm text-gray-600 mt-1">
-                      Assigned to: <span className="font-semibold">{task.assigned_to?.name}</span>
-                    </p>
-                    <p className="text-sm text-gray-600">
-                      Assigned by: {task.assigned_by?.name}
-                    </p>
-                    <p className="text-xs text-gray-500 mt-1">
-                      Event: {task.event?.title}
-                    </p>
-                  </div>
-                  <span className={`px-3 py-1 rounded-full text-xs font-bold ${statusColors[task.status as keyof typeof statusColors]}`}>
-                    {task.status.replace(/_/g, ' ').toUpperCase()}
-                  </span>
-                </div>
-
-                {task.description && (
-                  <p className="text-gray-700 mb-4">{task.description}</p>
-                )}
-
-                {/* Progress Bar */}
-                {task.status !== 'pending_ec_approval' && task.status !== 'rejected' && (
-                  <div className="mb-4">
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-sm font-medium text-gray-700">Progress</span>
-                      <span className="text-sm font-bold text-blue-600">{task.progress || 0}%</span>
-                    </div>
-                    <div className="w-full bg-gray-200 rounded-full h-3">
-                      <div
-                        className="bg-blue-600 h-3 rounded-full transition-all duration-300"
-                        style={{ width: `${task.progress || 0}%` }}
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {/* Task Updates */}
-                {task.updates && task.updates.length > 0 && (
-                  <div className="mb-4">
-                    <h4 className="font-semibold text-sm text-gray-700 mb-2">Updates:</h4>
-                    <div className="space-y-2 max-h-60 overflow-y-auto">
-                      {task.updates.map((update: any) => (
-                        <div key={update.id} className="bg-gray-50 p-3 rounded-lg border">
-                          <p className="text-sm text-gray-800">{update.update_text}</p>
-                          <p className="text-xs text-gray-500 mt-1">
-                            By {update.user?.name} • {new Date(update.created_at).toLocaleString('en-IN')}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Task Documents */}
-                {task.documents && task.documents.length > 0 && (
-                  <div className="mb-4">
-                    <h4 className="font-semibold text-sm text-gray-700 mb-2">Documents:</h4>
-                    <div className="space-y-1">
-                      {task.documents.map((doc: any) => (
-                        <a
-                          key={doc.id}
-                          href={`${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/event-documents/${doc.file_url}`}
-                          target="_blank"
-                          className="flex items-center gap-2 text-sm text-blue-600 hover:underline"
-                        >
-                          <FileText className="w-4 h-4" />
-                          {doc.file_name}
-                        </a>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Action Buttons */}
-                {canUpdate && task.status === 'approved' && (
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      onClick={() => updateTaskStatus(task.id, 'in_progress')}
-                      disabled={loading}
-                      className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 text-sm disabled:opacity-50"
-                    >
-                      Start Task
-                    </button>
-                  </div>
-                )}
-
-                {canUpdate && task.status === 'in_progress' && (
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      onClick={() => {
-                        setProgressTask(task);
-                        setProgressValue(task.progress || 0);
-                        setShowProgressModal(true);
-                      }}
-                      disabled={loading}
-                      className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 text-sm flex items-center gap-2 disabled:opacity-50"
-                    >
-                      <SlidersHorizontal className="w-4 h-4" />
-                      Update Progress
-                    </button>
-                    <button
-                      onClick={() => setSelectedTask(task)}
-                      disabled={loading}
-                      className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 text-sm flex items-center gap-2 disabled:opacity-50"
-                    >
-                      <FileText className="w-4 h-4" />
-                      Post Update
-                    </button>
-                    <button
-                      onClick={() => updateTaskStatus(task.id, 'completed')}
-                      disabled={loading}
-                      className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 text-sm flex items-center gap-2 disabled:opacity-50"
-                    >
-                      <CheckCircle className="w-4 h-4" />
-                      Mark Complete
-                    </button>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-
-          {tasks.length === 0 && (
-            <div className="bg-white rounded-xl shadow-lg p-12 text-center">
-              <Clock className="w-16 h-16 mx-auto mb-4 text-gray-300" />
-              <p className="text-gray-600">No tasks assigned yet</p>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Progress Update Modal */}
-      {showProgressModal && progressTask && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl p-6 max-w-md w-full">
-            <h2 className="text-xl font-bold mb-4">Update Progress</h2>
-            <p className="text-sm text-gray-600 mb-4">{progressTask.title}</p>
-
-            <div className="mb-6">
-              <div className="flex justify-between items-center mb-2">
-                <span className="text-sm font-medium">Progress</span>
-                <span className="text-2xl font-bold text-blue-600">{progressValue}%</span>
-              </div>
-              <input
-                type="range"
-                min="0"
-                max="100"
-                value={progressValue}
-                onChange={(e) => setProgressValue(parseInt(e.target.value))}
-                className="w-full h-3 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-                style={{
-                  background: `linear-gradient(to right, #2563eb 0%, #2563eb ${progressValue}%, #e5e7eb ${progressValue}%, #e5e7eb 100%)`
-                }}
-              />
-              <div className="flex justify-between text-xs text-gray-500 mt-1">
-                <span>0%</span>
-                <span>50%</span>
-                <span>100%</span>
-              </div>
-            </div>
-
-            <div className="flex gap-2">
-              <button
-                onClick={handleUpdateProgress}
-                disabled={loading}
-                className="flex-1 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50"
-              >
-                {loading ? 'Updating...' : 'Update Progress'}
-              </button>
-              <button
-                onClick={() => {
-                  setShowProgressModal(false);
-                  setProgressTask(null);
-                }}
-                className="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg hover:bg-gray-300"
-              >
-                Cancel
-              </button>
-            </div>
+    <div className="min-h-screen bg-mesh">
+      {pageLoading && (
+        <div className="min-h-screen bg-mesh flex items-center justify-center">
+          <div className="text-center">
+            <div className="w-16 h-16 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 mx-auto mb-4 animate-pulse-glow" />
+            <p className="text-gray-400">Loading tasks...</p>
           </div>
         </div>
       )}
+      {!pageLoading && (
+        <>
+          <PageHeader
+            title="Task Management"
+            rightContent={
+              canAssignTasks() ? (
+                <button onClick={() => setShowAssign(!showAssign)} className="btn-gradient-blue px-4 py-2 rounded-xl flex items-center gap-2 font-semibold text-sm">
+                  <Plus className="w-4 h-4" /> Assign Task
+                </button>
+              ) : undefined
+            }
+          />
 
-      {/* Post Update Modal */}
-      {selectedTask && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl p-6 max-w-2xl w-full">
-            <h2 className="text-xl font-bold mb-4">Post Update - {selectedTask.title}</h2>
-            <form onSubmit={handlePostUpdate} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-2">Update *</label>
-                <textarea
-                  value={updateText}
-                  onChange={(e) => setUpdateText(e.target.value)}
-                  required
-                  rows={4}
-                  className="w-full px-4 py-2 border rounded-lg"
-                  placeholder="Describe the progress or update..."
-                />
+          <div className="max-w-7xl mx-auto px-4 py-8">
+            {/* Assign Task Form */}
+            {showAssign && (
+              <div className="glass rounded-2xl p-6 mb-6">
+                <h2 className="text-xl font-bold text-gradient mb-4">Assign Task to Committee</h2>
+                <form onSubmit={handleAssignTask} className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Event *</label>
+                    <select
+                      value={selectedEvent}
+                      onChange={(e) => setSelectedEvent(e.target.value)}
+                      required
+                      className="w-full px-4 py-2 border rounded-lg"
+                    >
+                      <option value="">Select event</option>
+                      {events.filter(e => (userProfile?.is_faculty || userProfile?.is_admin) ? true : userCommittees.includes(e.committee_id)).map((e) => (
+                        <option key={e.id} value={e.id}>
+                          {e.title} ({e.committees?.name})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Assign to Committee *</label>
+                    <select
+                      value={selectedCommittee}
+                      onChange={(e) => setSelectedCommittee(e.target.value)}
+                      required
+                      className="w-full px-4 py-2 border rounded-lg"
+                    >
+                      <option value="">Select committee</option>
+                      {committees.map((c) => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Task Title *</label>
+                    <input
+                      type="text"
+                      value={taskTitle}
+                      onChange={(e) => setTaskTitle(e.target.value)}
+                      required
+                      className="w-full px-4 py-2 border rounded-lg"
+                      placeholder="e.g., Design event poster"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Description</label>
+                    <textarea
+                      value={taskDescription}
+                      onChange={(e) => setTaskDescription(e.target.value)}
+                      rows={3}
+                      className="w-full px-4 py-2 border rounded-lg"
+                      placeholder="Provide details about the task..."
+                    />
+                  </div>
+                  {!(userProfile?.is_faculty || userProfile?.is_admin || isExecutive) && (
+                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                      <p className="text-sm text-yellow-800">
+                        ℹ️ This task will be sent to EC for approval before being assigned to the committee.
+                      </p>
+                    </div>
+                  )}
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="w-full btn-gradient-blue py-3 rounded-xl font-semibold disabled:opacity-50"
+                  >
+                    {loading ? 'Assigning...' : (userProfile?.is_faculty || userProfile?.is_admin || isExecutive) ? 'Assign Task' : 'Assign Task (Pending EC Approval)'}
+                  </button>
+                </form>
               </div>
-              <div>
-                <label className="block text-sm font-medium mb-2">Upload Document (Optional)</label>
-                <input
-                  type="file"
-                  onChange={(e) => setUpdateDoc(e.target.files?.[0] || null)}
-                  className="w-full px-4 py-2 border rounded-lg"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  Documents will be stored in the event's documents section
-                </p>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="flex-1 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50"
-                >
-                  {loading ? 'Posting...' : 'Post Update'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedTask(null);
-                    setUpdateText('');
-                    setUpdateDoc(null);
-                  }}
-                  className="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg hover:bg-gray-300"
-                >
-                  Cancel
-                </button>
-              </div>
-            </form>
+            )}
+
+            {/* Tasks List */}
+            <div className="space-y-4">
+              {tasks.map((task) => {
+                const canUpdate = canUpdateTask(task);
+                const canECReview = isExecutive && task.status === 'pending_ec_approval';
+                const statusColors = {
+                  pending_ec_approval: 'bg-yellow-100 text-yellow-800',
+                  approved: 'bg-blue-100 text-blue-800',
+                  in_progress: 'bg-purple-100 text-purple-800',
+                  completed: 'bg-green-100 text-green-800',
+                  rejected: 'bg-red-100 text-red-800'
+                };
+
+                return (
+                  <div key={task.id} className="glass rounded-2xl p-6">
+                    {/* EC Approval Section */}
+                    {canECReview && (
+                      <div className="mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                        <p className="text-sm font-semibold text-yellow-900 mb-2">
+                          ⚠️ Pending EC Approval
+                        </p>
+                        <div className="mb-3">
+                          <label className="block text-xs font-medium text-yellow-800 mb-1">Reassign to committee (optional)</label>
+                          <select
+                            defaultValue={task.assigned_to_committee}
+                            onChange={async (e) => {
+                              const newCommitteeId = e.target.value;
+                              if (newCommitteeId !== task.assigned_to_committee) {
+                                await supabase.from('task_assignments').update({ assigned_to_committee: newCommitteeId }).eq('id', task.id);
+                                toast.success('Committee updated');
+                                loadData();
+                              }
+                            }}
+                            className="w-full px-3 py-1.5 border border-yellow-300 rounded-lg text-sm bg-white"
+                          >
+                            {committees.map((c) => (
+                              <option key={c.id} value={c.id}>{c.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handleECApprove(task.id)}
+                            disabled={loading}
+                            className="btn-gradient-green px-4 py-2 rounded-xl text-sm disabled:opacity-50"
+                          >
+                            Approve Task
+                          </button>
+                          <button
+                            onClick={() => {
+                              const reason = prompt('Reason for rejection:');
+                              if (reason) handleECReject(task.id, reason);
+                            }}
+                            disabled={loading}
+                            className="btn-gradient-red px-4 py-2 rounded-xl text-sm disabled:opacity-50"
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Task Header */}
+                    <div className="flex justify-between items-start mb-4">
+                      <div className="flex-1">
+                        <h3 className="text-xl font-bold text-gray-900">{task.title}</h3>
+                        <p className="text-sm text-gray-600">
+                          Assigned to: <span className="font-semibold">{task.assigned_to?.name}</span>
+                          {isExecutive && task.status !== 'completed' && (
+                            <select
+                              className="ml-2 text-xs border border-gray-200 rounded-lg px-2 py-0.5 bg-white"
+                              defaultValue={task.assigned_to_committee}
+                              onChange={async (e) => {
+                                await supabase.from('task_assignments').update({ assigned_to_committee: e.target.value }).eq('id', task.id);
+                                toast.success('Committee reassigned');
+                                loadData();
+                              }}
+                            >
+                              {committees.map((c) => (
+                                <option key={c.id} value={c.id}>{c.name}</option>
+                              ))}
+                            </select>
+                          )}
+                        </p>
+                        <p className="text-xs text-gray-500 mt-1">
+                          Event: {task.event?.title}
+                        </p>
+                        {/* Deadline */}
+                        {task.deadline ? (
+                          <p className={`text-xs mt-1 font-medium ${new Date(task.deadline) < new Date() ? 'text-red-600' : 'text-amber-600'}`}>
+                            📅 Deadline: {new Date(task.deadline).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                            {new Date(task.deadline) < new Date() && ' (Overdue)'}
+                          </p>
+                        ) : task.ec_approved_at ? (
+                          <p className={`text-xs mt-1 font-medium ${new Date(new Date(task.ec_approved_at).getTime() + 2 * 24 * 60 * 60 * 1000) < new Date() ? 'text-red-600' : 'text-amber-600'}`}>
+                            📅 Deadline: {new Date(new Date(task.ec_approved_at).getTime() + 2 * 24 * 60 * 60 * 1000).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })} (default)
+                            {new Date(new Date(task.ec_approved_at).getTime() + 2 * 24 * 60 * 60 * 1000) < new Date() && ' (Overdue)'}
+                          </p>
+                        ) : task.created_at ? (
+                          <p className={`text-xs mt-1 font-medium ${new Date(new Date(task.created_at).getTime() + 2 * 24 * 60 * 60 * 1000) < new Date() ? 'text-red-600' : 'text-amber-600'}`}>
+                            📅 Deadline: {new Date(new Date(task.created_at).getTime() + 2 * 24 * 60 * 60 * 1000).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })} (default)
+                          </p>
+                        ) : null}
+                      </div>
+                      <span className={`px-3 py-1 rounded-full text-xs font-bold ${statusColors[task.status as keyof typeof statusColors]}`}>
+                        {task.status.replace(/_/g, ' ').toUpperCase()}
+                      </span>
+                    </div>
+
+                    {task.description && (
+                      <p className="text-gray-700 mb-4">{task.description}</p>
+                    )}
+
+                    {/* Progress Bar */}
+                    {task.status !== 'pending_ec_approval' && task.status !== 'rejected' && (
+                      <div className="mb-4">
+                        <div className="flex justify-between items-center mb-2">
+                          <span className="text-sm font-medium text-gray-700">Progress</span>
+                          <span className="text-sm font-bold text-indigo-600">{task.progress || 0}%</span>
+                        </div>
+                        <div className="w-full bg-gray-200/60 rounded-full h-3">
+                          <div
+                            className="bg-gradient-to-r from-blue-500 to-indigo-500 h-3 rounded-full transition-all duration-300"
+                            style={{ width: `${task.progress || 0}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Task Updates */}
+                    {task.updates && task.updates.length > 0 && (
+                      <div className="mb-4">
+                        <h4 className="font-semibold text-sm text-gray-700 mb-2">Updates:</h4>
+                        <div className="space-y-2 max-h-60 overflow-y-auto">
+                          {task.updates.map((update: any) => (
+                            <div key={update.id} className="bg-gray-50 p-3 rounded-lg border">
+                              <p className="text-sm text-gray-800">{update.update_text}</p>
+                              <p className="text-xs text-gray-500 mt-1">
+                                By {update.user?.name} • {new Date(update.created_at).toLocaleString('en-IN')}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Task Documents */}
+                    {task.documents && task.documents.length > 0 && (
+                      <div className="mb-4">
+                        <h4 className="font-semibold text-sm text-gray-700 mb-2">Documents:</h4>
+                        <div className="space-y-1">
+                          {task.documents.map((doc: any) => (
+                            <a
+                              key={doc.id}
+                              href={`${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/event-documents/${doc.file_url}`}
+                              target="_blank"
+                              className="flex items-center gap-2 text-sm text-blue-600 hover:underline"
+                            >
+                              <FileText className="w-4 h-4" />
+                              {doc.file_name}
+                            </a>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Action Buttons */}
+                    {canUpdate && task.status === 'approved' && (
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          onClick={() => updateTaskStatus(task.id, 'in_progress')}
+                          disabled={loading}
+                          className="btn-gradient-blue px-4 py-2 rounded-xl text-sm disabled:opacity-50"
+                        >
+                          Start Task
+                        </button>
+                      </div>
+                    )}
+
+                    {canUpdate && task.status === 'in_progress' && (
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          onClick={() => {
+                            setProgressTask(task);
+                            setProgressValue(task.progress || 0);
+                            setShowProgressModal(true);
+                          }}
+                          disabled={loading}
+                          className="btn-gradient-purple px-4 py-2 rounded-xl text-sm flex items-center gap-2 disabled:opacity-50"
+                        >
+                          <SlidersHorizontal className="w-4 h-4" />
+                          Update Progress
+                        </button>
+                        <button
+                          onClick={() => setSelectedTask(task)}
+                          disabled={loading}
+                          className="glass px-4 py-2 rounded-xl text-sm flex items-center gap-2 disabled:opacity-50 text-gray-700 hover:shadow-md transition"
+                        >
+                          <FileText className="w-4 h-4" />
+                          Post Update
+                        </button>
+                        <button
+                          onClick={() => updateTaskStatus(task.id, 'completed')}
+                          disabled={loading}
+                          className="btn-gradient-green px-4 py-2 rounded-xl text-sm flex items-center gap-2 disabled:opacity-50"
+                        >
+                          <CheckCircle className="w-4 h-4" />
+                          Mark Complete
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+
+              {tasks.length === 0 && (
+                <div className="glass rounded-2xl p-12 text-center">
+                  <Clock className="w-16 h-16 mx-auto mb-4 text-gray-300" />
+                  <p className="text-gray-500">No tasks assigned yet</p>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
+
+          {/* Progress Update Modal */}
+          {showProgressModal && progressTask && (
+            <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+              <div className="glass-strong rounded-2xl p-6 max-w-md w-full">
+                <h2 className="text-xl font-bold text-gradient mb-4">Update Progress</h2>
+                <p className="text-sm text-gray-600 mb-4">{progressTask.title}</p>
+
+                <div className="mb-6">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-sm font-medium">Progress</span>
+                    <span className="text-2xl font-bold text-blue-600">{progressValue}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={progressValue}
+                    onChange={(e) => setProgressValue(parseInt(e.target.value))}
+                    className="w-full h-3 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                    style={{
+                      background: `linear-gradient(to right, #2563eb 0%, #2563eb ${progressValue}%, #e5e7eb ${progressValue}%, #e5e7eb 100%)`
+                    }}
+                  />
+                  <div className="flex justify-between text-xs text-gray-500 mt-1">
+                    <span>0%</span>
+                    <span>50%</span>
+                    <span>100%</span>
+                  </div>
+                </div>
+
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleUpdateProgress}
+                    disabled={loading}
+                    className="flex-1 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {loading ? 'Updating...' : 'Update Progress'}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowProgressModal(false);
+                      setProgressTask(null);
+                    }}
+                    className="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg hover:bg-gray-300"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Post Update Modal */}
+          {selectedTask && (
+            <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+              <div className="glass-strong rounded-2xl p-6 max-w-2xl w-full">
+                <h2 className="text-xl font-bold text-gradient mb-4">Post Update - {selectedTask.title}</h2>
+                <form onSubmit={handlePostUpdate} className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Update *</label>
+                    <textarea
+                      value={updateText}
+                      onChange={(e) => setUpdateText(e.target.value)}
+                      required
+                      rows={4}
+                      className="w-full px-4 py-2 border rounded-lg"
+                      placeholder="Describe the progress or update..."
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Upload Document (Optional)</label>
+                    <input
+                      type="file"
+                      onChange={(e) => setUpdateDoc(e.target.files?.[0] || null)}
+                      className="w-full px-4 py-2 border rounded-lg"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Documents will be stored in the event's documents section
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      type="submit"
+                      disabled={loading}
+                      className="flex-1 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      {loading ? 'Posting...' : 'Post Update'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedTask(null);
+                        setUpdateText('');
+                        setUpdateDoc(null);
+                      }}
+                      className="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg hover:bg-gray-300"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

@@ -5,11 +5,10 @@ import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
 import { FileText, Upload, Download, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { uploadDocument, getCommitteeDocuments, deleteDocument } from '@/lib/document-utils';
-import type { Document } from '@/types/database';
+import PageHeader from '@/components/PageHeader';
 
 export default function DocumentsPage() {
-  const [documents, setDocuments] = useState<Document[]>([]);
+  const [documents, setDocuments] = useState<any[]>([]);
   const [committees, setCommittees] = useState<any[]>([]);
   const [userCommittees, setUserCommittees] = useState<any[]>([]);
   const [selectedCommittee, setSelectedCommittee] = useState('');
@@ -21,9 +20,7 @@ export default function DocumentsPage() {
   const supabase = createClient();
   const router = useRouter();
 
-  useEffect(() => {
-    loadData();
-  }, [selectedCommittee]);
+  useEffect(() => { loadData(); }, [selectedCommittee]);
 
   async function loadData() {
     const { data: { user } } = await supabase.auth.getUser();
@@ -42,33 +39,50 @@ export default function DocumentsPage() {
     setCommittees(allComs || []);
 
     if (selectedCommittee) {
-      const data = await getCommitteeDocuments(selectedCommittee);
+      const { data, error } = await supabase
+        .from('documents')
+        .select('*')
+        .eq('committee_id', selectedCommittee)
+        .order('created_at', { ascending: false });
+      if (error) console.error('Load docs error:', error);
       setDocuments(data || []);
     }
   }
 
   async function handleUpload(e: React.FormEvent) {
     e.preventDefault();
+    if (!file || !title.trim()) return;
     setLoading(true);
 
     try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user || !file) {
-        throw new Error('Please select a file');
-      }
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
 
-      await uploadDocument(
-        file,
-        {
-          title,
+      // Upload file to storage
+      const ext = file.name.split('.').pop();
+      const path = `committee-docs/${selectedCommittee}/${Date.now()}.${ext}`;
+      const { error: upErr } = await supabase.storage.from('documents').upload(path, file);
+      if (upErr) throw new Error('File upload failed: ' + upErr.message);
+
+      const { data: urlData } = supabase.storage.from('documents').getPublicUrl(path);
+
+      // Insert into documents table
+      const { error: insertErr } = await supabase
+        .from('documents')
+        .insert({
+          title: title.trim(),
+          file_url: urlData.publicUrl,
+          file_type: file.type,
+          file_size: file.size,
           document_type: 'general',
           committee_id: selectedCommittee,
-          tags: description ? [description] : [],
-        },
-        user.id
-      );
+          uploaded_by: user.id,
+          year: new Date().getFullYear(),
+          month: new Date().getMonth() + 1,
+          metadata: { original_name: file.name },
+        });
+
+      if (insertErr) throw new Error('Save failed: ' + insertErr.message);
 
       toast.success('Document uploaded!');
       setShowUpload(false);
@@ -85,41 +99,23 @@ export default function DocumentsPage() {
 
   async function handleDelete(docId: string) {
     if (!confirm('Delete this document?')) return;
-
-    try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) throw new Error('Not authorized');
-
-      await deleteDocument(docId, user.id);
-
-      toast.success('Document deleted!');
-      loadData();
-    } catch (error: any) {
-      toast.error(error.message);
-    }
+    const { error } = await supabase.from('documents').delete().eq('id', docId);
+    if (error) toast.error('Delete failed');
+    else { toast.success('Deleted'); loadData(); }
   }
 
   const canUpload = userCommittees.some((c: any) => c.committee_id === selectedCommittee);
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <nav className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16 items-center">
-            <h1 className="text-2xl font-bold text-blue-600">Committee Documents</h1>
-            <button onClick={() => router.back()} className="text-gray-600 hover:text-blue-600">← Back</button>
-          </div>
-        </div>
-      </nav>
+    <div className="min-h-screen bg-mesh">
+      <PageHeader title="Committee Documents" />
 
       <div className="max-w-7xl mx-auto px-4 py-8">
         <div className="mb-6 flex gap-4">
           <select
             value={selectedCommittee}
             onChange={(e) => setSelectedCommittee(e.target.value)}
-            className="flex-1 px-4 py-2 border rounded-lg"
+            className="flex-1 px-4 py-2 border border-white/30 rounded-xl glass focus:ring-2 focus:ring-indigo-500"
           >
             <option value="">Select Committee</option>
             {committees.map((c) => (
@@ -127,98 +123,65 @@ export default function DocumentsPage() {
             ))}
           </select>
           {canUpload && selectedCommittee && (
-            <button
-              onClick={() => setShowUpload(!showUpload)}
-              className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2"
-            >
-              <Upload className="w-4 h-4" />
-              Upload
+            <button onClick={() => setShowUpload(!showUpload)}
+              className="btn-gradient-blue px-4 py-2 rounded-xl flex items-center gap-2 font-semibold">
+              <Upload className="w-4 h-4" /> Upload
             </button>
           )}
         </div>
 
         {showUpload && (
-          <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
-            <h2 className="text-xl font-bold mb-4">Upload Document</h2>
+          <div className="glass rounded-2xl p-6 mb-6">
+            <h2 className="text-xl font-bold text-gradient mb-4">Upload Document</h2>
             <form onSubmit={handleUpload} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium mb-2">Title *</label>
-                <input
-                  type="text"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  required
-                  className="w-full px-4 py-2 border rounded-lg"
-                />
+                <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} required
+                  className="w-full px-4 py-2 border rounded-lg" />
               </div>
               <div>
                 <label className="block text-sm font-medium mb-2">Description</label>
-                <textarea
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  rows={3}
-                  className="w-full px-4 py-2 border rounded-lg"
-                />
+                <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2}
+                  className="w-full px-4 py-2 border rounded-lg" />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-2">Document File *</label>
-                <input
-                  type="file"
-                  onChange={(e) => setFile(e.target.files?.[0] || null)}
-                  required
-                  className="w-full px-4 py-2 border rounded-lg"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  Files are stored securely and listed for this committee.
-                </p>
+                <label className="block text-sm font-medium mb-2">File *</label>
+                <input type="file" onChange={(e) => setFile(e.target.files?.[0] || null)}
+                  className="w-full px-4 py-2 border rounded-lg" />
+                {file && <p className="text-xs text-emerald-600 mt-1">Selected: {file.name}</p>}
               </div>
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 disabled:opacity-50"
-              >
+              <button type="submit" disabled={loading || !file || !title.trim()}
+                className="w-full btn-gradient-blue py-3 rounded-xl font-semibold disabled:opacity-50">
                 {loading ? 'Uploading...' : 'Upload'}
               </button>
             </form>
           </div>
         )}
 
-        {selectedCommittee && (
-          <div className="bg-white rounded-xl shadow-lg p-6">
-            <h2 className="text-xl font-bold mb-4">Documents</h2>
+        {selectedCommittee ? (
+          <div className="glass rounded-2xl p-6">
+            <h2 className="text-xl font-bold text-gradient mb-4">Documents</h2>
             <div className="space-y-4">
               {documents.map((doc) => (
-                <div key={doc.id} className="border rounded-lg p-4 hover:shadow-md transition">
+                <div key={doc.id} className="glass-strong rounded-xl p-4 hover:shadow-lg transition">
                   <div className="flex justify-between items-start">
                     <div className="flex-1">
                       <h3 className="font-bold flex items-center gap-2">
-                        <FileText className="w-5 h-5 text-blue-600" />
-                        {doc.title}
+                        <FileText className="w-5 h-5 text-blue-600" /> {doc.title}
                       </h3>
-                      {doc.metadata?.original_name && (
-                        <p className="text-sm text-gray-600 mt-1">
-                          Original file: {doc.metadata.original_name}
-                        </p>
-                      )}
+                      {doc.description && <p className="text-sm text-gray-600 mt-1">{doc.description}</p>}
                       <p className="text-xs text-gray-500 mt-2">
-                        Uploaded on {new Date(doc.created_at).toLocaleDateString('en-IN')}
+                        {new Date(doc.created_at).toLocaleDateString('en-IN')}
                       </p>
                     </div>
                     <div className="flex gap-2">
-                      <a
-                        href={doc.file_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2"
-                      >
-                        <Download className="w-4 h-4" />
-                        View
+                      <a href={doc.file_url} target="_blank" rel="noopener noreferrer"
+                        className="btn-gradient-blue px-4 py-2 rounded-xl flex items-center gap-2 text-sm">
+                        <Download className="w-4 h-4" /> View
                       </a>
                       {canUpload && (
-                        <button
-                          onClick={() => handleDelete(doc.id)}
-                          className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 flex items-center gap-2"
-                        >
+                        <button onClick={() => handleDelete(doc.id)}
+                          className="px-3 py-2 rounded-xl bg-red-50 text-red-500 hover:bg-red-100 transition text-sm">
                           <Trash2 className="w-4 h-4" />
                         </button>
                       )}
@@ -227,15 +190,13 @@ export default function DocumentsPage() {
                 </div>
               ))}
               {documents.length === 0 && (
-                <p className="text-gray-600 text-center py-8">No documents uploaded yet</p>
+                <p className="text-gray-400 text-center py-8">No documents uploaded yet</p>
               )}
             </div>
           </div>
-        )}
-
-        {!selectedCommittee && (
-          <div className="bg-white rounded-xl shadow-lg p-12 text-center">
-            <p className="text-gray-600">Select a committee to view documents</p>
+        ) : (
+          <div className="glass rounded-2xl p-12 text-center">
+            <p className="text-gray-400">Select a committee to view documents</p>
           </div>
         )}
       </div>

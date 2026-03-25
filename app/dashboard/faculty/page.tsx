@@ -282,28 +282,28 @@ export default function FacultyDashboard() {
 
     if (loading) {
         return (
-            <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+            <div className="min-h-screen bg-mesh flex items-center justify-center">
                 <div className="text-center">
-                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-                    <p className="mt-4 text-gray-600">Loading Faculty Dashboard...</p>
+                    <div className="w-16 h-16 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 mx-auto mb-4 animate-pulse-glow"></div>
+                    <p className="mt-4 text-gray-400 font-medium">Loading Faculty Dashboard...</p>
                 </div>
             </div>
         );
     }
 
     return (
-        <div className="min-h-screen bg-gray-50">
+        <div className="min-h-screen bg-mesh">
             {/* Header */}
-            <div className="bg-white shadow">
+            <div className="glass-strong shadow-lg shadow-indigo-500/5">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
                     <div className="flex items-center justify-between">
                         <div>
-                            <h1 className="text-3xl font-bold text-gray-900">Faculty Dashboard</h1>
-                            <p className="text-gray-600 mt-1">Welcome, {profile?.name}</p>
+                            <h1 className="text-3xl font-bold text-gradient">Faculty Dashboard</h1>
+                            <p className="text-gray-500 mt-1">Welcome, {profile?.name}</p>
                         </div>
                         <button
                             onClick={() => router.push('/dashboard')}
-                            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                            className="btn-gradient-blue px-4 py-2 rounded-xl font-semibold"
                         >
                             Back to Dashboard
                         </button>
@@ -314,17 +314,17 @@ export default function FacultyDashboard() {
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
                 {/* Pending Approvals Section - Prominently at Top */}
                 {pendingApprovals.length > 0 && (
-                    <div className="bg-white rounded-xl shadow-lg p-6 mb-8 border-l-4 border-orange-500">
-                        <h2 className="text-2xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+                    <div className="glass rounded-2xl p-6 mb-8 border-l-4 border-orange-500 glow-amber">
+                        <h2 className="text-2xl font-bold text-gradient-warm mb-4 flex items-center gap-2">
                             <AlertCircle className="w-7 h-7 text-orange-600" />
                             Pending Event Approvals
-                            <span className="ml-auto text-sm font-normal bg-orange-100 text-orange-700 px-3 py-1 rounded-full">
+                            <span className="ml-auto text-sm font-normal bg-gradient-to-r from-orange-100 to-amber-100 text-orange-700 px-3 py-1 rounded-full">
                                 {pendingApprovals.length} pending
                             </span>
                         </h2>
                         <div className="space-y-4">
                             {pendingApprovals.map((event) => (
-                                <div key={event.id} className="border rounded-lg p-5 hover:shadow-md transition bg-gray-50">
+                                <div key={event.id} className="glass-strong rounded-xl p-5 hover:shadow-lg transition">
                                     <div className="flex justify-between items-start mb-3">
                                         <div className="flex-1">
                                             <h3 className="font-bold text-gray-900 text-lg">{event.title}</h3>
@@ -365,7 +365,7 @@ export default function FacultyDashboard() {
                                     </div>
 
                                     {/* EC Approval History */}
-                                    <div className="bg-white rounded-lg p-3 mb-3">
+                                    <div className="bg-white/60 rounded-lg p-3 mb-3">
                                         <p className="text-xs font-semibold text-gray-700 mb-2">
                                             EC Approvals ({event.ec_approvals?.length || 0}/2 required)
                                         </p>
@@ -395,13 +395,13 @@ export default function FacultyDashboard() {
                                     <div className="flex gap-2">
                                         <button
                                             onClick={() => approveEvent(event.id)}
-                                            className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-medium transition"
+                                            className="flex-1 px-4 py-2 btn-gradient-green rounded-xl text-sm font-medium"
                                         >
                                             Approve
                                         </button>
                                         <button
                                             onClick={() => rejectEvent(event.id)}
-                                            className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm font-medium transition"
+                                            className="flex-1 px-4 py-2 btn-gradient-red rounded-xl text-sm font-medium"
                                         >
                                             Reject
                                         </button>
@@ -446,27 +446,27 @@ export default function FacultyDashboard() {
 
                 {/* Finance Overview */}
                 {financeOverview && (
-                    <div className="bg-white rounded-xl shadow-lg p-6 mb-8">
-                        <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+                    <div className="glass rounded-2xl p-6 mb-8">
+                        <h2 className="text-xl font-bold text-gradient mb-4 flex items-center gap-2">
                             <DollarSign className="w-6 h-6 text-green-600" />
                             Finance Overview
                         </h2>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                            <div className="text-center">
-                                <p className="text-sm text-gray-600">Total Income</p>
-                                <p className="text-2xl font-bold text-green-600">
+                            <div className="text-center glass-strong rounded-xl p-4">
+                                <p className="text-sm text-gray-500">Total Income</p>
+                                <p className="text-2xl font-bold text-gradient-green">
                                     ₹{financeOverview.totalIncome.toLocaleString()}
                                 </p>
                             </div>
-                            <div className="text-center">
-                                <p className="text-sm text-gray-600">Total Expense</p>
+                            <div className="text-center glass-strong rounded-xl p-4">
+                                <p className="text-sm text-gray-500">Total Expense</p>
                                 <p className="text-2xl font-bold text-red-600">
                                     ₹{financeOverview.totalExpense.toLocaleString()}
                                 </p>
                             </div>
-                            <div className="text-center">
-                                <p className="text-sm text-gray-600">Balance</p>
-                                <p className="text-2xl font-bold text-blue-600">
+                            <div className="text-center glass-strong rounded-xl p-4">
+                                <p className="text-sm text-gray-500">Balance</p>
+                                <p className="text-2xl font-bold text-gradient">
                                     ₹{(financeOverview.totalIncome - financeOverview.totalExpense).toLocaleString()}
                                 </p>
                             </div>
@@ -476,8 +476,8 @@ export default function FacultyDashboard() {
 
                 <div className="grid grid-cols-1 lg:grid-cols-1 gap-8">
                     {/* Task Progress */}
-                    <div className="bg-white rounded-xl shadow-lg p-6">
-                        <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+                    <div className="glass rounded-2xl p-6">
+                        <h2 className="text-xl font-bold text-gradient mb-4 flex items-center gap-2">
                             <TrendingUp className="w-6 h-6 text-blue-600" />
                             Task Progress by Committee
                         </h2>
@@ -486,13 +486,13 @@ export default function FacultyDashboard() {
                                 <div key={item.committee}>
                                     <div className="flex justify-between text-sm mb-1">
                                         <span className="font-medium text-gray-700">{item.committee}</span>
-                                        <span className="text-gray-600">
+                                        <span className="text-gray-500">
                                             {item.completed}/{item.total} ({item.percentage}%)
                                         </span>
                                     </div>
-                                    <div className="w-full bg-gray-200 rounded-full h-2">
+                                    <div className="w-full bg-gray-200/60 rounded-full h-2.5">
                                         <div
-                                            className="bg-blue-600 h-2 rounded-full transition-all"
+                                            className="bg-gradient-to-r from-blue-500 to-indigo-500 h-2.5 rounded-full transition-all"
                                             style={{ width: `${item.percentage}%` }}
                                         ></div>
                                     </div>
@@ -503,20 +503,20 @@ export default function FacultyDashboard() {
                 </div>
 
                 {/* Upcoming Events */}
-                <div className="bg-white rounded-xl shadow-lg p-6 mt-8">
-                    <h2 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+                <div className="glass rounded-2xl p-6 mt-8">
+                    <h2 className="text-xl font-bold text-gradient mb-4 flex items-center gap-2">
                         <Calendar className="w-6 h-6 text-purple-600" />
                         Upcoming Events
                     </h2>
                     {upcomingEvents.length === 0 ? (
-                        <p className="text-gray-500 text-center py-8">No upcoming events</p>
+                        <p className="text-gray-400 text-center py-8">No upcoming events</p>
                     ) : (
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                             {upcomingEvents.map((event) => (
-                                <div key={event.id} className="border rounded-lg p-4 hover:shadow-md transition">
+                                <div key={event.id} className="glass-strong rounded-xl p-4 hover:shadow-lg transition">
                                     <h3 className="font-semibold text-gray-900">{event.title}</h3>
-                                    <p className="text-sm text-gray-600 mt-1">{event.committee?.name}</p>
-                                    <p className="text-sm text-gray-500 mt-2">
+                                    <p className="text-sm text-gray-500 mt-1">{event.committee?.name}</p>
+                                    <p className="text-sm text-indigo-600 font-medium mt-2">
                                         {new Date(event.event_date).toLocaleDateString('en-IN', {
                                             weekday: 'short',
                                             month: 'short',
@@ -530,11 +530,11 @@ export default function FacultyDashboard() {
                 </div>
 
                 {/* Quick Actions */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-8">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mt-8">
                     <QuickAction
                         title="View All Approvals"
                         icon={<CheckCircle className="w-8 h-8" />}
-                        onClick={() => router.push('/dashboard/faculty/approvals')}
+                        onClick={() => router.push('/dashboard/proposals')}
                     />
                     <QuickAction
                         title="Finance Management"
@@ -546,6 +546,30 @@ export default function FacultyDashboard() {
                         icon={<FileText className="w-8 h-8" />}
                         onClick={() => router.push('/dashboard/documents')}
                     />
+                    <QuickAction
+                        title="Admin Panel"
+                        icon={<AlertCircle className="w-8 h-8" />}
+                        onClick={() => router.push('/dashboard/admin')}
+                    />
+                </div>
+
+                {/* Admin-Level Actions */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-8">
+                    <QuickAction
+                        title="Approve New Users"
+                        icon={<CheckCircle className="w-8 h-8" />}
+                        onClick={() => router.push('/dashboard/admin/approvals')}
+                    />
+                    <QuickAction
+                        title="Manage Tasks"
+                        icon={<TrendingUp className="w-8 h-8" />}
+                        onClick={() => router.push('/dashboard/tasks')}
+                    />
+                    <QuickAction
+                        title="User Management"
+                        icon={<AlertCircle className="w-8 h-8" />}
+                        onClick={() => router.push('/dashboard/admin/users')}
+                    />
                 </div>
             </div>
         </div>
@@ -554,23 +578,23 @@ export default function FacultyDashboard() {
 
 function StatCard({ title, value, icon, color, onClick }: any) {
     const colors = {
-        blue: 'bg-blue-100 text-blue-600',
-        purple: 'bg-purple-100 text-purple-600',
-        green: 'bg-green-100 text-green-600',
-        yellow: 'bg-yellow-100 text-yellow-600',
+        blue: 'from-blue-500 to-indigo-500',
+        purple: 'from-purple-500 to-fuchsia-500',
+        green: 'from-emerald-500 to-teal-500',
+        yellow: 'from-amber-500 to-orange-500',
     };
 
     return (
         <div
             onClick={onClick}
-            className="bg-white rounded-xl shadow-lg p-6 cursor-pointer hover:shadow-xl transition"
+            className="glass rounded-2xl p-6 cursor-pointer hover:shadow-xl transition group"
         >
             <div className="flex items-center justify-between">
                 <div>
-                    <p className="text-sm text-gray-600">{title}</p>
+                    <p className="text-sm text-gray-500">{title}</p>
                     <p className="text-3xl font-bold text-gray-900 mt-2">{value}</p>
                 </div>
-                <div className={`p-3 rounded-lg ${colors[color as keyof typeof colors]}`}>{icon}</div>
+                <div className={`p-3 rounded-xl bg-gradient-to-br ${colors[color as keyof typeof colors]} text-white group-hover:scale-110 transition`}>{icon}</div>
             </div>
         </div>
     );
@@ -580,9 +604,9 @@ function QuickAction({ title, icon, onClick }: any) {
     return (
         <button
             onClick={onClick}
-            className="bg-white rounded-xl shadow-lg p-6 hover:shadow-xl transition text-center"
+            className="glass rounded-2xl p-6 hover:shadow-xl transition text-center group"
         >
-            <div className="flex justify-center text-blue-600 mb-3">{icon}</div>
+            <div className="flex justify-center text-indigo-600 mb-3 group-hover:scale-110 transition">{icon}</div>
             <p className="font-semibold text-gray-900">{title}</p>
         </button>
     );

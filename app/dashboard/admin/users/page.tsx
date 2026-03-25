@@ -15,7 +15,7 @@ export default async function UserManagementPage() {
     .eq('id', user.id)
     .single();
 
-  if (!profile || (profile as any).role !== 'super_admin') {
+  if (!profile || ((profile as any).role !== 'super_admin' && (profile as any).role !== 'faculty_advisor' && !(profile as any).is_faculty)) {
     redirect('/dashboard');
   }
 
@@ -45,20 +45,20 @@ export default async function UserManagementPage() {
   }));
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <nav className="bg-white shadow-sm">
+    <div className="min-h-screen bg-mesh">
+      <nav className="glass-strong shadow-lg shadow-indigo-500/5">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16 items-center">
-            <h1 className="text-2xl font-bold text-blue-600">User Management</h1>
-            <Link href="/dashboard/admin" className="text-gray-600 hover:text-blue-600">← Back</Link>
+            <h1 className="text-2xl font-bold text-gradient">User Management</h1>
+            <Link href="/dashboard/admin" className="text-gray-500 hover:text-indigo-600 transition">← Back</Link>
           </div>
         </div>
       </nav>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {pendingUsers.length > 0 && (
-          <div className="bg-yellow-50 border-2 border-yellow-400 rounded-xl shadow-lg p-6 mb-8">
-            <h2 className="text-xl font-bold text-yellow-900 mb-4">⏳ Pending Approvals ({pendingUsers.length})</h2>
+          <div className="glass rounded-2xl p-6 mb-8 border-l-4 border-amber-500 glow-amber">
+            <h2 className="text-xl font-bold text-gradient-warm mb-4">⏳ Pending Approvals ({pendingUsers.length})</h2>
             <div className="space-y-3">
               {pendingUsers.map((user: any) => (
                 <div key={user.id} className="bg-white rounded-lg p-4 flex items-center justify-between">
@@ -68,7 +68,7 @@ export default async function UserManagementPage() {
                   </div>
                   <Link
                     href={`/dashboard/admin/approve-user?id=${user.id}`}
-                    className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700"
+                    className="btn-gradient-green px-4 py-2 rounded-xl font-semibold"
                   >
                     Review & Approve
                   </Link>
@@ -78,8 +78,8 @@ export default async function UserManagementPage() {
           </div>
         )}
 
-        <div className="bg-white rounded-xl shadow-lg p-6">
-          <h2 className="text-xl font-bold text-gray-900 mb-6">All Users & Credentials</h2>
+        <div className="glass rounded-2xl p-6">
+          <h2 className="text-xl font-bold text-gradient mb-6">All Users & Credentials</h2>
           <UserTable initialUsers={usersWithCommittees} committees={(committees as any) || []} />
 
           <div className="mt-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">

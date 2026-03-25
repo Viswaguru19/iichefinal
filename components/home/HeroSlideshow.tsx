@@ -60,7 +60,7 @@ export default function HeroSlideshow({ slides, autoPlayInterval = 5000 }: HeroS
                         animate={{ opacity: 1, y: 0 }}
                         className="text-4xl md:text-6xl font-bold mb-4"
                     >
-                        IIChE AVVU
+                        IIChE AVVU SC
                     </motion.h1>
                     <motion.p
                         initial={{ opacity: 0, y: 20 }}

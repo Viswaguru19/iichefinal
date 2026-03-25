@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
 import NotionProgressBar from '@/components/events/NotionProgressBar';
-import { Plus, CheckCircle, Clock, AlertCircle } from 'lucide-react';
+import { Plus, CheckCircle, Clock, AlertCircle, Camera, FileText, Download, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export const dynamic = 'force-dynamic';
@@ -26,6 +26,18 @@ export default function EventProgressPage() {
   const [showPendingTasks, setShowPendingTasks] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [eventToDelete, setEventToDelete] = useState<any>(null);
+  const [showPhotoUpload, setShowPhotoUpload] = useState(false);
+  const [eventPhotos, setEventPhotos] = useState<any[]>([]);
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoCaption, setPhotoCaption] = useState('');
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [viewingPhotos, setViewingPhotos] = useState(false);
+  const [photoIndex, setPhotoIndex] = useState(0);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reportAdditionalDetails, setReportAdditionalDetails] = useState('');
+  const [existingReport, setExistingReport] = useState<any>(null);
+  const [generatingReport, setGeneratingReport] = useState(false);
+  const [isEditorialMember, setIsEditorialMember] = useState(false);
   const supabase = createClient();
   const router = useRouter();
 
@@ -43,6 +55,20 @@ export default function EventProgressPage() {
       .eq('id', user.id)
       .single();
     setCurrentUser(profile);
+
+    // Check if user is in Editorial Committee
+    const { data: editorialComm } = await supabase
+      .from('committees')
+      .select('id')
+      .ilike('name', '%editorial%')
+      .single();
+    if (editorialComm && profile?.committee_members?.some((m: any) => m.committee_id === editorialComm.id)) {
+      setIsEditorialMember(true);
+    }
+    // Admins can also create reports
+    if (profile?.is_admin || profile?.executive_role) {
+      setIsEditorialMember(true);
+    }
 
     // ============================================
     // EVENT PROGRESS VISIBILITY FILTER
@@ -99,6 +125,125 @@ export default function EventProgressPage() {
   async function selectEvent(event: any) {
     setSelectedEvent(event);
     await loadTasks(event.id);
+    await loadPhotos(event.id);
+    await loadReport(event.id);
+  }
+
+  async function loadPhotos(eventId: string) {
+    const { data } = await supabase
+      .from('event_photos')
+      .select('*, uploader:uploaded_by(name)')
+      .eq('event_id', eventId)
+      .order('created_at', { ascending: false });
+    const photosWithUrls = (data || []).map((p: any) => {
+      const { data: urlData } = supabase.storage.from('event-photos').getPublicUrl(p.photo_url);
+      return { ...p, photo_url: urlData.publicUrl };
+    });
+    setEventPhotos(photosWithUrls);
+  }
+
+  async function loadReport(eventId: string) {
+    const { data } = await supabase
+      .from('event_reports')
+      .select('*')
+      .eq('event_id', eventId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+    setExistingReport(data || null);
+  }
+
+  async function uploadPhoto() {
+    if (!photoFile || !selectedEvent) return;
+    setUploadingPhoto(true);
+    try {
+      const ext = photoFile.name.split('.').pop();
+      const path = `${selectedEvent.id}/${Date.now()}.${ext}`;
+      const { error: upErr } = await supabase.storage.from('event-photos').upload(path, photoFile);
+      if (upErr) throw upErr;
+      const { error } = await supabase.from('event_photos').insert({
+        event_id: selectedEvent.id,
+        photo_url: path,
+        uploaded_by: currentUser.id,
+        caption: photoCaption || null,
+      });
+      if (error) throw error;
+      toast.success('Photo uploaded!');
+      setPhotoFile(null);
+      setPhotoCaption('');
+      setShowPhotoUpload(false);
+      await loadPhotos(selectedEvent.id);
+    } catch (err: any) {
+      toast.error(err.message || 'Upload failed');
+    } finally {
+      setUploadingPhoto(false);
+    }
+  }
+
+  async function generateReport() {
+    if (!selectedEvent) return;
+    setGeneratingReport(true);
+    try {
+      const completedTasks = tasks.filter(t => t.status === 'completed' || t.completed_at);
+      const totalTasks = tasks.filter(t => t.ec_approved_by).length;
+      const reportContent = `# Event Report: ${selectedEvent.title}
+
+## Event Details
+- **Event Name:** ${selectedEvent.title}
+- **Description:** ${selectedEvent.description || 'N/A'}
+- **Date:** ${selectedEvent.event_date ? new Date(selectedEvent.event_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' }) : 'N/A'}
+- **Committee:** ${selectedEvent.committee?.name || 'N/A'}
+- **Proposed By:** ${selectedEvent.proposer?.name || 'N/A'}
+- **Status:** ${selectedEvent.status?.replace(/_/g, ' ').toUpperCase()}
+
+## Task Summary
+- **Total Tasks:** ${totalTasks}
+- **Completed:** ${completedTasks.length}
+- **Completion Rate:** ${totalTasks > 0 ? Math.round((completedTasks.length / totalTasks) * 100) : 0}%
+
+## Task Details
+${tasks.filter(t => t.ec_approved_by).map(t => `### ${t.title}
+- **Assigned To:** ${t.assigned_committee?.name || 'N/A'}
+- **Status:** ${t.status?.replace(/_/g, ' ').toUpperCase()}
+- **Progress:** ${t.progress || 0}%
+${t.description ? `- **Description:** ${t.description}` : ''}
+`).join('\n')}
+
+## Photos
+- **Total Photos Uploaded:** ${eventPhotos.length}
+
+${reportAdditionalDetails ? `## Additional Details\n${reportAdditionalDetails}` : ''}
+
+---
+*Report generated on ${new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })} by IIChE AVVU SC*`;
+
+      const { error } = await supabase.from('event_reports').insert({
+        event_id: selectedEvent.id,
+        report_content: reportContent,
+        additional_details: reportAdditionalDetails || null,
+        created_by: currentUser.id,
+      });
+      if (error) throw error;
+      toast.success('Report created!');
+      setShowReportModal(false);
+      setReportAdditionalDetails('');
+      await loadReport(selectedEvent.id);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to create report');
+    } finally {
+      setGeneratingReport(false);
+    }
+  }
+
+  function downloadReport(format: 'txt') {
+    if (!existingReport) return;
+    const blob = new Blob([existingReport.report_content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${selectedEvent?.title || 'event'}_report.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   async function createTask(e: React.FormEvent) {
@@ -289,8 +434,8 @@ export default function EventProgressPage() {
   const pendingECApprovalCount = tasks.filter(t => t.status === 'pending_ec_approval').length;
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <nav className="bg-white shadow-sm">
+    <div className="min-h-screen">
+      <nav className="bg-white/80 backdrop-blur-md shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16 items-center">
             <h1 className="text-2xl font-bold text-blue-600">Event Progress</h1>
@@ -302,7 +447,7 @@ export default function EventProgressPage() {
       <div className="max-w-7xl mx-auto px-4 py-8">
         <div className="grid md:grid-cols-3 gap-6">
           {/* Events List */}
-          <div className="bg-white rounded-xl shadow-lg p-6">
+          <div className="bg-white/80 backdrop-blur-sm rounded-xl shadow-lg p-6">
             <h2 className="font-bold text-gray-900 mb-4 text-lg">Active Events</h2>
             <div className="space-y-2">
               {events.map((event) => (
@@ -371,163 +516,91 @@ export default function EventProgressPage() {
                   <NotionProgressBar
                     committeeTasks={getCommitteeTaskSummary()}
                     eventDate={selectedEvent.event_date}
+                    headApproved={true}
+                    ecApproved={true}
+                    facultyApproved={true}
                   />
+
+                  {/* Event Photos Gallery */}
+                  <div className="mt-4 flex items-center gap-3">
+                    <button onClick={() => setShowPhotoUpload(true)} className="flex items-center gap-2 bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 text-sm">
+                      <Camera className="w-4 h-4" /> Upload Photos
+                    </button>
+                    {eventPhotos.length > 0 && (
+                      <button onClick={() => { setViewingPhotos(true); setPhotoIndex(0); }} className="flex items-center gap-2 text-purple-600 hover:text-purple-700 text-sm font-medium">
+                        📸 View {eventPhotos.length} Photo{eventPhotos.length > 1 ? 's' : ''}
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Photo Thumbnails */}
+                  {eventPhotos.length > 0 && (
+                    <div className="mt-3 flex gap-2 overflow-x-auto pb-2">
+                      {eventPhotos.slice(0, 6).map((photo: any, idx: number) => (
+                        <img key={photo.id} src={photo.photo_url} alt={photo.caption || 'Event photo'}
+                          className="w-16 h-16 rounded-lg object-cover cursor-pointer hover:opacity-80 transition flex-shrink-0"
+                          onClick={() => { setPhotoIndex(idx); setViewingPhotos(true); }} />
+                      ))}
+                      {eventPhotos.length > 6 && (
+                        <button onClick={() => { setViewingPhotos(true); setPhotoIndex(0); }}
+                          className="w-16 h-16 rounded-lg bg-gray-200 flex items-center justify-center text-xs text-gray-600 font-medium flex-shrink-0">
+                          +{eventPhotos.length - 6}
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
 
-                {/* Tasks Section */}
-                <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
-                  <div className="flex items-center justify-between mb-6">
+                {/* View Event Details Button */}
+                <div className="bg-white/80 backdrop-blur-sm rounded-xl shadow-lg p-6 mb-6">
+                  <div className="flex items-center justify-between">
                     <div>
-                      <h3 className="text-xl font-bold text-gray-900">Event Tasks</h3>
+                      <h3 className="text-xl font-bold text-gray-900">Tasks</h3>
                       <p className="text-sm text-gray-600 mt-1">
                         {tasks.filter(t => t.status === 'completed' || t.completed_at).length} of {tasks.filter(t => t.status !== 'pending' && t.ec_approved_by).length} completed
                       </p>
                     </div>
-                    <div className="flex items-center gap-3">
-                      {/* Filter Toggle */}
-                      {/* Allow users to show/hide pending EC approval tasks.
-                          Default: hidden (shows only approved, actionable tasks)
-                          When enabled: shows all tasks including pending and rejected */}
-                      <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={showPendingTasks}
-                          onChange={(e) => setShowPendingTasks(e.target.checked)}
-                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                        />
-                        Show pending tasks
-                      </label>
-                      {(isCommitteeMember || isExecutive) && (
-                        <button
-                          onClick={() => setShowTaskModal(true)}
-                          className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
-                        >
-                          <Plus className="w-5 h-5" />
-                          Assign Task
+                    <button
+                      onClick={() => router.push(`/dashboard/event-detail/${selectedEvent.id}`)}
+                      className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition text-sm font-medium"
+                    >
+                      View Event Details →
+                    </button>
+                  </div>
+                </div>
+
+                {/* Event Report Section - Editorial Committee Only */}
+                {isEditorialMember && (
+                  <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                        <FileText className="w-5 h-5 text-blue-600" /> Event Report
+                      </h3>
+                      {!existingReport && (
+                        <button onClick={() => setShowReportModal(true)}
+                          className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 text-sm">
+                          <FileText className="w-4 h-4" /> Create Report
                         </button>
                       )}
                     </div>
-                  </div>
-
-                  {/* Tasks List */}
-                  {/* Filter tasks based on showPendingTasks toggle.
-                      By default, hide pending tasks to show only actionable work.
-                      Users can toggle to see pending tasks if they want to review what's awaiting approval. */}
-                  <div className="space-y-4">
-                    {tasks
-                      .filter(task => showPendingTasks || (task.status !== 'pending_ec_approval' && task.status !== 'rejected' && task.ec_approved_by))
-                      .map((task) => (
-                        <div key={task.id} className={`border rounded-lg p-4 hover:shadow-md transition ${task.status === 'pending_ec_approval' ? 'border-yellow-300 bg-yellow-50' : 'border-gray-200'
-                          }`}>
-                          <div className="flex items-start justify-between mb-3">
-                            <div className="flex-1">
-                              <div className="flex items-center gap-2 mb-2">
-                                <h4 className="font-bold text-gray-900">{task.title}</h4>
-                                {task.status === 'pending_ec_approval' && (
-                                  <span className="px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 border border-yellow-300">
-                                    Pending EC Approval
-                                  </span>
-                                )}
-                                {task.ec_approved_by && task.status !== 'pending_ec_approval' && (
-                                  <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 border border-green-300">
-                                    ✓ EC Approved
-                                  </span>
-                                )}
-                              </div>
-                              <p className="text-sm text-gray-600">{task.assigned_to?.name}</p>
-                              {task.description && (
-                                <p className="text-sm text-gray-500 mt-2">{task.description}</p>
-                              )}
-                              {task.ec_approved_by && task.ec_approved_at && (
-                                <p className="text-xs text-gray-500 mt-2">
-                                  Approved by {task.approver?.name} on {new Date(task.ec_approved_at).toLocaleDateString()}
-                                </p>
-                              )}
-                              {task.progress !== undefined && task.progress !== null && task.status !== 'pending_ec_approval' && (
-                                <div className="mt-2">
-                                  <div className="flex items-center justify-between text-xs text-gray-600 mb-1">
-                                    <span>Progress</span>
-                                    <span>{task.progress}%</span>
-                                  </div>
-                                  <div className="w-full bg-gray-200 rounded-full h-2">
-                                    <div
-                                      className="bg-blue-600 h-2 rounded-full transition-all"
-                                      style={{ width: `${task.progress}%` }}
-                                    />
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-2 ml-4">
-                              <span className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1 ${task.status === 'completed' || task.completed_at ? 'bg-green-100 text-green-800' :
-                                task.status === 'in_progress' || (task.progress > 0 && task.progress < 100) ? 'bg-blue-100 text-blue-800' :
-                                  task.status === 'pending_ec_approval' ? 'bg-yellow-100 text-yellow-800' :
-                                    'bg-gray-100 text-gray-800'
-                                }`}>
-                                {task.status === 'completed' || task.completed_at ? <CheckCircle className="w-3 h-3" /> :
-                                  task.status === 'in_progress' || (task.progress > 0 && task.progress < 100) ? <Clock className="w-3 h-3" /> :
-                                    <AlertCircle className="w-3 h-3" />}
-                                {task.status ? task.status.replace(/_/g, ' ').toUpperCase() : 'PENDING'}
-                              </span>
-                              {task.status === 'pending_ec_approval' && isExecutive && (
-                                <button
-                                  onClick={() => router.push(`/dashboard/event-detail/${selectedEvent.id}`)}
-                                  className="text-blue-600 hover:text-blue-700 px-3 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-xs font-medium"
-                                  title="Review and approve task"
-                                >
-                                  Review
-                                </button>
-                              )}
-                              {task.status !== 'completed' && !task.completed_at && task.status !== 'pending_ec_approval' && task.ec_approved_by && isExecutive && (
-                                <button
-                                  onClick={() => markComplete(task.id)}
-                                  className="text-green-600 hover:text-green-700"
-                                  title="Mark as complete"
-                                >
-                                  <CheckCircle className="w-5 h-5" />
-                                </button>
-                              )}
-                            </div>
-                          </div>
-
-                          {task.updates && task.updates.length > 0 && (
-                            <div className="mt-4 pt-4 border-t border-gray-200">
-                              <h5 className="text-sm font-semibold text-gray-700 mb-2">Recent Updates</h5>
-                              <div className="space-y-2">
-                                {task.updates.slice(-3).map((update: any) => (
-                                  <div key={update.id} className="bg-gray-50 rounded p-3">
-                                    <p className="text-sm text-gray-900">{update.update_text}</p>
-                                    <p className="text-xs text-gray-500 mt-1">
-                                      {update.user?.name} • {new Date(update.created_at).toLocaleString()}
-                                    </p>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-
-                          {task.status !== 'pending_ec_approval' && task.ec_approved_by && (
-                            <button
-                              onClick={() => {
-                                setSelectedTask(task);
-                                setShowUpdateModal(true);
-                              }}
-                              className="mt-3 text-sm text-blue-600 hover:text-blue-700 font-medium"
-                            >
-                              + Add Update
-                            </button>
-                          )}
+                    {existingReport ? (
+                      <div>
+                        <div className="bg-gray-50 rounded-lg p-4 mb-4 max-h-60 overflow-y-auto">
+                          <pre className="whitespace-pre-wrap text-sm text-gray-700 font-sans">{existingReport.report_content}</pre>
                         </div>
-                      ))}
-
-                    {tasks.filter(task => showPendingTasks || (task.status !== 'pending_ec_approval' && task.status !== 'rejected' && task.ec_approved_by)).length === 0 && (
-                      <div className="text-center py-12 text-gray-500">
-                        <AlertCircle className="w-12 h-12 mx-auto mb-3 text-gray-400" />
-                        <p>No tasks {showPendingTasks ? 'assigned' : 'approved'} yet</p>
+                        <div className="flex gap-3">
+                          <button onClick={() => downloadReport('txt')}
+                            className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 text-sm">
+                            <Download className="w-4 h-4" /> Download as TXT
+                          </button>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-2">Created on {new Date(existingReport.created_at).toLocaleDateString()}</p>
                       </div>
+                    ) : (
+                      <p className="text-gray-500 text-sm">No report created yet. Click "Create Report" to generate an automated event report.</p>
                     )}
                   </div>
-                </div>
+                )}
               </>
             ) : (
               <div className="bg-white rounded-xl shadow-lg p-12 text-center">
@@ -671,6 +744,91 @@ export default function EventProgressPage() {
               >
                 Cancel
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Photo Upload Modal */}
+      {showPhotoUpload && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl p-6 max-w-md w-full">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold text-gray-900">Upload Event Photo</h2>
+              <button onClick={() => { setShowPhotoUpload(false); setPhotoFile(null); setPhotoCaption(''); }} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Photo *</label>
+                <input type="file" accept="image/*" onChange={e => setPhotoFile(e.target.files?.[0] || null)}
+                  className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm" />
+              </div>
+              {photoFile && (
+                <img src={URL.createObjectURL(photoFile)} alt="Preview" className="w-full h-40 object-cover rounded-lg" />
+              )}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Caption (optional)</label>
+                <input type="text" value={photoCaption} onChange={e => setPhotoCaption(e.target.value)}
+                  placeholder="Describe this photo..." className="w-full border border-gray-300 rounded-lg px-4 py-2" />
+              </div>
+              <div className="flex gap-3">
+                <button onClick={uploadPhoto} disabled={!photoFile || uploadingPhoto}
+                  className="flex-1 bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 disabled:opacity-50">
+                  {uploadingPhoto ? 'Uploading...' : 'Upload Photo'}
+                </button>
+                <button onClick={() => { setShowPhotoUpload(false); setPhotoFile(null); setPhotoCaption(''); }}
+                  className="flex-1 bg-gray-200 text-gray-900 px-4 py-2 rounded-lg hover:bg-gray-300">Cancel</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Photo Viewer Modal */}
+      {viewingPhotos && eventPhotos.length > 0 && (
+        <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-50">
+          <button onClick={() => setViewingPhotos(false)} className="absolute top-4 right-4 text-white hover:text-gray-300 z-10"><X className="w-8 h-8" /></button>
+          <button onClick={() => setPhotoIndex((photoIndex - 1 + eventPhotos.length) % eventPhotos.length)}
+            className="absolute left-4 top-1/2 -translate-y-1/2 text-white hover:text-gray-300 bg-black/30 p-2 rounded-full"><ChevronLeft className="w-8 h-8" /></button>
+          <button onClick={() => setPhotoIndex((photoIndex + 1) % eventPhotos.length)}
+            className="absolute right-4 top-1/2 -translate-y-1/2 text-white hover:text-gray-300 bg-black/30 p-2 rounded-full"><ChevronRight className="w-8 h-8" /></button>
+          <div className="max-w-4xl max-h-[80vh] flex flex-col items-center">
+            <img src={eventPhotos[photoIndex].photo_url} alt={eventPhotos[photoIndex].caption || 'Event photo'}
+              className="max-w-full max-h-[70vh] object-contain rounded-lg" />
+            <div className="mt-3 text-center text-white">
+              {eventPhotos[photoIndex].caption && <p className="text-lg">{eventPhotos[photoIndex].caption}</p>}
+              <p className="text-sm text-gray-400 mt-1">
+                Uploaded by {eventPhotos[photoIndex].uploader?.name || 'Unknown'} • {photoIndex + 1} of {eventPhotos.length}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Report Creation Modal */}
+      {showReportModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl p-6 max-w-lg w-full">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold text-gray-900">Create Event Report</h2>
+              <button onClick={() => setShowReportModal(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+            </div>
+            <p className="text-sm text-gray-600 mb-4">
+              This will generate an automated report for <span className="font-semibold">{selectedEvent?.title}</span> including event details, task summary, and photo count.
+            </p>
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">Additional Details (optional)</label>
+              <textarea value={reportAdditionalDetails} onChange={e => setReportAdditionalDetails(e.target.value)}
+                rows={4} placeholder="Add any extra notes, observations, or highlights..."
+                className="w-full border border-gray-300 rounded-lg px-4 py-2" />
+            </div>
+            <div className="flex gap-3">
+              <button onClick={generateReport} disabled={generatingReport}
+                className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50">
+                {generatingReport ? 'Generating...' : 'Generate Report'}
+              </button>
+              <button onClick={() => setShowReportModal(false)}
+                className="flex-1 bg-gray-200 text-gray-900 px-4 py-2 rounded-lg hover:bg-gray-300">Cancel</button>
             </div>
           </div>
         </div>

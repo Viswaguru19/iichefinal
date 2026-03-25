@@ -1,14 +1,14 @@
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
-import { Crown } from 'lucide-react';
+import { Crown, Send, ClipboardList } from 'lucide-react';
 import DashboardNav from '@/components/dashboard/DashboardNav';
 import AnimatedDashboardCard from '@/components/dashboard/AnimatedDashboardCard';
 import AnimatedEventProgress from '@/components/dashboard/AnimatedEventProgress';
-import AnimatedPendingApprovals from '@/components/dashboard/AnimatedPendingApprovals';
 import AnimatedSection from '@/components/dashboard/AnimatedSection';
 import AnimatedCommitteeCard from '@/components/dashboard/AnimatedCommitteeCard';
 import AnimatedUpcomingEvents from '@/components/dashboard/AnimatedUpcomingEvents';
+import FacultyApprovals from '@/components/dashboard/FacultyApprovals';
 
 export const dynamic = 'force-dynamic';
 
@@ -30,14 +30,14 @@ export default async function DashboardPage() {
   }
 
   const isStudent = (profile as any).role === 'student';
-  const isAdmin = ['super_admin', 'secretary'].includes((profile as any).role) || (profile as any).is_admin;
+  const isAdmin = ['super_admin', 'secretary'].includes((profile as any).role) || (profile as any).is_admin || (profile as any).is_faculty;
   const isExecutive = (profile as any).executive_role !== null;
   const isFaculty = (profile as any).is_faculty === true;
 
   // Get user's committee membership
   const { data: userCommittee } = await supabase
     .from('committee_members')
-    .select('position, committees(name)')
+    .select('committee_id, position, committees(name)')
     .eq('user_id', user.id)
     .neq('committee_id', '00000000-0000-0000-0000-000000000001')
     .single();
@@ -65,13 +65,52 @@ export default async function DashboardPage() {
     .eq('committee_id', '00000000-0000-0000-0000-000000000001')
     .order('position');
 
-  // Get upcoming events with progress (all non-completed events)
+  // Get events that have been faculty-approved (active/in_progress/completed) for progress display
   const { data: eventProposals } = await supabase
     .from('events')
     .select('*, committees(name)')
-    .not('status', 'in', '(completed,cancelled,rejected)')
+    .in('status', ['active', 'in_progress', 'faculty_approved'])
     .order('created_at', { ascending: false })
     .limit(10);
+
+  // Fetch tasks for each event
+  const eventsWithTasks = await Promise.all(
+    (eventProposals || []).map(async (event: any) => {
+      const { data: tasks } = await supabase
+        .from('task_assignments')
+        .select('id, title, status, completed_at, assigned_to_committee, assigned_committee:assigned_to_committee(name)')
+        .eq('event_id', event.id)
+        .not('status', 'in', '(pending_ec_approval,rejected)');
+      return { ...event, tasks: tasks || [] };
+    })
+  );
+
+  // Get pending tasks for the user's committees
+  const { data: userMemberships } = await supabase
+    .from('committee_members')
+    .select('committee_id')
+    .eq('user_id', user.id);
+
+  const userCommitteeIds = userMemberships?.map(m => m.committee_id) || [];
+
+  let pendingTasks: any[] = [];
+  if (userCommitteeIds.length > 0) {
+    const { data: pTasks } = await supabase
+      .from('task_assignments')
+      .select('id, title, status, deadline, event:event_id(title), assigned_committee:assigned_to_committee(name)')
+      .in('assigned_to_committee', userCommitteeIds)
+      .in('status', ['approved', 'in_progress'])
+      .order('created_at', { ascending: false })
+      .limit(10);
+    pendingTasks = pTasks || [];
+  }
+
+  // Get unread DM count
+  const { count: unreadDmCount } = await supabase
+    .from('direct_messages')
+    .select('id', { count: 'exact', head: true })
+    .eq('receiver_id', user.id)
+    .eq('read', false);
 
   // Get upcoming events (only active/approved events)
   const { data: upcomingEvents } = await supabase
@@ -82,53 +121,53 @@ export default async function DashboardPage() {
     .order('date', { ascending: true })
     .limit(5);
 
-  // Get pending head approvals
-  const { data: pendingHeadApprovals } = await supabase
-    .from('events')
-    .select('*, committees(name)')
-    .eq('status', 'pending_head_approval')
-    .order('created_at', { ascending: false });
+  // Count pending approvals for the user (head approvals + EC approvals + faculty approvals)
+  let pendingApprovalCount = 0;
 
-  // Calculate progress for each event based on status
-  const eventsWithProgress = eventProposals?.map((event: any) => {
-    let progress = 0;
+  // Head approvals: events pending head approval for user's committee
+  if (userCommittee && ['head', 'co_head'].includes((userCommittee as any).position)) {
+    const { count: headCount } = await supabase
+      .from('events')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'pending_head_approval')
+      .eq('committee_id', (userCommittee as any).committee_id || '');
+    pendingApprovalCount += headCount || 0;
+  }
 
-    // Progress based on approval workflow
-    switch (event.status) {
-      case 'pending_head_approval':
-        progress = 10; // Just proposed
-        break;
-      case 'pending_ec_approval':
-        progress = 30; // Head approved, waiting for EC
-        break;
-      case 'pending_faculty_approval':
-        progress = 50; // EC approved, waiting for faculty
-        break;
-      case 'approved':
-        progress = 70; // Fully approved, ready to execute
-        break;
-      case 'active':
-      case 'in_progress':
-        progress = 85; // Event is happening
-        break;
-      case 'completed':
-        progress = 100; // Event completed
-        break;
-      default:
-        progress = 5; // Default for any other status
+  // EC approvals: events pending EC approval that this user hasn't approved yet
+  if (isExecutive) {
+    const { data: pendingEcEvents } = await supabase
+      .from('events')
+      .select('id')
+      .eq('status', 'pending_ec_approval');
+    if (pendingEcEvents && pendingEcEvents.length > 0) {
+      const { data: myApprovals } = await supabase
+        .from('ec_approvals')
+        .select('event_id')
+        .eq('user_id', user.id)
+        .eq('approved', true);
+      const approvedIds = new Set(myApprovals?.map(a => a.event_id) || []);
+      pendingApprovalCount += pendingEcEvents.filter(e => !approvedIds.has(e.id)).length;
     }
+  }
 
-    return { ...event, progress };
-  }) || [];
+  // Faculty approvals
+  if (isFaculty) {
+    const { count: facultyCount } = await supabase
+      .from('events')
+      .select('*', { count: 'exact', head: true })
+      .eq('status', 'pending_faculty_approval');
+    pendingApprovalCount += facultyCount || 0;
+  }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-mesh">
       <DashboardNav userName={(profile as any).name} userRole={(profile as any).role} />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <AnimatedSection delay={0.1}>
           <div className="mb-8">
-            <h2 className="text-3xl font-bold text-gray-900">
+            <h2 className="text-3xl font-bold text-gradient">
               Hi {(profile as any).name.split(' ')[0]}! 👋
             </h2>
             {committeeRole && (
@@ -137,7 +176,7 @@ export default async function DashboardPage() {
               </p>
             )}
             {isExecutive && (
-              <div className="mt-3 inline-flex items-center gap-2 bg-gradient-to-r from-yellow-400 to-yellow-600 text-white px-4 py-2 rounded-lg shadow-lg">
+              <div className="mt-3 inline-flex items-center gap-2 bg-gradient-to-r from-amber-400 to-orange-500 text-white px-4 py-2 rounded-full shadow-lg shadow-amber-500/20">
                 <Crown className="w-5 h-5" />
                 <span className="font-bold">
                   IIChE Executive Committee - {(profile as any).executive_role?.replace('_', ' ').toUpperCase()}
@@ -148,13 +187,52 @@ export default async function DashboardPage() {
           </div>
         </AnimatedSection>
 
-        {/* Pending Head Approvals Section */}
-        <AnimatedSection delay={0.2}>
-          <div className="mb-8">
-            <h3 className="text-2xl font-bold text-gray-900 mb-4">Pending Head Approvals</h3>
-            <div className="bg-white rounded-xl shadow-lg p-6">
-              <AnimatedPendingApprovals approvals={pendingHeadApprovals || []} />
-            </div>
+        {/* Quick Access: Proposals & Tasks with badges */}
+        <AnimatedSection delay={0.15}>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
+            {/* Proposals Card */}
+            <Link href="/dashboard/proposals">
+              <div className="glass-strong rounded-2xl p-5 hover:shadow-xl transition-all cursor-pointer group border border-transparent hover:border-indigo-200">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/20">
+                      <Send className="w-5 h-5 text-white" />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-gray-900 group-hover:text-indigo-700 transition-colors">Proposals</h3>
+                      <p className="text-xs text-gray-500">Review & approve events</p>
+                    </div>
+                  </div>
+                  {pendingApprovalCount > 0 && (
+                    <span className="min-w-[28px] h-7 flex items-center justify-center bg-gradient-to-r from-red-500 to-rose-500 text-white text-xs font-bold rounded-full px-2 shadow-lg shadow-red-500/30 animate-pulse">
+                      {pendingApprovalCount}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </Link>
+
+            {/* Tasks Card */}
+            <Link href="/dashboard/tasks">
+              <div className="glass-strong rounded-2xl p-5 hover:shadow-xl transition-all cursor-pointer group border border-transparent hover:border-orange-200">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-orange-500 to-amber-600 flex items-center justify-center shadow-lg shadow-orange-500/20">
+                      <ClipboardList className="w-5 h-5 text-white" />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-gray-900 group-hover:text-orange-700 transition-colors">Tasks</h3>
+                      <p className="text-xs text-gray-500">Your committee tasks</p>
+                    </div>
+                  </div>
+                  {pendingTasks.length > 0 && (
+                    <span className="min-w-[28px] h-7 flex items-center justify-center bg-gradient-to-r from-orange-500 to-amber-500 text-white text-xs font-bold rounded-full px-2 shadow-lg shadow-orange-500/30 animate-pulse">
+                      {pendingTasks.length}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </Link>
           </div>
         </AnimatedSection>
 
@@ -162,8 +240,8 @@ export default async function DashboardPage() {
         <AnimatedSection delay={0.3}>
           <div className="mb-8">
             <h3 className="text-2xl font-bold text-gray-900 mb-4">Event Progress</h3>
-            <div className="bg-white rounded-xl shadow-lg p-6">
-              <AnimatedEventProgress events={eventsWithProgress} />
+            <div className="glass rounded-2xl shadow-lg p-6">
+              <AnimatedEventProgress events={eventsWithTasks} />
             </div>
           </div>
         </AnimatedSection>
@@ -201,17 +279,8 @@ export default async function DashboardPage() {
 
         {isFaculty && (
           <AnimatedSection delay={0.45}>
-            <div className="grid md:grid-cols-2 gap-6 mb-8">
-              <AnimatedDashboardCard
-                href="/dashboard/faculty"
-                iconName="CheckCircle"
-                title="Faculty Dashboard"
-                description="Approve events, tasks, posters and finance"
-                gradient
-                gradientFrom="emerald-600"
-                gradientTo="emerald-700"
-                index={0}
-              />
+            <div className="mb-8">
+              <FacultyApprovals />
             </div>
           </AnimatedSection>
         )}
@@ -227,6 +296,7 @@ export default async function DashboardPage() {
               gradientFrom="green-600"
               gradientTo="green-700"
               index={0}
+              badge={unreadDmCount ?? 0}
             />
             <AnimatedDashboardCard
               href="/dashboard/propose-event"
@@ -286,22 +356,6 @@ export default async function DashboardPage() {
               iconColor="indigo-600"
               index={7}
             />
-            <AnimatedDashboardCard
-              href="/dashboard/tasks"
-              iconName="Calendar"
-              title="Tasks"
-              description="View assigned tasks"
-              iconColor="red-600"
-              index={8}
-            />
-            <AnimatedDashboardCard
-              href="/dashboard/proposals"
-              iconName="Send"
-              title="Proposals"
-              description="Review event proposals"
-              iconColor="orange-600"
-              index={9}
-            />
           </div>
         </AnimatedSection>
 
@@ -321,35 +375,8 @@ export default async function DashboardPage() {
         <AnimatedSection delay={0.8}>
           <div className="mt-8">
             <h3 className="text-2xl font-bold text-gray-900 mb-4">Upcoming Events</h3>
-            <div className="bg-white rounded-xl shadow-lg p-6">
+            <div className="glass rounded-2xl shadow-lg p-6">
               <AnimatedUpcomingEvents events={upcomingEvents || []} />
-            </div>
-          </div>
-        </AnimatedSection>
-
-        {/* Student Details Section */}
-        <AnimatedSection delay={0.9}>
-          <div className="mt-8">
-            <h3 className="text-2xl font-bold text-gray-900 mb-4">My Details</h3>
-            <div className="bg-white rounded-xl shadow-lg p-6">
-              <div className="grid md:grid-cols-2 gap-4">
-                <div>
-                  <p className="text-sm text-gray-600">Name</p>
-                  <p className="font-bold text-gray-900">{(profile as any).name}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-600">Email</p>
-                  <p className="font-bold text-gray-900">{(profile as any).email}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-600">Username</p>
-                  <p className="font-bold text-gray-900">{(profile as any).username}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-600">Role</p>
-                  <p className="font-bold text-gray-900">{(profile as any).role.replace('_', ' ').toUpperCase()}</p>
-                </div>
-              </div>
             </div>
           </div>
         </AnimatedSection>
@@ -374,7 +401,7 @@ export default async function DashboardPage() {
                 iconColor="green-600"
                 index={1}
               />
-              {isExecutive && (
+              {(isExecutive || isFaculty) && (
                 <AnimatedDashboardCard
                   href="/dashboard/events/workflow"
                   iconName="Send"
@@ -384,14 +411,6 @@ export default async function DashboardPage() {
                   index={2}
                 />
               )}
-              <AnimatedDashboardCard
-                href="/dashboard/events/progress"
-                iconName="Trophy"
-                title="Event Progress"
-                description="Track tasks and updates"
-                iconColor="yellow-600"
-                index={3}
-              />
             </div>
           </div>
         </AnimatedSection>

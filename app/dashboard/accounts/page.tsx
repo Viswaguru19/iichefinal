@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { createClient } from '@/lib/supabase/client';
-import { ArrowLeft, Plus, Filter } from 'lucide-react';
+import { ArrowLeft, Plus, Filter, Upload, FileText, ExternalLink, X, Pencil, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
 
@@ -17,6 +18,7 @@ interface Transaction {
   debit: number;
   credit: number;
   balance: number;
+  bill_url?: string | null;
 }
 
 interface Summary {
@@ -33,6 +35,11 @@ export default function StatementOfAccountsPage() {
   const [filterEvent, setFilterEvent] = useState<string>('all');
   const [showAddModal, setShowAddModal] = useState(false);
   const [canManage, setCanManage] = useState(false);
+  const [uploadingBill, setUploadingBill] = useState<string | null>(null);
+  const [editingTxn, setEditingTxn] = useState<Transaction | null>(null);
+  const [deletingTxn, setDeletingTxn] = useState<Transaction | null>(null);
+  const billInputRef = useRef<HTMLInputElement>(null);
+  const billTxnIdRef = useRef<string | null>(null);
 
   const supabase = createClient();
 
@@ -47,90 +54,125 @@ export default function StatementOfAccountsPage() {
 
     const { data: profile }: { data: any } = await supabase
       .from('profiles')
-      .select('executive_role, role')
+      .select('executive_role, role, is_faculty, is_admin')
       .eq('id', user.id)
       .single();
 
-    const canView = 
+    const canView =
       profile?.role === 'super_admin' ||
+      profile?.is_admin === true ||
+      profile?.is_faculty === true ||
       ['committee_head', 'committee_cohead'].includes(profile?.role || '') ||
       profile?.executive_role !== null;
 
-    if (!canView) {
-      window.location.href = '/dashboard';
-      return;
-    }
+    if (!canView) { window.location.href = '/dashboard'; return; }
 
     setCanManage(
       profile?.role === 'super_admin' ||
+      profile?.is_admin === true ||
+      profile?.is_faculty === true ||
       ['treasurer', 'secretary', 'associate_treasurer'].includes(profile?.executive_role || '')
     );
   }
 
   async function fetchData() {
     setLoading(true);
+    let query = supabase.from('statement_of_accounts').select('*').order('date', { ascending: true });
+    if (filterYear !== 'all') query = query.eq('year', parseInt(filterYear));
+    if (filterEvent !== 'all') query = query.eq('event', filterEvent);
 
-    let query = supabase
-      .from('statement_of_accounts')
-      .select('*')
-      .order('date', { ascending: true });
-
-    if (filterYear !== 'all') {
-      query = query.eq('year', parseInt(filterYear));
-    }
-    if (filterEvent !== 'all') {
-      query = query.eq('event', filterEvent);
-    }
-
-    const { data: txns, error: txnError } = await query;
-    console.log('Transactions:', txns?.length, 'Error:', txnError);
-
-    const { data: summaryData, error: summaryError }: { data: any; error: any } = await supabase.rpc('get_finance_summary');
-    console.log('Summary:', summaryData, 'Error:', summaryError);
+    const { data: txns } = await query;
+    const { data: summaryData }: { data: any } = await supabase.rpc('get_finance_summary');
 
     setTransactions(txns || []);
-    if (summaryData && summaryData.length > 0) {
-      setSummary(summaryData[0]);
-    }
+    if (summaryData && summaryData.length > 0) setSummary(summaryData[0]);
     setLoading(false);
   }
 
   async function handleAddTransaction(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
-
     const date = formData.get('date') as string;
     const dateObj = new Date(date);
     const month = dateObj.toLocaleString('default', { month: 'long' });
     const year = dateObj.getFullYear();
-
     const debit = parseFloat(formData.get('debit') as string) || 0;
     const credit = parseFloat(formData.get('credit') as string) || 0;
-
     const lastBalance = transactions.length > 0 ? transactions[transactions.length - 1].balance : 0;
     const newBalance = lastBalance + credit - debit;
 
-    const { error } = await supabase
-      .from('statement_of_accounts')
-      .insert({
-        sr_no: transactions.length + 1,
-        date,
-        month,
-        year,
-        event: formData.get('event'),
-        item: formData.get('item'),
-        debit,
-        credit,
-        balance: newBalance
-      } as any);
-
-    if (error) {
-      toast.error('Failed to add transaction');
-    } else {
-      toast.success('Transaction added');
-      setShowAddModal(false);
-      fetchData();
+    // Upload bill if provided
+    let billUrl: string | null = null;
+    const billFile = formData.get('bill') as File;
+    if (billFile && billFile.size > 0) {
+      const ext = billFile.name.split('.').pop();
+      const path = `bills/${year}/${Date.now()}.${ext}`;
+      const { error: upErr } = await supabase.storage.from('documents').upload(path, billFile);
+      if (upErr) { toast.error('Failed to upload bill'); return; }
+      const { data } = supabase.storage.from('documents').getPublicUrl(path);
+      billUrl = data.publicUrl;
     }
+
+    const { error } = await supabase.from('statement_of_accounts').insert({
+      sr_no: transactions.length + 1, date, month, year,
+      event: formData.get('event'), item: formData.get('item'),
+      debit, credit, balance: newBalance, bill_url: billUrl,
+    } as any);
+
+    if (error) toast.error('Failed to add transaction');
+    else { toast.success('Transaction added'); setShowAddModal(false); fetchData(); }
+  }
+
+  async function handleEditTransaction(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!editingTxn) return;
+    const formData = new FormData(e.currentTarget);
+    const date = formData.get('date') as string;
+    const dateObj = new Date(date);
+    const month = dateObj.toLocaleString('default', { month: 'long' });
+    const year = dateObj.getFullYear();
+    const debit = parseFloat(formData.get('debit') as string) || 0;
+    const credit = parseFloat(formData.get('credit') as string) || 0;
+
+    let billUrl = editingTxn.bill_url || null;
+    const billFile = formData.get('bill') as File;
+    if (billFile && billFile.size > 0) {
+      const ext = billFile.name.split('.').pop();
+      const path = `bills/${year}/${Date.now()}.${ext}`;
+      const { error: upErr } = await supabase.storage.from('documents').upload(path, billFile);
+      if (upErr) { toast.error('Failed to upload bill'); return; }
+      const { data } = supabase.storage.from('documents').getPublicUrl(path);
+      billUrl = data.publicUrl;
+    }
+
+    const { error } = await supabase.from('statement_of_accounts').update({
+      date, month, year, event: formData.get('event'), item: formData.get('item'),
+      debit, credit, bill_url: billUrl,
+    } as any).eq('id', editingTxn.id);
+
+    if (error) toast.error('Failed to update');
+    else { toast.success('Transaction updated'); setEditingTxn(null); fetchData(); }
+  }
+
+  async function handleDeleteTransaction() {
+    if (!deletingTxn) return;
+    const { error } = await supabase.from('statement_of_accounts').delete().eq('id', deletingTxn.id);
+    if (error) toast.error('Failed to delete transaction');
+    else { toast.success('Transaction deleted'); setDeletingTxn(null); fetchData(); }
+  }
+
+  async function uploadBillForTxn(txnId: string, file: File) {
+    setUploadingBill(txnId);
+    const ext = file.name.split('.').pop();
+    const path = `bills/${Date.now()}.${ext}`;
+    const { error: upErr } = await supabase.storage.from('documents').upload(path, file);
+    if (upErr) { toast.error('Upload failed'); setUploadingBill(null); return; }
+    const { data } = supabase.storage.from('documents').getPublicUrl(path);
+    const { error } = await supabase.from('statement_of_accounts')
+      .update({ bill_url: data.publicUrl } as any).eq('id', txnId);
+    if (error) toast.error('Failed to save bill');
+    else { toast.success('Bill attached'); fetchData(); }
+    setUploadingBill(null);
   }
 
   const years = Array.from(new Set(transactions.map(t => t.year))).sort();
@@ -138,158 +180,271 @@ export default function StatementOfAccountsPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
-        <div className="text-gray-600 dark:text-gray-400">Loading...</div>
+      <div className="min-h-screen bg-mesh flex items-center justify-center">
+        <motion.div initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} className="text-center">
+          <div className="w-16 h-16 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 mx-auto mb-4 animate-pulse-glow" />
+          <p className="text-gray-400">Loading...</p>
+        </motion.div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-8 px-4">
-      <div className="max-w-7xl mx-auto">
-        <div className="flex items-center justify-between mb-6">
+    <div className="min-h-screen bg-mesh py-8 px-4 relative overflow-hidden">
+      <div className="absolute top-20 left-10 w-72 h-72 bg-gradient-to-br from-indigo-400/10 to-purple-400/10 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute bottom-20 right-10 w-96 h-96 bg-gradient-to-br from-pink-400/8 to-violet-400/8 rounded-full blur-3xl pointer-events-none" />
+
+      <div className="max-w-7xl mx-auto relative z-10">
+        <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-4">
-            <Link href="/dashboard" className="text-blue-600 hover:text-blue-700">
+            <Link href="/dashboard" className="text-indigo-400 hover:text-indigo-600 transition-colors">
               <ArrowLeft className="w-6 h-6" />
             </Link>
             <div>
-              <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Statement of Accounts</h1>
-              <p className="text-gray-600 dark:text-gray-400">IIChE AVVU Student Chapter</p>
+              <h1 className="text-3xl font-extrabold text-gradient tracking-tight">Statement of Accounts</h1>
+              <p className="text-gray-400 text-sm">IIChE AVVU SC Student Chapter</p>
             </div>
           </div>
           {canManage && (
-            <button
-              onClick={() => setShowAddModal(true)}
-              className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
-            >
-              <Plus className="w-5 h-5" />
-              Add Transaction
-            </button>
+            <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.97 }} onClick={() => setShowAddModal(true)}
+              className="flex items-center gap-2 btn-gradient-blue px-4 py-2 rounded-xl font-semibold shadow-lg shadow-blue-500/20">
+              <Plus className="w-5 h-5" /> Add Transaction
+            </motion.button>
           )}
-        </div>
+        </motion.div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <div className="bg-green-50 dark:bg-green-900/20 p-6 rounded-lg border border-green-200 dark:border-green-800">
-            <h3 className="text-green-800 dark:text-green-300 text-sm font-medium mb-2">Total Income</h3>
-            <p className="text-3xl font-bold text-green-600 dark:text-green-400">₹{summary.total_income.toLocaleString('en-IN')}</p>
-          </div>
-          <div className="bg-red-50 dark:bg-red-900/20 p-6 rounded-lg border border-red-200 dark:border-red-800">
-            <h3 className="text-red-800 dark:text-red-300 text-sm font-medium mb-2">Total Expense</h3>
-            <p className="text-3xl font-bold text-red-600 dark:text-red-400">₹{summary.total_expense.toLocaleString('en-IN')}</p>
-          </div>
-          <div className="bg-blue-50 dark:bg-blue-900/20 p-6 rounded-lg border border-blue-200 dark:border-blue-800">
-            <h3 className="text-blue-800 dark:text-blue-300 text-sm font-medium mb-2">Balance Fund</h3>
-            <p className="text-3xl font-bold text-blue-600 dark:text-blue-400">₹{summary.balance.toLocaleString('en-IN')}</p>
-          </div>
-        </div>
+        {/* Summary Cards */}
+        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+          {[
+            { label: 'Total Income', value: summary.total_income, color: 'from-emerald-500 to-green-500', glow: 'glow-green', prefix: '₹' },
+            { label: 'Total Expense', value: summary.total_expense, color: 'from-red-500 to-rose-500', glow: 'glow-rose', prefix: '₹' },
+            { label: 'Balance Fund', value: summary.balance, color: 'from-indigo-500 to-purple-500', glow: 'glow-purple', prefix: '₹' },
+          ].map((card, i) => (
+            <motion.div key={i} whileHover={{ y: -4 }} className={`glass-strong rounded-2xl p-6 shadow-md ${card.glow}`}>
+              <h3 className="text-gray-400 text-sm font-medium mb-2">{card.label}</h3>
+              <p className="text-3xl font-extrabold text-gradient">{card.prefix}{card.value.toLocaleString('en-IN')}</p>
+            </motion.div>
+          ))}
+        </motion.div>
 
-        <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow mb-6 flex gap-4">
-          <div className="flex items-center gap-2">
-            <Filter className="w-5 h-5 text-gray-500" />
-            <select
-              value={filterYear}
-              onChange={(e) => setFilterYear(e.target.value)}
-              className="border border-gray-300 dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-            >
-              <option value="all">All Years</option>
-              {years.map(year => (
-                <option key={year} value={year}>{year}</option>
-              ))}
-            </select>
-          </div>
-          <select
-            value={filterEvent}
-            onChange={(e) => setFilterEvent(e.target.value)}
-            className="border border-gray-300 dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-          >
-            <option value="all">All Events</option>
-            {events.map(event => (
-              <option key={event} value={event}>{event}</option>
-            ))}
+        {/* Filters */}
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }} className="glass rounded-2xl p-4 mb-6 flex gap-4 items-center">
+          <Filter className="w-5 h-5 text-gray-400" />
+          <select value={filterYear} onChange={e => setFilterYear(e.target.value)} className="border border-gray-200 rounded-xl px-3 py-2 bg-white/80 text-sm">
+            <option value="all">All Years</option>
+            {years.map(y => <option key={y} value={y}>{y}</option>)}
           </select>
-        </div>
+          <select value={filterEvent} onChange={e => setFilterEvent(e.target.value)} className="border border-gray-200 rounded-xl px-3 py-2 bg-white/80 text-sm">
+            <option value="all">All Events</option>
+            {events.map(ev => <option key={ev} value={ev}>{ev}</option>)}
+          </select>
+        </motion.div>
 
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden">
+        {/* Table */}
+        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="glass-strong rounded-2xl overflow-hidden shadow-md">
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead className="bg-gray-50 dark:bg-gray-700">
+              <thead className="bg-gradient-to-r from-indigo-50 to-purple-50">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Sr No</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Date</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Month</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Year</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Event</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Item</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Debit</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Credit</th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Balance</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Sr</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Date</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Event</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Item</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Debit</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Credit</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Balance</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase">Bill</th>
+                  {canManage && <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase">Actions</th>}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                {transactions.map((txn) => (
-                  <tr key={txn.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
-                    <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">{txn.sr_no}</td>
-                    <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">{new Date(txn.date).toLocaleDateString()}</td>
-                    <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">{txn.month}</td>
-                    <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">{txn.year}</td>
-                    <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">{txn.event}</td>
-                    <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">{txn.item}</td>
-                    <td className="px-4 py-3 text-sm text-right text-red-600 dark:text-red-400">
+              <tbody className="divide-y divide-gray-100">
+                {transactions.map(txn => (
+                  <tr key={txn.id} className="hover:bg-indigo-50/30 transition-colors">
+                    <td className="px-4 py-3 text-sm text-gray-700">{txn.sr_no}</td>
+                    <td className="px-4 py-3 text-sm text-gray-700">{new Date(txn.date).toLocaleDateString()}</td>
+                    <td className="px-4 py-3 text-sm text-gray-700">{txn.event}</td>
+                    <td className="px-4 py-3 text-sm text-gray-700">{txn.item}</td>
+                    <td className="px-4 py-3 text-sm text-right text-red-500 font-medium">
                       {txn.debit > 0 ? `₹${txn.debit.toLocaleString('en-IN')}` : '-'}
                     </td>
-                    <td className="px-4 py-3 text-sm text-right text-green-600 dark:text-green-400">
+                    <td className="px-4 py-3 text-sm text-right text-emerald-500 font-medium">
                       {txn.credit > 0 ? `₹${txn.credit.toLocaleString('en-IN')}` : '-'}
                     </td>
-                    <td className="px-4 py-3 text-sm text-right font-medium text-blue-600 dark:text-blue-400">
+                    <td className="px-4 py-3 text-sm text-right font-semibold text-indigo-600">
                       ₹{txn.balance.toLocaleString('en-IN')}
                     </td>
+                    <td className="px-4 py-3 text-center">
+                      {txn.bill_url ? (
+                        <a href={txn.bill_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-indigo-500 hover:text-indigo-700 font-medium">
+                          <ExternalLink className="w-3.5 h-3.5" /> View
+                        </a>
+                      ) : canManage ? (
+                        <button
+                          onClick={() => { billTxnIdRef.current = txn.id; billInputRef.current?.click(); }}
+                          disabled={uploadingBill === txn.id}
+                          className="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-indigo-500 transition-colors"
+                        >
+                          <Upload className="w-3.5 h-3.5" /> {uploadingBill === txn.id ? '...' : 'Add'}
+                        </button>
+                      ) : (
+                        <span className="text-xs text-gray-300">—</span>
+                      )}
+                    </td>
+                    {canManage && (
+                      <td className="px-4 py-3 text-center flex items-center justify-center gap-2">
+                        <button onClick={() => setEditingTxn(txn)} className="text-gray-400 hover:text-indigo-600 transition-colors" title="Edit">
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                        <button onClick={() => setDeletingTxn(txn)} className="text-gray-400 hover:text-red-500 transition-colors" title="Delete">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        </div>
+        </motion.div>
       </div>
 
-      {showAddModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-md w-full">
-            <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">Add Transaction</h2>
-            <form onSubmit={handleAddTransaction} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Date</label>
-                <input type="date" name="date" required className="w-full border border-gray-300 dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white" />
+      {/* Hidden file input for attaching bills to existing transactions */}
+      <input ref={billInputRef} type="file" className="hidden" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+        onChange={e => {
+          const file = e.target.files?.[0];
+          if (file && billTxnIdRef.current) uploadBillForTxn(billTxnIdRef.current, file);
+          e.target.value = '';
+        }}
+      />
+
+      {/* Add Transaction Modal */}
+      <AnimatePresence>
+        {showAddModal && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <motion.div initial={{ opacity: 0, scale: 0.9, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9 }} className="glass-strong rounded-2xl p-6 max-w-md w-full shadow-2xl">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-extrabold text-gradient">Add Transaction</h2>
+                <button onClick={() => setShowAddModal(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Event</label>
-                <input type="text" name="event" required className="w-full border border-gray-300 dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Item</label>
-                <input type="text" name="item" required className="w-full border border-gray-300 dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white" />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
+              <form onSubmit={handleAddTransaction} className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Debit (₹)</label>
-                  <input type="number" name="debit" step="0.01" min="0" defaultValue="0" className="w-full border border-gray-300 dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white" />
+                  <label className="block text-sm font-medium text-gray-600 mb-1">Date</label>
+                  <input type="date" name="date" required className="w-full border border-gray-200 rounded-xl px-3 py-2 bg-white/80 text-sm" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Credit (₹)</label>
-                  <input type="number" name="credit" step="0.01" min="0" defaultValue="0" className="w-full border border-gray-300 dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white" />
+                  <label className="block text-sm font-medium text-gray-600 mb-1">Event</label>
+                  <input type="text" name="event" required className="w-full border border-gray-200 rounded-xl px-3 py-2 bg-white/80 text-sm" />
                 </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-600 mb-1">Item</label>
+                  <input type="text" name="item" required className="w-full border border-gray-200 rounded-xl px-3 py-2 bg-white/80 text-sm" />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-600 mb-1">Debit (₹)</label>
+                    <input type="number" name="debit" step="0.01" min="0" defaultValue="0" className="w-full border border-gray-200 rounded-xl px-3 py-2 bg-white/80 text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-600 mb-1">Credit (₹)</label>
+                    <input type="number" name="credit" step="0.01" min="0" defaultValue="0" className="w-full border border-gray-200 rounded-xl px-3 py-2 bg-white/80 text-sm" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-600 mb-1">Bill / Receipt (optional)</label>
+                  <input type="file" name="bill" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" className="w-full border border-gray-200 rounded-xl px-3 py-2 bg-white/80 text-sm file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:bg-indigo-50 file:text-indigo-600 file:text-xs file:font-medium" />
+                  <p className="text-xs text-gray-400 mt-1">PDF, JPG, PNG, DOC accepted</p>
+                </div>
+                <div className="flex gap-3 pt-2">
+                  <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} type="submit" className="flex-1 btn-gradient-blue px-4 py-2.5 rounded-xl font-semibold text-sm shadow-md">
+                    Add Transaction
+                  </motion.button>
+                  <button type="button" onClick={() => setShowAddModal(false)} className="flex-1 bg-gray-100 text-gray-600 px-4 py-2.5 rounded-xl font-medium text-sm hover:bg-gray-200 transition-colors">
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Edit Transaction Modal */}
+      <AnimatePresence>
+        {editingTxn && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <motion.div initial={{ opacity: 0, scale: 0.9, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9 }} className="glass-strong rounded-2xl p-6 max-w-md w-full shadow-2xl">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-extrabold text-gradient">Edit Transaction</h2>
+                <button onClick={() => setEditingTxn(null)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
               </div>
-              <div className="flex gap-3 pt-4">
-                <button type="submit" className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">
-                  Add
-                </button>
-                <button type="button" onClick={() => setShowAddModal(false)} className="flex-1 bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white px-4 py-2 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600">
+              <form onSubmit={handleEditTransaction} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-600 mb-1">Date</label>
+                  <input type="date" name="date" required defaultValue={editingTxn.date?.split('T')[0]} className="w-full border border-gray-200 rounded-xl px-3 py-2 bg-white/80 text-sm" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-600 mb-1">Event</label>
+                  <input type="text" name="event" required defaultValue={editingTxn.event} className="w-full border border-gray-200 rounded-xl px-3 py-2 bg-white/80 text-sm" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-600 mb-1">Item</label>
+                  <input type="text" name="item" required defaultValue={editingTxn.item} className="w-full border border-gray-200 rounded-xl px-3 py-2 bg-white/80 text-sm" />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-600 mb-1">Debit (₹)</label>
+                    <input type="number" name="debit" step="0.01" min="0" defaultValue={editingTxn.debit} className="w-full border border-gray-200 rounded-xl px-3 py-2 bg-white/80 text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-600 mb-1">Credit (₹)</label>
+                    <input type="number" name="credit" step="0.01" min="0" defaultValue={editingTxn.credit} className="w-full border border-gray-200 rounded-xl px-3 py-2 bg-white/80 text-sm" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-600 mb-1">
+                    Bill / Receipt {editingTxn.bill_url ? '(replace existing)' : '(optional)'}
+                  </label>
+                  {editingTxn.bill_url && (
+                    <a href={editingTxn.bill_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-indigo-500 hover:text-indigo-700 mb-2">
+                      <FileText className="w-3.5 h-3.5" /> Current bill attached
+                    </a>
+                  )}
+                  <input type="file" name="bill" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" className="w-full border border-gray-200 rounded-xl px-3 py-2 bg-white/80 text-sm file:mr-3 file:py-1 file:px-3 file:rounded-lg file:border-0 file:bg-indigo-50 file:text-indigo-600 file:text-xs file:font-medium" />
+                </div>
+                <div className="flex gap-3 pt-2">
+                  <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} type="submit" className="flex-1 btn-gradient-green px-4 py-2.5 rounded-xl font-semibold text-sm shadow-md">
+                    Save Changes
+                  </motion.button>
+                  <button type="button" onClick={() => setEditingTxn(null)} className="flex-1 bg-gray-100 text-gray-600 px-4 py-2.5 rounded-xl font-medium text-sm hover:bg-gray-200 transition-colors">
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      {/* Delete Transaction Confirmation Modal */}
+      <AnimatePresence>
+        {deletingTxn && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <motion.div initial={{ opacity: 0, scale: 0.9, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9 }} className="glass-strong rounded-2xl p-6 max-w-sm w-full shadow-2xl">
+              <h2 className="text-xl font-extrabold text-red-600 mb-2">Delete Transaction</h2>
+              <p className="text-gray-600 text-sm mb-1">Are you sure you want to delete this transaction?</p>
+              <p className="text-gray-800 font-medium text-sm mb-4">Sr #{deletingTxn.sr_no} — {deletingTxn.event} / {deletingTxn.item}</p>
+              <div className="flex gap-3">
+                <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={handleDeleteTransaction}
+                  className="flex-1 bg-red-600 text-white px-4 py-2.5 rounded-xl font-semibold text-sm shadow-md hover:bg-red-700 transition-colors">
+                  Delete
+                </motion.button>
+                <button type="button" onClick={() => setDeletingTxn(null)} className="flex-1 bg-gray-100 text-gray-600 px-4 py-2.5 rounded-xl font-medium text-sm hover:bg-gray-200 transition-colors">
                   Cancel
                 </button>
               </div>
-            </form>
-          </div>
-        </div>
-      )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

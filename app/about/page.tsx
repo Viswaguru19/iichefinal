@@ -6,7 +6,7 @@ export default function AboutPage() {
       <nav className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16 items-center">
-            <Link href="/" className="text-2xl font-bold text-blue-600">IIChE AVVU</Link>
+            <Link href="/" className="text-2xl font-bold text-blue-600">IIChE AVVU SC</Link>
             <div className="flex gap-4">
               <Link href="/committees" className="text-gray-700 hover:text-blue-600">Committees</Link>
               <Link href="/events" className="text-gray-700 hover:text-blue-600">Events</Link>
@@ -18,16 +18,16 @@ export default function AboutPage() {
       </nav>
 
       <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        <h1 className="text-4xl font-bold text-gray-900 mb-8">About IIChE AVVU</h1>
+        <h1 className="text-4xl font-bold text-gray-900 mb-8">About IIChE AVVU SC</h1>
 
         <div className="bg-white rounded-xl shadow-lg p-8 mb-8">
           <h2 className="text-2xl font-bold text-gray-900 mb-4">Who We Are</h2>
           <p className="text-gray-600 mb-4">
-            The Indian Institute of Chemical Engineers (IIChE) AVVU Chapter is a student-run organization 
+            The Indian Institute of Chemical Engineers (IIChE) AVVU Chapter is a student-run organization
             dedicated to promoting excellence in chemical engineering education and practice.
           </p>
           <p className="text-gray-600">
-            We organize technical events, workshops, seminars, and cultural activities to enhance 
+            We organize technical events, workshops, seminars, and cultural activities to enhance
             the overall development of our members.
           </p>
         </div>

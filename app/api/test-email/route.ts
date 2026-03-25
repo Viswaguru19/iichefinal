@@ -10,7 +10,7 @@ export async function POST(request: Request) {
 
   const result = await sendEmail(
     email,
-    'Test Email from IIChE AVVU Portal',
+    'Test Email from IIChE AVVU SC Portal',
     '<h2>Test Email</h2><p>If you received this, email notifications are working! ✅</p>'
   );
 

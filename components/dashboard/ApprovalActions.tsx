@@ -23,36 +23,40 @@ export default function ApprovalActions({ user, committees }: any) {
     setLoading(true);
     try {
       // Approve user
+      const isFacultyRole = executiveRole === 'faculty_advisor';
       const { error: approveError } = await (supabase as any)
         .from('profiles')
-        .update({ 
+        .update({
           approved: true,
-          role: executiveRole || (position === 'head' ? 'committee_head' : position === 'co_head' ? 'committee_cohead' : 'committee_member')
+          role: isFacultyRole ? 'faculty_advisor' : (executiveRole || (position === 'head' ? 'committee_head' : position === 'co_head' ? 'committee_cohead' : 'committee_member')),
+          is_faculty: isFacultyRole
         })
         .eq('id', user.id);
 
       if (approveError) throw approveError;
 
-      // Add to committee
-      const { error: memberError } = await (supabase as any)
-        .from('committee_members')
-        .insert({
-          user_id: user.id,
-          committee_id: selectedCommittee,
-          position: position,
-        });
-
-      if (memberError) throw memberError;
-
-      // If head or co-head, add to executive committee
-      if (position === 'head' || position === 'co_head') {
-        await (supabase as any)
+      // Add to committee (skip for faculty)
+      if (!isFacultyRole) {
+        const { error: memberError } = await (supabase as any)
           .from('committee_members')
           .insert({
             user_id: user.id,
-            committee_id: '00000000-0000-0000-0000-000000000001',
-            position: 'member',
+            committee_id: selectedCommittee,
+            position: position,
           });
+
+        if (memberError) throw memberError;
+
+        // If head or co-head, add to executive committee
+        if (position === 'head' || position === 'co_head') {
+          await (supabase as any)
+            .from('committee_members')
+            .insert({
+              user_id: user.id,
+              committee_id: '00000000-0000-0000-0000-000000000001',
+              position: 'member',
+            });
+        }
       }
 
       toast.success('User approved successfully!');
@@ -135,6 +139,7 @@ export default function ApprovalActions({ user, committees }: any) {
             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
           >
             <option value="">None</option>
+            <option value="faculty_advisor">Faculty Advisor</option>
             <option value="secretary">Secretary</option>
             <option value="associate_secretary">Associate Secretary</option>
             <option value="joint_secretary">Joint Secretary</option>

@@ -35,6 +35,13 @@ ALTER TABLE event_tasks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE task_updates ENABLE ROW LEVEL SECURITY;
 ALTER TABLE event_reports ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Tasks viewable by all" ON event_tasks;
+DROP POLICY IF EXISTS "Everyone can view tasks" ON event_tasks;
+DROP POLICY IF EXISTS "Anyone can view tasks" ON event_tasks;
+DROP POLICY IF EXISTS "Executive can assign tasks" ON event_tasks;
+DROP POLICY IF EXISTS "Committee can update tasks" ON event_tasks;
+DROP POLICY IF EXISTS "Committee members can update tasks" ON event_tasks;
+
 CREATE POLICY "Anyone can view tasks" ON event_tasks FOR SELECT USING (true);
 CREATE POLICY "Executive can assign tasks" ON event_tasks FOR INSERT WITH CHECK (
   EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND executive_role IS NOT NULL)
@@ -42,6 +49,9 @@ CREATE POLICY "Executive can assign tasks" ON event_tasks FOR INSERT WITH CHECK 
 CREATE POLICY "Committee can update tasks" ON event_tasks FOR UPDATE USING (
   EXISTS (SELECT 1 FROM committee_members WHERE user_id = auth.uid() AND committee_id = event_tasks.committee_id)
 );
+
+DROP POLICY IF EXISTS "Anyone can view updates" ON task_updates;
+DROP POLICY IF EXISTS "Committee can post updates" ON task_updates;
 
 CREATE POLICY "Anyone can view updates" ON task_updates FOR SELECT USING (true);
 CREATE POLICY "Committee can post updates" ON task_updates FOR INSERT WITH CHECK (
@@ -51,6 +61,9 @@ CREATE POLICY "Committee can post updates" ON task_updates FOR INSERT WITH CHECK
     WHERE et.id = task_id AND cm.user_id = auth.uid()
   )
 );
+
+DROP POLICY IF EXISTS "Anyone can view reports" ON event_reports;
+DROP POLICY IF EXISTS "Editorial can upload reports" ON event_reports;
 
 CREATE POLICY "Anyone can view reports" ON event_reports FOR SELECT USING (true);
 CREATE POLICY "Editorial can upload reports" ON event_reports FOR INSERT WITH CHECK (

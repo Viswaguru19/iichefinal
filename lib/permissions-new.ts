@@ -112,6 +112,8 @@ export function canViewEvent(profile: UserProfile, eventStatus: string, eventCom
 // ============================================
 
 export function canCreateTask(profile: UserProfile, committeeId: string): boolean {
+    // Faculty and admin can create tasks for any committee
+    if (isFaculty(profile) || isAdmin(profile)) return true;
     // Committee heads and co-heads can create tasks
     return (
         (isCommitteeHead(profile) || isCommitteeCoHead(profile)) &&
@@ -120,8 +122,8 @@ export function canCreateTask(profile: UserProfile, committeeId: string): boolea
 }
 
 export function canApproveTask(profile: UserProfile): boolean {
-    // Only EC members can approve tasks
-    return isECMember(profile);
+    // EC members and faculty can approve tasks
+    return isECMember(profile) || isFaculty(profile) || isAdmin(profile);
 }
 
 export function canUpdateTaskStatus(profile: UserProfile, assignedCommitteeId: string): boolean {
@@ -329,11 +331,11 @@ export function canViewFormResponses(profile: UserProfile, formCreatorId: string
 // ============================================
 
 export function canManageUsers(profile: UserProfile): boolean {
-    return isAdmin(profile);
+    return isAdmin(profile) || isFaculty(profile);
 }
 
 export function canChangeUserRole(profile: UserProfile): boolean {
-    return isAdmin(profile);
+    return isAdmin(profile) || isFaculty(profile);
 }
 
 export function canViewApprovalLogs(profile: UserProfile): boolean {
@@ -370,7 +372,7 @@ export function getDashboardPermissions(profile: UserProfile) {
 
         // Special permissions
         canAccessFacultyDashboard: isFaculty(profile),
-        canAccessAdminPanel: isAdmin(profile),
+        canAccessAdminPanel: isAdmin(profile) || isFaculty(profile),
         canAccessECDashboard: isECMember(profile),
         canAccessFinance: canViewFinanceOverview(profile),
 

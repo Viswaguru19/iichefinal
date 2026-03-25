@@ -52,7 +52,7 @@ export default async function ExecutiveCommitteePage() {
       <nav className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16 items-center">
-            <Link href="/" className="text-2xl font-bold text-blue-600">IIChE AVVU</Link>
+            <Link href="/" className="text-2xl font-bold text-blue-600">IIChE AVVU SC</Link>
             <div className="flex gap-4">
               <Link href="/committees" className="text-gray-700 hover:text-blue-600">Committees</Link>
               <Link href="/events" className="text-gray-700 hover:text-blue-600">Events</Link>
@@ -71,7 +71,7 @@ export default async function ExecutiveCommitteePage() {
         <div className="text-center mb-12">
           <Crown className="w-16 h-16 text-yellow-500 mx-auto mb-4" />
           <h1 className="text-4xl font-bold text-gray-900 mb-4">Executive Committee</h1>
-          <p className="text-xl text-gray-600">The governing body of IIChE AVVU</p>
+          <p className="text-xl text-gray-600">The governing body of IIChE AVVU SC</p>
         </div>
 
         {sortedMembers && sortedMembers.length > 0 && (

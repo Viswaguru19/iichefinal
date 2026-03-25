@@ -389,7 +389,7 @@ export async function createOrganizationChat() {
     const userIds = users.map((u) => u.id);
 
     return createChatGroup(
-        'IIChE AVVU - Organization',
+        'IIChE AVVU SC - Organization',
         'organization',
         userIds[0], // First user as creator
         undefined,

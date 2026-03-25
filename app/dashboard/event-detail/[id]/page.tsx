@@ -3,8 +3,12 @@
 import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter, useParams } from 'next/navigation';
-import { Calendar, MapPin, CheckCircle, Clock, Edit, Check, X, Palette, ImageIcon, AlertCircle } from 'lucide-react';
+import { Calendar, MapPin, CheckCircle, Clock, Edit, Check, X, Palette, ImageIcon, AlertCircle, Camera, ChevronLeft, ChevronRight } from 'lucide-react';
 import toast from 'react-hot-toast';
+import PageHeader from '@/components/PageHeader';
+import ReminderButton from '@/components/ReminderButton';
+import ReminderLog from '@/components/ReminderLog';
+import StatusIndicator from '@/components/StatusIndicator';
 
 export default function EventDetailPage() {
   const [event, setEvent] = useState<any>(null);
@@ -12,9 +16,17 @@ export default function EventDetailPage() {
   const [loading, setLoading] = useState(true);
   const [userProfile, setUserProfile] = useState<any>(null);
   const [isEC, setIsEC] = useState(false);
+  const [isFaculty, setIsFaculty] = useState(false);
   const [isGraphics, setIsGraphics] = useState(false);
   const [editingTask, setEditingTask] = useState<string | null>(null);
   const [editedTaskData, setEditedTaskData] = useState<any>({});
+  const [eventPhotos, setEventPhotos] = useState<any[]>([]);
+  const [showPhotoUpload, setShowPhotoUpload] = useState(false);
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoCaption, setPhotoCaption] = useState('');
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [viewingPhotos, setViewingPhotos] = useState(false);
+  const [photoIndex, setPhotoIndex] = useState(0);
   const supabase = createClient();
   const router = useRouter();
   const params = useParams();
@@ -39,6 +51,7 @@ export default function EventDetailPage() {
     // Check if user is EC member
     const isExecutive = profile?.executive_role !== null;
     setIsEC(isExecutive);
+    setIsFaculty(profile?.is_faculty === true || profile?.is_admin === true);
 
     // Check if user is in Graphics committee
     const graphicsCommittee = profile?.committee_members?.find(
@@ -97,6 +110,18 @@ export default function EventDetailPage() {
         console.log('Tasks query result:', { tasksData, tasksError });
 
         setTasks(tasksData || []);
+
+        // Load event photos
+        const { data: photos } = await supabase
+          .from('event_photos')
+          .select('*, uploader:uploaded_by(name)')
+          .eq('event_id', params.id)
+          .order('created_at', { ascending: false });
+        const photosWithUrls = (photos || []).map((p: any) => {
+          const { data: urlData } = supabase.storage.from('event-photos').getPublicUrl(p.photo_url);
+          return { ...p, photo_url: urlData.publicUrl };
+        });
+        setEventPhotos(photosWithUrls);
       }
     } catch (err) {
       console.error('Error loading event details:', err);
@@ -111,14 +136,20 @@ export default function EventDetailPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
-      // Update task in task_assignments table
+      const updateData: any = {
+        status: 'approved',
+        ec_approved_by: user.id,
+        ec_approved_at: new Date().toISOString()
+      };
+
+      // Include deadline if set
+      if (editedTaskData.deadline) {
+        updateData.deadline = new Date(editedTaskData.deadline).toISOString();
+      }
+
       const { error } = await supabase
         .from('task_assignments')
-        .update({
-          status: 'approved',
-          ec_approved_by: user.id,
-          ec_approved_at: new Date().toISOString()
-        })
+        .update(updateData)
         .eq('id', taskId);
 
       if (error) throw error;
@@ -199,6 +230,30 @@ export default function EventDetailPage() {
     }
   }
 
+  async function uploadEventPhoto() {
+    if (!photoFile || !event || !userProfile) return;
+    setUploadingPhoto(true);
+    try {
+      const ext = photoFile.name.split('.').pop();
+      const path = `${event.id}/${Date.now()}.${ext}`;
+      const { error: upErr } = await supabase.storage.from('event-photos').upload(path, photoFile);
+      if (upErr) throw upErr;
+      const { error } = await supabase.from('event_photos').insert({
+        event_id: event.id, photo_url: path, uploaded_by: userProfile.id, caption: photoCaption || null,
+      });
+      if (error) throw error;
+      toast.success('Photo uploaded!');
+      setPhotoFile(null);
+      setPhotoCaption('');
+      setShowPhotoUpload(false);
+      loadEventDetails();
+    } catch (err: any) {
+      toast.error(err.message || 'Upload failed');
+    } finally {
+      setUploadingPhoto(false);
+    }
+  }
+
   async function uploadPoster(file: File) {
     if (!event) return;
 
@@ -215,37 +270,58 @@ export default function EventDetailPage() {
       return;
     }
 
+    // Set poster as pending faculty approval instead of directly updating
     const { error: updateError } = await supabase
       .from('events')
-      .update({ poster_url: filePath })
+      .update({
+        poster_url: filePath,
+        poster_status: 'pending_faculty_approval'
+      })
       .eq('id', event.id);
 
     if (updateError) {
-      toast.error('Failed to update event');
-      return;
+      // Fallback: poster_status column might not exist yet, just update poster_url
+      await supabase.from('events').update({ poster_url: filePath }).eq('id', event.id);
     }
 
-    toast.success('Poster uploaded successfully!');
+    toast.success('Poster uploaded! Sent to faculty for approval.');
     loadEventDetails();
   }
 
   if (loading) {
-    return <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-      <div className="text-gray-600">Loading...</div>
+    return <div className="min-h-screen bg-mesh flex items-center justify-center">
+      <div className="text-center">
+        <div className="w-16 h-16 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 mx-auto mb-4 animate-pulse-glow"></div>
+        <p className="text-gray-400">Loading...</p>
+      </div>
     </div>;
   }
 
   if (!event) {
-    return <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-      <div className="text-gray-600">Event not found</div>
+    return <div className="min-h-screen bg-mesh flex items-center justify-center">
+      <div className="text-gray-400">Event not found</div>
     </div>;
   }
 
-  // Calculate progress based on approved tasks only
+  // Calculate progress: 30% from approvals + 70% from tasks
   const approvedTasks = tasks.filter(t => t.status !== 'pending_ec_approval' && t.status !== 'rejected');
   const completedTasks = approvedTasks.filter(t => t.status === 'completed').length;
   const totalTasks = approvedTasks.length;
-  const progressPercentage = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+
+  // Approval progress (30% total)
+  const headApproved = !!event.head_approved_by;
+  const ecApproved = event.status !== 'pending_head_approval' && event.status !== 'pending_ec_approval' && event.status !== 'review_by_cohead';
+  const facultyApproved = event.status === 'active' || event.status === 'in_progress' || event.status === 'completed';
+  const approvalProgress = (headApproved ? 10 : 0) + (ecApproved ? 10 : 0) + (facultyApproved ? 10 : 0);
+
+  // Task progress (70% total) — based on individual task progress percentages
+  let taskProgress = 0;
+  if (totalTasks > 0) {
+    const taskProgressSum = approvedTasks.reduce((sum, t) => sum + (t.progress || 0), 0);
+    taskProgress = Math.round((taskProgressSum / (totalTasks * 100)) * 70);
+  }
+
+  const overallProgress = approvalProgress + taskProgress;
 
   // Count pending tasks for EC approval
   const pendingECApprovalCount = tasks.filter(t => t.status === 'pending_ec_approval').length;
@@ -259,22 +335,18 @@ export default function EventDetailPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <nav className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16 items-center">
-            <h1 className="text-2xl font-bold text-blue-600">Event Details</h1>
-            <button onClick={() => router.back()} className="text-gray-600 hover:text-blue-600">← Back</button>
-          </div>
-        </div>
-      </nav>
+    <div className="min-h-screen bg-mesh">
+      <PageHeader title="Event Details" />
 
       <div className="max-w-7xl mx-auto px-4 py-8">
         {/* Event Poster Section */}
-        <div className="bg-white rounded-xl shadow-lg p-8 mb-6">
+        <div className="glass rounded-2xl p-8 mb-6">
           <h3 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
             <ImageIcon className="w-6 h-6" />
             Event Poster
+            {event.poster_status === 'pending_faculty_approval' && (
+              <span className="text-xs bg-amber-100 text-amber-800 px-2 py-1 rounded-full font-semibold">Pending Faculty Approval</span>
+            )}
           </h3>
 
           {posterUrl ? (
@@ -284,6 +356,31 @@ export default function EventDetailPage() {
                 alt={event.title}
                 className="w-full max-w-2xl mx-auto rounded-xl shadow-lg"
               />
+              {/* Faculty approval buttons */}
+              {isFaculty && event.poster_status === 'pending_faculty_approval' && (
+                <div className="mt-4 flex justify-center gap-3">
+                  <button
+                    onClick={async () => {
+                      await supabase.from('events').update({ poster_status: 'approved' }).eq('id', event.id);
+                      toast.success('Poster approved!');
+                      loadEventDetails();
+                    }}
+                    className="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 flex items-center gap-2"
+                  >
+                    <Check className="w-4 h-4" /> Approve Poster
+                  </button>
+                  <button
+                    onClick={async () => {
+                      await supabase.from('events').update({ poster_status: 'rejected', poster_url: null }).eq('id', event.id);
+                      toast.success('Poster rejected');
+                      loadEventDetails();
+                    }}
+                    className="bg-red-600 text-white px-6 py-2 rounded-lg hover:bg-red-700 flex items-center gap-2"
+                  >
+                    <X className="w-4 h-4" /> Reject
+                  </button>
+                </div>
+              )}
               {isGraphics && (
                 <div className="mt-4 text-center">
                   <label className="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 cursor-pointer">
@@ -322,8 +419,80 @@ export default function EventDetailPage() {
           )}
         </div>
 
+        {/* Event Photos Section */}
+        <div className="glass rounded-2xl p-8 mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+              <Camera className="w-6 h-6" /> Event Photos
+            </h3>
+            <button onClick={() => setShowPhotoUpload(true)}
+              className="flex items-center gap-2 bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 text-sm font-semibold">
+              <Camera className="w-4 h-4" /> Upload Photo
+            </button>
+          </div>
+          {eventPhotos.length > 0 ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+              {eventPhotos.map((photo: any, idx: number) => (
+                <div key={photo.id} className="relative group cursor-pointer" onClick={() => { setPhotoIndex(idx); setViewingPhotos(true); }}>
+                  <img src={photo.photo_url} alt={photo.caption || 'Event photo'} className="w-full h-32 object-cover rounded-xl hover:opacity-90 transition" />
+                  {photo.caption && <p className="text-[10px] text-gray-500 mt-1 truncate">{photo.caption}</p>}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-gray-400 text-center py-8">No photos uploaded yet. Be the first to share event moments!</p>
+          )}
+        </div>
+
+        {/* Photo Upload Modal */}
+        {showPhotoUpload && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl p-6 max-w-md w-full">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-bold text-gray-900">Upload Event Photo</h2>
+                <button onClick={() => { setShowPhotoUpload(false); setPhotoFile(null); setPhotoCaption(''); }} className="text-gray-400 hover:text-gray-600 text-xl">✕</button>
+              </div>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Photo *</label>
+                  <input type="file" accept="image/*" onChange={e => setPhotoFile(e.target.files?.[0] || null)} className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm" />
+                </div>
+                {photoFile && <img src={URL.createObjectURL(photoFile)} alt="Preview" className="w-full h-40 object-cover rounded-lg" />}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Caption (optional)</label>
+                  <input type="text" value={photoCaption} onChange={e => setPhotoCaption(e.target.value)} placeholder="Describe this photo..." className="w-full border border-gray-300 rounded-lg px-4 py-2" />
+                </div>
+                <div className="flex gap-3">
+                  <button onClick={uploadEventPhoto} disabled={!photoFile || uploadingPhoto} className="flex-1 bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 disabled:opacity-50">
+                    {uploadingPhoto ? 'Uploading...' : 'Upload'}
+                  </button>
+                  <button onClick={() => { setShowPhotoUpload(false); setPhotoFile(null); setPhotoCaption(''); }} className="flex-1 bg-gray-200 text-gray-900 px-4 py-2 rounded-lg hover:bg-gray-300">Cancel</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Photo Viewer Modal */}
+        {viewingPhotos && eventPhotos.length > 0 && (
+          <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-50">
+            <button onClick={() => setViewingPhotos(false)} className="absolute top-4 right-4 text-white hover:text-gray-300 z-10 text-2xl">✕</button>
+            {eventPhotos.length > 1 && <>
+              <button onClick={() => setPhotoIndex((photoIndex - 1 + eventPhotos.length) % eventPhotos.length)} className="absolute left-4 top-1/2 -translate-y-1/2 text-white bg-black/30 p-2 rounded-full"><ChevronLeft className="w-8 h-8" /></button>
+              <button onClick={() => setPhotoIndex((photoIndex + 1) % eventPhotos.length)} className="absolute right-4 top-1/2 -translate-y-1/2 text-white bg-black/30 p-2 rounded-full"><ChevronRight className="w-8 h-8" /></button>
+            </>}
+            <div className="max-w-4xl max-h-[80vh] flex flex-col items-center">
+              <img src={eventPhotos[photoIndex].photo_url} alt="" className="max-w-full max-h-[70vh] object-contain rounded-lg" />
+              <div className="mt-3 text-center text-white">
+                {eventPhotos[photoIndex].caption && <p className="text-lg">{eventPhotos[photoIndex].caption}</p>}
+                <p className="text-sm text-gray-400 mt-1">By {eventPhotos[photoIndex].uploader?.name || 'Unknown'} · {photoIndex + 1}/{eventPhotos.length}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Event Info */}
-        <div className="bg-white rounded-xl shadow-lg p-8 mb-6">
+        <div className="glass rounded-2xl p-8 mb-6">
           <div className="flex justify-between items-start mb-4">
             <div>
               <h2 className="text-3xl font-bold text-gray-900">{event.title}</h2>
@@ -337,6 +506,12 @@ export default function EventDetailPage() {
               }`}>
               {event.status.replace(/_/g, ' ').toUpperCase()}
             </span>
+          </div>
+
+          {/* Approval Reminder & Status */}
+          <div className="flex items-center gap-3 mb-4">
+            <StatusIndicator entityType="approval" timestamp={event.updated_at} currentStatus={event.status} />
+            <ReminderButton entityId={event.id} entityType="approval" />
           </div>
 
           <p className="text-gray-700 mb-6">{event.description}</p>
@@ -356,26 +531,69 @@ export default function EventDetailPage() {
             )}
           </div>
 
-          {/* Progress Bar */}
-          <div className="mt-6">
+          {/* Approval Pipeline */}
+          <div className="mt-6 mb-4">
+            <h4 className="text-sm font-semibold text-gray-700 mb-3">Approval Pipeline</h4>
+            <div className="flex items-center gap-2">
+              <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold ${headApproved ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                {headApproved ? <CheckCircle className="w-3.5 h-3.5" /> : <Clock className="w-3.5 h-3.5" />}
+                Head
+              </div>
+              <div className={`w-6 h-0.5 ${headApproved ? 'bg-green-400' : 'bg-gray-300'}`} />
+              <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold ${ecApproved ? 'bg-green-100 text-green-700' : headApproved ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-500'}`}>
+                {ecApproved ? <CheckCircle className="w-3.5 h-3.5" /> : <Clock className="w-3.5 h-3.5" />}
+                EC
+              </div>
+              <div className={`w-6 h-0.5 ${ecApproved ? 'bg-green-400' : 'bg-gray-300'}`} />
+              <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold ${facultyApproved ? 'bg-green-100 text-green-700' : ecApproved ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-500'}`}>
+                {facultyApproved ? <CheckCircle className="w-3.5 h-3.5" /> : <Clock className="w-3.5 h-3.5" />}
+                Faculty
+              </div>
+              <div className={`w-6 h-0.5 ${facultyApproved ? 'bg-green-400' : 'bg-gray-300'}`} />
+              <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold ${facultyApproved ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500'}`}>
+                Tasks
+              </div>
+            </div>
+          </div>
+
+          {/* Overall Progress Bar */}
+          <div className="mt-4">
             <div className="flex justify-between items-center mb-2">
               <span className="text-sm font-medium text-gray-700">Overall Progress</span>
-              <span className="text-sm font-bold text-gray-900">{progressPercentage}%</span>
+              <span className="text-sm font-bold text-gray-900">{overallProgress}%</span>
             </div>
-            <div className="w-full bg-gray-200 rounded-full h-3">
-              <div
-                className="bg-gradient-to-r from-blue-500 to-purple-500 h-3 rounded-full transition-all duration-500"
-                style={{ width: `${progressPercentage}%` }}
-              />
+            <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+              <div className="h-3 rounded-full transition-all duration-500 flex">
+                {approvalProgress > 0 && (
+                  <div className="bg-green-500 h-full" style={{ width: `${approvalProgress}%` }} />
+                )}
+                {taskProgress > 0 && (
+                  <div className="bg-blue-500 h-full" style={{ width: `${taskProgress}%` }} />
+                )}
+              </div>
             </div>
-            <p className="text-xs text-gray-500 mt-1">
-              {completedTasks} of {totalTasks} tasks completed
-            </p>
+            <div className="flex justify-between mt-1">
+              <p className="text-xs text-gray-500">
+                <span className="inline-block w-2 h-2 rounded-full bg-green-500 mr-1" />
+                Approvals: {approvalProgress}%
+                <span className="inline-block w-2 h-2 rounded-full bg-blue-500 ml-3 mr-1" />
+                Tasks: {taskProgress}%
+              </p>
+              <p className="text-xs text-gray-500">
+                {completedTasks}/{totalTasks} tasks done
+              </p>
+            </div>
+          </div>
+
+          {/* Reminder Activity Log */}
+          <div className="mt-6 pt-4 border-t border-gray-200">
+            <h4 className="text-sm font-semibold text-gray-700 mb-2">Reminder Activity</h4>
+            <ReminderLog entityId={event.id} />
           </div>
         </div>
 
         {/* Tasks */}
-        <div className="bg-white rounded-xl shadow-lg p-8">
+        <div className="glass rounded-2xl p-8">
           <div className="flex justify-between items-center mb-6">
             <div>
               <h3 className="text-2xl font-bold text-gray-900">Tasks</h3>
@@ -422,9 +640,6 @@ export default function EventDetailPage() {
                           <p className="text-sm text-gray-600 mt-1">
                             Assigned to: <span className="font-semibold">{task.assigned_to?.name}</span>
                           </p>
-                          <p className="text-sm text-gray-600">
-                            Proposed by: {task.assigner?.name} ({task.assigned_by?.name})
-                          </p>
                         </div>
                         <span className="px-3 py-1 rounded-full text-xs font-bold bg-yellow-100 text-yellow-800 border border-yellow-300">
                           PENDING APPROVAL
@@ -444,6 +659,17 @@ export default function EventDetailPage() {
                           <p className="text-gray-700 text-sm mb-3 bg-gray-50 p-3 rounded">{task.description}</p>
                         )
                       )}
+
+                      {/* Deadline picker - shown for EC during approval */}
+                      <div className="mb-3">
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Set Deadline</label>
+                        <input
+                          type="datetime-local"
+                          value={editedTaskData.deadline || ''}
+                          onChange={(e) => setEditedTaskData({ ...editedTaskData, deadline: e.target.value })}
+                          className="border border-gray-300 rounded px-3 py-1.5 text-sm w-full max-w-xs"
+                        />
+                      </div>
 
                       {/* EC Approval Actions */}
                       <div className="mt-4 flex gap-2">
@@ -512,6 +738,24 @@ export default function EventDetailPage() {
                             ✓ Approved by {task.approver?.name} on {new Date(task.ec_approved_at).toLocaleDateString()}
                           </p>
                         )}
+                        {task.deadline && (
+                          <p className={`text-xs mt-1 font-medium ${new Date(task.deadline) < new Date() ? 'text-red-600' : 'text-amber-600'}`}>
+                            📅 Deadline: {new Date(task.deadline).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                            {new Date(task.deadline) < new Date() && ' (Overdue)'}
+                          </p>
+                        )}
+                        {!task.deadline && task.ec_approved_at && (
+                          <p className={`text-xs mt-1 font-medium ${new Date(new Date(task.ec_approved_at).getTime() + 2 * 24 * 60 * 60 * 1000) < new Date() ? 'text-red-600' : 'text-amber-600'}`}>
+                            📅 Deadline: {new Date(new Date(task.ec_approved_at).getTime() + 2 * 24 * 60 * 60 * 1000).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })} (default)
+                            {new Date(new Date(task.ec_approved_at).getTime() + 2 * 24 * 60 * 60 * 1000) < new Date() && ' (Overdue)'}
+                          </p>
+                        )}
+                        {!task.deadline && !task.ec_approved_at && task.created_at && (
+                          <p className={`text-xs mt-1 font-medium ${new Date(new Date(task.created_at).getTime() + 2 * 24 * 60 * 60 * 1000) < new Date() ? 'text-red-600' : 'text-amber-600'}`}>
+                            📅 Deadline: {new Date(new Date(task.created_at).getTime() + 2 * 24 * 60 * 60 * 1000).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })} (default)
+                            {new Date(new Date(task.created_at).getTime() + 2 * 24 * 60 * 60 * 1000) < new Date() && ' (Overdue)'}
+                          </p>
+                        )}
                       </div>
                       <div className="flex items-center gap-2">
                         <span className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1 ${task.status === 'completed' ? 'bg-green-100 text-green-800' :
@@ -537,10 +781,18 @@ export default function EventDetailPage() {
                         </div>
                         <div className="w-full bg-gray-200 rounded-full h-2">
                           <div
-                            className="bg-blue-600 h-2 rounded-full transition-all"
+                            className="progress-animated h-2 rounded-full transition-all"
                             style={{ width: `${task.progress}%` }}
                           />
                         </div>
+                      </div>
+                    )}
+
+                    {/* Task Reminder */}
+                    {task.status !== 'completed' && (
+                      <div className="mt-3 flex items-center gap-2">
+                        <StatusIndicator entityType="task" timestamp={task.deadline} currentStatus={task.status} />
+                        <ReminderButton entityId={task.id} entityType="task" />
                       </div>
                     )}
                   </div>

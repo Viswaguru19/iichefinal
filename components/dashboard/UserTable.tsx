@@ -5,7 +5,6 @@ import { createClient } from '@/lib/supabase/client';
 import { Edit, Trash2, Camera } from 'lucide-react';
 import EditUserModal from '@/components/dashboard/EditUserModal';
 import UserToggle from '@/components/dashboard/UserToggle';
-import CreateAuthButton from '@/components/dashboard/CreateAuthButton';
 import UserProfilePhotoModal from '@/components/admin/UserProfilePhotoModal';
 import Image from 'next/image';
 
@@ -140,7 +139,6 @@ export default function UserTable({ initialUsers, committees }: UserTableProps) 
                 </td>
                 <td className="py-3 px-4">
                   <div className="flex gap-2">
-                    <CreateAuthButton userId={u.id} email={u.email} name={u.name} onSuccess={refreshUsers} />
                     <button
                       onClick={() => setEditingUser(u)}
                       className="text-blue-600 hover:text-blue-700"

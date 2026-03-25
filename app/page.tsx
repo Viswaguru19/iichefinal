@@ -71,6 +71,36 @@ export default async function HomePage() {
     .order('date')
     .limit(5);
 
+  // Get recent events with photos for public gallery
+  const { data: recentEventsRaw } = await supabase
+    .from('events')
+    .select('id, title, description, event_date, poster_url, cover_photo, committee:committee_id(name)')
+    .eq('status', 'active')
+    .order('event_date', { ascending: false })
+    .limit(6);
+
+  // Fetch photos for each recent event
+  const recentEvents = await Promise.all(
+    (recentEventsRaw || []).map(async (event: any) => {
+      const { data: photos } = await supabase
+        .from('event_photos')
+        .select('photo_url, caption')
+        .eq('event_id', event.id)
+        .order('created_at', { ascending: false })
+        .limit(4);
+      const photosWithUrls = (photos || []).map((p: any) => {
+        const { data } = supabase.storage.from('event-photos').getPublicUrl(p.photo_url);
+        return { ...p, photo_url: data.publicUrl };
+      });
+      let posterUrl = event.poster_url;
+      if (posterUrl && !posterUrl.startsWith('http')) {
+        const { data } = supabase.storage.from('event-posters').getPublicUrl(posterUrl);
+        posterUrl = data.publicUrl;
+      }
+      return { ...event, photos: photosWithUrls, poster_url: posterUrl };
+    })
+  );
+
   // Get forms to show on homepage
   const { data: homepageForms } = await supabase
     .from('forms')
@@ -86,8 +116,8 @@ export default async function HomePage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16 items-center">
             <Link href="/" className="flex items-center gap-3">
-              <DynamicLogo width={40} height={40} />
-              <span className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">IIChE AVVU</span>
+              <DynamicLogo width={44} height={44} />
+              <span className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">IIChE AVVU SC</span>
             </Link>
             <div className="flex gap-6">
               <Link href="/committees" className="text-gray-700 hover:text-blue-600 transition font-medium">Committees</Link>
@@ -126,7 +156,7 @@ export default async function HomePage() {
         </div>
 
         <div className="bg-white/80 backdrop-blur-sm rounded-3xl shadow-2xl p-10 md:p-14 mb-16">
-          <h2 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent mb-8 text-center">About IIChE AVVU</h2>
+          <h2 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent mb-8 text-center">About IIChE AVVU SC</h2>
           <div className="max-w-4xl mx-auto space-y-6">
             <p className="text-lg text-gray-700 leading-relaxed">
               Welcome to the Indian Institute of Chemical Engineers (IIChE) Student Chapter at Amrita Vishwa Vidyapeetham.
@@ -195,6 +225,49 @@ export default async function HomePage() {
             </div>
           </div>
         </div>
+
+        {/* Events Showcase - Public Gallery */}
+        {recentEvents && recentEvents.length > 0 && (
+          <div className="mt-16 mb-16">
+            <div className="flex items-center justify-center gap-3 mb-8">
+              <Calendar className="w-8 h-8 text-purple-600" />
+              <h2 className="text-3xl font-bold text-gray-900">Our Events</h2>
+            </div>
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {recentEvents.map((event: any) => (
+                <div key={event.id} className="bg-white rounded-2xl shadow-xl overflow-hidden hover:shadow-2xl transition-all hover:scale-[1.02]">
+                  {event.poster_url ? (
+                    <img src={event.poster_url} alt={event.title} className="w-full h-48 object-cover" />
+                  ) : event.photos?.length > 0 ? (
+                    <img src={event.photos[0].photo_url} alt={event.title} className="w-full h-48 object-cover" />
+                  ) : (
+                    <div className="w-full h-48 bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center">
+                      <Calendar className="w-12 h-12 text-white/60" />
+                    </div>
+                  )}
+                  <div className="p-5">
+                    <h3 className="text-lg font-bold text-gray-900 mb-1">{event.title}</h3>
+                    {event.committee?.name && <p className="text-xs text-blue-600 font-medium mb-2">{event.committee.name}</p>}
+                    {event.description && <p className="text-sm text-gray-600 line-clamp-2 mb-3">{event.description}</p>}
+                    {event.event_date && (
+                      <p className="text-xs text-gray-500">📅 {new Date(event.event_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
+                    )}
+                    {event.photos?.length > 0 && (
+                      <div className="mt-3 flex gap-1.5">
+                        {event.photos.slice(0, 4).map((photo: any, idx: number) => (
+                          <img key={idx} src={photo.photo_url} alt={photo.caption || ''} className="w-10 h-10 rounded object-cover" />
+                        ))}
+                        {event.photos.length > 4 && (
+                          <div className="w-10 h-10 rounded bg-gray-100 flex items-center justify-center text-xs text-gray-500">+{event.photos.length - 4}</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Upcoming Events Section */}
         <div className="mt-16 mb-16">

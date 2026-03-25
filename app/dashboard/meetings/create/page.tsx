@@ -1,273 +1,261 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { createClient } from '@/lib/supabase/client';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Video, MapPin, Copy, Calendar, Link as LinkIcon } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
+import { nanoid } from 'nanoid';
 
 export default function CreateMeetingPage() {
   const [committees, setCommittees] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [meetingType, setMeetingType] = useState('online');
-  const [inviteType, setInviteType] = useState('all_committees');
+  const [audienceType, setAudienceType] = useState<'all_members' | 'executive_committee' | 'specific_committee' | 'general'>('all_members');
+  const [requireApproval, setRequireApproval] = useState(false);
+  const [createdLink, setCreatedLink] = useState('');
   const router = useRouter();
+
+  // Auto-generate room_id and meeting link for online meetings (always internal portal)
+  const internalRoomId = useMemo(() => nanoid(), []);
+  const internalMeetingLink = typeof window !== 'undefined' && meetingType === 'online'
+    ? `${window.location.origin}/meet/${internalRoomId}`
+    : '';
   const supabase = createClient();
 
-  useEffect(() => {
-    fetchCommittees();
-  }, []);
+  useEffect(() => { fetchCommittees(); }, []);
 
   async function fetchCommittees() {
-    const { data } = await supabase
-      .from('committees')
-      .select('id, name')
-      .order('name');
+    const { data } = await supabase.from('committees').select('id, name').order('name');
     setCommittees(data || []);
   }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setLoading(true);
-
     const formData = new FormData(e.currentTarget);
-    const { data: { user } } = await supabase.auth.getUser();
 
-    const meetingData: any = {
-      title: formData.get('title'),
-      description: formData.get('description'),
-      meeting_type: meetingType,
-      meeting_date: formData.get('meeting_date'),
+    const requestBody: Record<string, any> = {
+      title: formData.get('title') as string,
+      description: (formData.get('description') as string) || undefined,
+      meeting_type: meetingType as 'online' | 'offline',
+      meeting_date: formData.get('meeting_date') as string,
       duration: parseInt(formData.get('duration') as string),
-      created_by: user?.id,
-      agenda: formData.get('agenda')
+      agenda: (formData.get('agenda') as string) || undefined,
+      audience_type: audienceType,
+      access_type: audienceType === 'general' ? 'general' : 'invite_only',
+      require_approval: audienceType === 'general' ? requireApproval : false,
     };
 
     if (meetingType === 'offline') {
-      meetingData.location = formData.get('location');
-    } else {
-      meetingData.platform = formData.get('platform');
-      meetingData.meeting_link = formData.get('meeting_link');
+      requestBody.location = formData.get('location') as string;
+      requestBody.venue_details = (formData.get('venue_details') as string) || undefined;
     }
 
-    if (inviteType === 'specific_committee') {
-      meetingData.committee_id = formData.get('committee_id');
+    // Online meetings always use internal portal — no platform choice needed
+
+    if (audienceType === 'specific_committee') {
+      requestBody.committee_id = formData.get('committee_id') as string;
     }
 
-    const { data: meeting, error } = await (supabase as any)
-      .from('meetings')
-      .insert(meetingData)
-      .select()
-      .single();
-
-    if (error || !meeting) {
-      console.error('Meeting creation error:', error);
-      toast.error(`Failed to create meeting: ${error?.message || 'Unknown error'}`);
-      setLoading(false);
-      return;
-    }
-
-    // Create invites based on invite type
-    let invitees: string[] = [];
-
-    if (inviteType === 'executive_only') {
-      const { data: executives } = await supabase
-        .from('profiles')
-        .select('id')
-        .not('executive_role', 'is', null);
-      invitees = (executives as any)?.map((e: any) => e.id) || [];
-    } else if (inviteType === 'specific_committee') {
-      const { data: members } = await supabase
-        .from('committee_members')
-        .select('user_id')
-        .eq('committee_id', formData.get('committee_id') as string);
-      invitees = (members as any)?.map((m: any) => m.user_id) || [];
-    } else {
-      const { data: allUsers } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('is_active', true);
-      invitees = (allUsers as any)?.map((u: any) => u.id) || [];
-    }
-
-    if (invitees.length > 0) {
-      const participantInserts = invitees.map(userId => ({
-        meeting_id: meeting.id,
-        user_id: userId
-      }));
-
-      await supabase
-        .from('meeting_participants')
-        .insert(participantInserts);
-    }
-
-    // Send email invitations to participants
     try {
-      await fetch('/api/meetings/send-invites', {
+      const res = await fetch('/api/meetings/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ meetingId: meeting.id })
+        body: JSON.stringify(requestBody),
       });
-    } catch (emailError) {
-      console.error('Failed to send invitations:', emailError);
-      // Don't fail the meeting creation if emails fail
-    }
 
-    toast.success('Meeting scheduled successfully');
-    router.push('/dashboard/meetings');
+      const data = await res.json();
+
+      if (!res.ok) {
+        toast.error(data.error || 'Failed to create meeting');
+        setLoading(false);
+        return;
+      }
+
+      if (data.meeting_link) {
+        setCreatedLink(data.meeting_link);
+        try { await navigator.clipboard.writeText(data.meeting_link); } catch { /* clipboard may not be available */ }
+        toast.success('Meeting scheduled! Link copied.');
+      } else {
+        toast.success('Meeting scheduled successfully!');
+      }
+
+      setLoading(false);
+      setTimeout(() => router.push('/dashboard/meetings'), 2000);
+    } catch (err: any) {
+      toast.error(err.message || 'Something went wrong');
+      setLoading(false);
+    }
   }
 
+  const inputClass = "w-full border border-gray-200 rounded-xl px-4 py-2.5 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-indigo-300/50 transition-all";
+  const labelClass = "block text-sm font-medium text-gray-600 mb-1.5";
+
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 py-8 px-4">
-      <div className="max-w-2xl mx-auto">
-        <div className="flex items-center gap-4 mb-6">
-          <Link href="/dashboard/meetings" className="text-blue-600 hover:text-blue-700">
-            <ArrowLeft className="w-6 h-6" />
-          </Link>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Schedule Meeting</h1>
-        </div>
+    <div className="min-h-screen bg-mesh py-8 px-4 relative overflow-hidden">
+      <div className="absolute top-20 left-10 w-72 h-72 bg-gradient-to-br from-indigo-400/10 to-purple-400/10 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute bottom-20 right-10 w-96 h-96 bg-gradient-to-br from-pink-400/8 to-violet-400/8 rounded-full blur-3xl pointer-events-none" />
 
-        <form onSubmit={handleSubmit} className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Meeting Title</label>
-            <input
-              type="text"
-              name="title"
-              required
-              className="w-full border border-gray-300 dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-            />
-          </div>
+      <div className="max-w-2xl mx-auto relative z-10">
+        <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="flex items-center gap-4 mb-6">
+          <Link href="/dashboard/meetings" className="text-gray-400 hover:text-indigo-600 transition"><ArrowLeft className="w-5 h-5" /></Link>
+          <h1 className="text-2xl font-extrabold text-gradient tracking-tight">Schedule Meeting</h1>
+        </motion.div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description</label>
-            <textarea
-              name="description"
-              rows={3}
-              className="w-full border border-gray-300 dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Meeting Type</label>
-            <select
-              value={meetingType}
-              onChange={(e) => setMeetingType(e.target.value)}
-              className="w-full border border-gray-300 dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-            >
-              <option value="online">Online</option>
-              <option value="offline">Offline</option>
-            </select>
-          </div>
-
-          {meetingType === 'online' ? (
-            <>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Platform</label>
-                <select
-                  name="platform"
-                  required
-                  className="w-full border border-gray-300 dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                >
-                  <option value="microsoft_teams">Microsoft Teams</option>
-                  <option value="google_meet">Google Meet</option>
-                  <option value="zoom">Zoom</option>
-                  <option value="other">Other</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Meeting Link</label>
-                <input
-                  type="url"
-                  name="meeting_link"
-                  placeholder="https://meet.google.com/..."
-                  required
-                  className="w-full border border-gray-300 dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                />
-              </div>
-            </>
-          ) : (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Location *</label>
-              <input
-                type="text"
-                name="location"
-                required
-                placeholder="e.g., Main Auditorium, Room 301"
-                className="w-full border border-gray-300 dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-              />
+        {createdLink && (
+          <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="glass-strong rounded-2xl p-5 mb-6 border-l-4 border-emerald-500">
+            <p className="text-sm font-semibold text-emerald-700 mb-2">Meeting created! Share this link:</p>
+            <div className="flex items-center gap-2">
+              <input type="text" readOnly value={createdLink} className="flex-1 bg-gray-50 rounded-xl px-3 py-2 text-sm text-gray-700" />
+              <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => { navigator.clipboard.writeText(createdLink); toast.success('Copied'); }}
+                className="btn-gradient-green px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-1"><Copy className="w-4 h-4" /> Copy</motion.button>
             </div>
-          )}
+          </motion.div>
+        )}
 
-          <div className="grid grid-cols-2 gap-4">
+        <motion.form initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
+          onSubmit={handleSubmit} className="glass-strong rounded-2xl shadow-md overflow-hidden">
+          <div className="h-1.5 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500" />
+          <div className="p-6 space-y-5">
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Date & Time</label>
-              <input
-                type="datetime-local"
-                name="meeting_date"
-                required
-                className="w-full border border-gray-300 dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-              />
+              <label className={labelClass}>Meeting Title</label>
+              <input type="text" name="title" required placeholder="e.g., Weekly Sync" className={inputClass} />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Duration (minutes)</label>
-              <input
-                type="number"
-                name="duration"
-                defaultValue="60"
-                required
-                className="w-full border border-gray-300 dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-              />
+              <label className={labelClass}>Description</label>
+              <textarea name="description" rows={2} placeholder="Optional description..." className={inputClass} />
             </div>
-          </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Agenda (Optional)</label>
-            <textarea
-              name="agenda"
-              rows={3}
-              placeholder="Meeting agenda and topics to discuss..."
-              className="w-full border border-gray-300 dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Invite</label>
-            <select
-              value={inviteType}
-              onChange={(e) => setInviteType(e.target.value)}
-              className="w-full border border-gray-300 dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-            >
-              <option value="all_committees">All Committees</option>
-              <option value="executive_only">Executive Committee Only</option>
-              <option value="specific_committee">Specific Committee</option>
-            </select>
-          </div>
-
-          {inviteType === 'specific_committee' && (
+            {/* Meeting Type Toggle */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Select Committee</label>
-              <select
-                name="committee_id"
-                required
-                className="w-full border border-gray-300 dark:border-gray-600 rounded px-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-              >
-                <option value="">Choose committee</option>
-                {committees.map((c) => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
+              <label className={labelClass}>Meeting Type</label>
+              <div className="flex gap-3">
+                {[{ val: 'online', icon: Video, label: 'Online' }, { val: 'offline', icon: MapPin, label: 'In-Person' }].map(t => (
+                  <button key={t.val} type="button" onClick={() => setMeetingType(t.val)}
+                    className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold transition-all ${meetingType === t.val ? 'bg-gradient-to-r from-indigo-500 to-purple-500 text-white shadow-lg' : 'glass text-gray-600 hover:shadow-md'}`}>
+                    <t.icon className="w-4 h-4" /> {t.label}
+                  </button>
                 ))}
+              </div>
+            </div>
+
+            {/* Animated field transitions */}
+            <AnimatePresence mode="wait">
+              {meetingType === 'online' ? (
+                <motion.div
+                  key="online-fields"
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{ duration: 0.3, ease: 'easeInOut' }}
+                  className="space-y-5 overflow-hidden"
+                >
+                  <div>
+                    <label className={labelClass}>Meeting Link (auto-generated)</label>
+                    <div className="flex items-center gap-2">
+                      <div className="relative flex-1">
+                        <LinkIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-indigo-400" />
+                        <input
+                          type="text"
+                          name="meeting_link"
+                          readOnly
+                          value={internalMeetingLink}
+                          className={`${inputClass} pl-9 bg-indigo-50/60 text-indigo-700 cursor-default`}
+                        />
+                      </div>
+                      <motion.button
+                        type="button"
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => { navigator.clipboard.writeText(internalMeetingLink); toast.success('Link copied!'); }}
+                        className="px-3 py-2.5 rounded-xl bg-indigo-100 text-indigo-600 hover:bg-indigo-200 transition-colors"
+                      >
+                        <Copy className="w-4 h-4" />
+                      </motion.button>
+                    </div>
+                  </div>
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="offline-fields"
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{ duration: 0.3, ease: 'easeInOut' }}
+                  className="space-y-5 overflow-hidden"
+                >
+                  <div>
+                    <label className={labelClass}>Location</label>
+                    <input type="text" name="location" required placeholder="e.g., Main Auditorium" className={inputClass} />
+                  </div>
+                  <div>
+                    <label className={labelClass}>Venue Details</label>
+                    <textarea name="venue_details" rows={2} placeholder="Floor, room number, parking info, etc." className={inputClass} />
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className={labelClass}>Date & Time</label>
+                <input type="datetime-local" name="meeting_date" required className={inputClass} />
+              </div>
+              <div>
+                <label className={labelClass}>Duration (min)</label>
+                <input type="number" name="duration" defaultValue="60" required className={inputClass} />
+              </div>
+            </div>
+
+            <div>
+              <label className={labelClass}>Agenda (optional)</label>
+              <textarea name="agenda" rows={3} placeholder="Topics to discuss..." className={inputClass} />
+            </div>
+
+            <div>
+              <label className={labelClass}>Invite</label>
+              <select value={audienceType} onChange={e => setAudienceType(e.target.value as any)} className={inputClass}>
+                <option value="all_members">All Members</option>
+                <option value="executive_committee">Executive Committee</option>
+                <option value="specific_committee">Specific Committee</option>
+                <option value="general">General (Anyone with link)</option>
               </select>
             </div>
-          )}
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50"
-          >
-            {loading ? 'Scheduling...' : 'Schedule Meeting'}
-          </button>
-        </form>
+            {audienceType === 'general' && meetingType === 'online' && (
+              <div className="flex items-center gap-3 p-3 rounded-xl bg-amber-50 border border-amber-200">
+                <input
+                  type="checkbox"
+                  id="requireApproval"
+                  checked={requireApproval}
+                  onChange={e => setRequireApproval(e.target.checked)}
+                  className="w-4 h-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500"
+                />
+                <label htmlFor="requireApproval" className="text-sm text-amber-800">
+                  Require approval before joining (organizer, EC, or faculty must approve)
+                </label>
+              </div>
+            )}
+
+            {audienceType === 'specific_committee' && (
+              <div>
+                <label className={labelClass}>Select Committee</label>
+                <select name="committee_id" required className={inputClass}>
+                  <option value="">Choose...</option>
+                  {committees.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+            )}
+
+            <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} type="submit" disabled={loading}
+              className="w-full btn-gradient-purple py-3 rounded-xl font-semibold text-sm shadow-lg shadow-purple-500/20 disabled:opacity-50 flex items-center justify-center gap-2">
+              <Calendar className="w-4 h-4" /> {loading ? 'Scheduling...' : 'Schedule Meeting'}
+            </motion.button>
+          </div>
+        </motion.form>
       </div>
     </div>
   );

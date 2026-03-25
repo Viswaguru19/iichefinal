@@ -15,7 +15,7 @@ export default function DynamicLogo({
     width = 40,
     height = 40,
     className = '',
-    alt = 'IIChE AVVU Logo'
+    alt = 'IIChE AVVU SC Logo'
 }: DynamicLogoProps) {
     const [logoUrl, setLogoUrl] = useState('/logo.svg');
 

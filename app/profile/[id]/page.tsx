@@ -46,7 +46,7 @@ export default async function PublicProfilePage({ params }: { params: { id: stri
       <nav className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16 items-center">
-            <Link href="/" className="text-2xl font-bold text-blue-600">IIChE AVVU</Link>
+            <Link href="/" className="text-2xl font-bold text-blue-600">IIChE AVVU SC</Link>
             <div className="flex gap-4">
               <Link href="/committees" className="text-gray-700 hover:text-blue-600">Committees</Link>
               <Link href="/events" className="text-gray-700 hover:text-blue-600">Events</Link>

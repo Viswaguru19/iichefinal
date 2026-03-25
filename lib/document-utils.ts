@@ -42,6 +42,8 @@ export async function uploadDocument(
 
     // Create document record
     const now = new Date();
+
+    // Try inserting into documents table first
     const { data: document, error: docError } = await supabase
         .from('documents')
         .insert({
@@ -65,7 +67,31 @@ export async function uploadDocument(
         .select()
         .single();
 
-    if (docError) throw docError;
+    // If documents table fails (RLS or doesn't exist), try committee_documents
+    if (docError) {
+        console.error('documents table insert failed:', docError.message);
+
+        if (metadata.committee_id) {
+            const { data: cdDoc, error: cdError } = await supabase
+                .from('committee_documents')
+                .insert({
+                    committee_id: metadata.committee_id,
+                    title: metadata.title,
+                    file_url: publicUrl,
+                    file_type: file.type,
+                    uploaded_by: uploadedBy,
+                })
+                .select()
+                .single();
+
+            if (cdError) {
+                console.error('committee_documents insert also failed:', cdError.message);
+                throw docError; // throw original error
+            }
+            return cdDoc;
+        }
+        throw docError;
+    }
 
     return document;
 }
@@ -175,6 +201,7 @@ export async function getEventDocuments(eventId: string) {
 export async function getCommitteeDocuments(committeeId: string) {
     const supabase = createClient();
 
+    // Try documents table first
     const { data, error } = await supabase
         .from('documents')
         .select(`
@@ -186,9 +213,21 @@ export async function getCommitteeDocuments(committeeId: string) {
         .eq('committee_id', committeeId)
         .order('created_at', { ascending: false });
 
-    if (error) throw error;
+    if (!error && data && data.length > 0) return data;
 
-    return data || [];
+    // Fallback to committee_documents table
+    const { data: cdData, error: cdError } = await supabase
+        .from('committee_documents')
+        .select('*')
+        .eq('committee_id', committeeId)
+        .order('created_at', { ascending: false });
+
+    if (cdError) {
+        console.error('committee_documents query failed:', cdError.message);
+        return data || []; // return whatever documents table returned
+    }
+
+    return cdData || [];
 }
 
 // ============================================

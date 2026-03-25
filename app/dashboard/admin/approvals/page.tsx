@@ -15,7 +15,7 @@ export default async function UserApprovalsPage() {
     .eq('id', user.id)
     .single();
 
-  if (!profile || (profile as any).role !== 'super_admin') {
+  if (!profile || ((profile as any).role !== 'super_admin' && (profile as any).role !== 'faculty_advisor' && !(profile as any).is_faculty)) {
     redirect('/dashboard');
   }
 
@@ -31,12 +31,12 @@ export default async function UserApprovalsPage() {
     .order('name');
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <nav className="bg-white shadow-sm">
+    <div className="min-h-screen bg-mesh">
+      <nav className="glass-strong shadow-lg shadow-indigo-500/5">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16 items-center">
-            <h1 className="text-2xl font-bold text-blue-600">User Approvals</h1>
-            <Link href="/dashboard/admin" className="text-gray-600 hover:text-blue-600">
+            <h1 className="text-2xl font-bold text-gradient">User Approvals</h1>
+            <Link href="/dashboard/admin" className="text-gray-500 hover:text-indigo-600 transition">
               ← Back to Admin
             </Link>
           </div>
@@ -44,13 +44,13 @@ export default async function UserApprovalsPage() {
       </nav>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="bg-white rounded-xl shadow-lg p-6">
-          <h2 className="text-xl font-bold text-gray-900 mb-6">
+        <div className="glass rounded-2xl p-6">
+          <h2 className="text-xl font-bold text-gradient mb-6">
             Pending Approvals ({pendingUsers?.length || 0})
           </h2>
 
           {(!pendingUsers || pendingUsers.length === 0) && (
-            <p className="text-gray-500 text-center py-8">No pending approvals</p>
+            <p className="text-gray-400 text-center py-8">No pending approvals</p>
           )}
 
           <div className="space-y-4">

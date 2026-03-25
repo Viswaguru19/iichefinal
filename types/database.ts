@@ -39,9 +39,13 @@ export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
 export type EventStatus =
   | 'draft'
   | 'pending_head_approval'
+  | 'review_by_cohead'
+  | 'pending_ec_approval'
+  | 'rejected_by_head'
   | 'pending_faculty_approval'
   | 'faculty_approved'
   | 'active'
+  | 'in_progress'
   | 'completed'
   | 'cancelled';
 
@@ -277,6 +281,17 @@ export interface Meeting {
   minutes?: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface MeetingAttendance {
+  id: string;
+  meeting_id: string;
+  user_id: string;
+  status: 'present' | 'absent';
+  marked_by?: string | null;
+  marked_at?: string | null;
+  submitted: boolean;
+  created_at: string;
 }
 
 export interface FinanceTransaction {

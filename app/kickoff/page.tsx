@@ -42,7 +42,7 @@ export default async function KickoffPage() {
         <nav className="bg-white shadow-sm">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex justify-between h-16 items-center">
-              <Link href="/" className="text-2xl font-bold text-blue-600">IIChE AVVU</Link>
+              <Link href="/" className="text-2xl font-bold text-blue-600">IIChE AVVU SC</Link>
               <div className="flex gap-4">
                 <Link href="/committees" className="text-gray-700 hover:text-blue-600">Committees</Link>
                 <Link href="/events" className="text-gray-700 hover:text-blue-600">Events</Link>
@@ -128,7 +128,7 @@ export default async function KickoffPage() {
       <nav className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16 items-center">
-            <Link href="/" className="text-2xl font-bold text-blue-600">IIChE AVVU</Link>
+            <Link href="/" className="text-2xl font-bold text-blue-600">IIChE AVVU SC</Link>
             <div className="flex gap-4">
               <Link href="/committees" className="text-gray-700 hover:text-blue-600">Committees</Link>
               <Link href="/events" className="text-gray-700 hover:text-blue-600">Events</Link>
@@ -146,7 +146,7 @@ export default async function KickoffPage() {
           <div className="inline-block bg-green-100 text-green-800 px-6 py-3 rounded-full text-lg font-semibold mb-4 animate-pulse">
             🔴 LIVE - Tournament Active
           </div>
-          <p className="text-xl text-gray-600">Annual Football Championship - IIChE AVVU</p>
+          <p className="text-xl text-gray-600">Annual Football Championship - IIChE AVVU SC</p>
         </div>
 
         <div className="grid md:grid-cols-3 gap-6 mb-12">

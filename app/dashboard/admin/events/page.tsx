@@ -34,12 +34,12 @@ export default function AdminEventsPage() {
 
         const { data: profile } = await supabase
             .from('profiles')
-            .select('is_admin, role')
+            .select('is_admin, is_faculty, role')
             .eq('id', user.id)
             .single();
 
-        if (!profile || (!profile.is_admin && profile.role !== 'super_admin')) {
-            toast.error('Access denied: Admin only');
+        if (!profile || (!profile.is_admin && !profile.is_faculty && profile.role !== 'super_admin' && profile.role !== 'faculty_advisor')) {
+            toast.error('Access denied: Admin or Faculty only');
             return router.push('/dashboard');
         }
     }
@@ -132,18 +132,18 @@ export default function AdminEventsPage() {
     }
 
     return (
-        <div className="min-h-screen bg-gray-50">
-            <nav className="bg-white shadow-sm">
+        <div className="min-h-screen bg-mesh">
+            <nav className="glass-strong shadow-lg shadow-indigo-500/5">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     <div className="flex justify-between h-16 items-center">
-                        <h1 className="text-2xl font-bold text-blue-600">Admin - All Events</h1>
-                        <button onClick={() => router.back()} className="text-gray-600 hover:text-blue-600">← Back</button>
+                        <h1 className="text-2xl font-bold text-gradient">Admin - All Events</h1>
+                        <button onClick={() => router.back()} className="text-gray-500 hover:text-indigo-600 transition">← Back</button>
                     </div>
                 </div>
             </nav>
 
             <div className="max-w-7xl mx-auto px-4 py-8">
-                <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+                <div className="glass rounded-2xl overflow-hidden">
                     <div className="overflow-x-auto">
                         <table className="w-full">
                             <thead className="bg-gray-50 border-b">
@@ -172,10 +172,10 @@ export default function AdminEventsPage() {
                                         </td>
                                         <td className="py-3 px-4">
                                             <span className={`px-2 py-1 rounded-full text-xs font-medium ${event.status === 'active' ? 'bg-green-100 text-green-800' :
-                                                    event.status === 'cancelled' ? 'bg-red-100 text-red-800' :
-                                                        event.status === 'pending_ec_approval' ? 'bg-blue-100 text-blue-800' :
-                                                            event.status === 'rejected_by_head' ? 'bg-red-100 text-red-800' :
-                                                                'bg-yellow-100 text-yellow-800'
+                                                event.status === 'cancelled' ? 'bg-red-100 text-red-800' :
+                                                    event.status === 'pending_ec_approval' ? 'bg-blue-100 text-blue-800' :
+                                                        event.status === 'rejected_by_head' ? 'bg-red-100 text-red-800' :
+                                                            'bg-yellow-100 text-yellow-800'
                                                 }`}>
                                                 {event.status.replace(/_/g, ' ').toUpperCase()}
                                             </span>
@@ -218,8 +218,8 @@ export default function AdminEventsPage() {
 
             {/* Delete Modal */}
             {showDeleteModal && selectedEvent && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-                    <div className="bg-white rounded-xl p-6 max-w-md w-full">
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                    <div className="glass-strong rounded-2xl p-6 max-w-md w-full">
                         <h2 className="text-xl font-bold text-red-600 mb-4">Delete Event</h2>
                         <p className="text-gray-700 mb-4">
                             Are you sure you want to delete <span className="font-bold">"{selectedEvent.title}"</span>?
@@ -252,9 +252,9 @@ export default function AdminEventsPage() {
 
             {/* Edit Modal */}
             {showEditModal && selectedEvent && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-                    <div className="bg-white rounded-xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-                        <h2 className="text-2xl font-bold text-gray-900 mb-6">Edit Event</h2>
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                    <div className="glass-strong rounded-2xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+                        <h2 className="text-2xl font-bold text-gradient mb-6">Edit Event</h2>
                         <form onSubmit={handleEdit} className="space-y-4">
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>

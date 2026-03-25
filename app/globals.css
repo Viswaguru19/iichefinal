@@ -19,3 +19,356 @@
     text-wrap: balance;
   }
 }
+
+/* ========== ANIMATED MESH GRADIENT BACKGROUND ========== */
+.bg-mesh {
+  background:
+    radial-gradient(ellipse at 10% 20%, rgba(99, 102, 241, 0.08) 0%, transparent 50%),
+    radial-gradient(ellipse at 90% 80%, rgba(168, 85, 247, 0.07) 0%, transparent 50%),
+    radial-gradient(ellipse at 50% 50%, rgba(59, 130, 246, 0.05) 0%, transparent 60%),
+    linear-gradient(135deg, #f8fafc 0%, #eef2ff 50%, #f5f3ff 100%);
+}
+
+/* ========== GLASS MORPHISM ========== */
+.glass {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+}
+
+.glass-strong {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+}
+
+.glass-dark {
+  background: rgba(15, 23, 42, 0.6);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* ========== GLOW EFFECTS ========== */
+.glow-blue {
+  box-shadow: 0 0 20px rgba(59, 130, 246, 0.15), 0 0 60px rgba(59, 130, 246, 0.05);
+}
+
+.glow-purple {
+  box-shadow: 0 0 20px rgba(168, 85, 247, 0.15), 0 0 60px rgba(168, 85, 247, 0.05);
+}
+
+.glow-green {
+  box-shadow: 0 0 20px rgba(34, 197, 94, 0.15), 0 0 60px rgba(34, 197, 94, 0.05);
+}
+
+.glow-amber {
+  box-shadow: 0 0 20px rgba(245, 158, 11, 0.15), 0 0 60px rgba(245, 158, 11, 0.05);
+}
+
+.glow-rose {
+  box-shadow: 0 0 20px rgba(244, 63, 94, 0.15), 0 0 60px rgba(244, 63, 94, 0.05);
+}
+
+/* ========== SHIMMER / SKELETON ========== */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.shimmer {
+  background: linear-gradient(90deg, transparent 25%, rgba(255, 255, 255, 0.4) 50%, transparent 75%);
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}
+
+/* ========== FLOATING ANIMATION ========== */
+@keyframes float {
+
+  0%,
+  100% {
+    transform: translateY(0px);
+  }
+
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+.animate-float {
+  animation: float 4s ease-in-out infinite;
+}
+
+/* ========== PULSE GLOW ========== */
+@keyframes pulse-glow {
+
+  0%,
+  100% {
+    box-shadow: 0 0 8px rgba(99, 102, 241, 0.3);
+  }
+
+  50% {
+    box-shadow: 0 0 24px rgba(99, 102, 241, 0.5);
+  }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2.5s ease-in-out infinite;
+}
+
+/* ========== GRADIENT TEXT ========== */
+.text-gradient {
+  background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.text-gradient-warm {
+  background: linear-gradient(135deg, #f59e0b, #ef4444);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.text-gradient-green {
+  background: linear-gradient(135deg, #10b981, #06b6d4);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ========== GRADIENT BORDER ========== */
+.border-gradient {
+  position: relative;
+  border: none;
+}
+
+.border-gradient::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.5px;
+  background: linear-gradient(135deg, #3b82f6, #8b5cf6, #ec4899);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+/* ========== SMOOTH SCROLLBAR ========== */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(99, 102, 241, 0.25);
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(99, 102, 241, 0.45);
+}
+
+/* ========== BUTTON GRADIENT STYLES ========== */
+.btn-gradient-blue {
+  background: linear-gradient(135deg, #3b82f6, #6366f1);
+  color: white;
+  transition: all 0.2s;
+}
+
+.btn-gradient-blue:hover {
+  background: linear-gradient(135deg, #2563eb, #4f46e5);
+  box-shadow: 0 4px 20px rgba(59, 130, 246, 0.35);
+}
+
+.btn-gradient-green {
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: white;
+  transition: all 0.2s;
+}
+
+.btn-gradient-green:hover {
+  background: linear-gradient(135deg, #059669, #047857);
+  box-shadow: 0 4px 20px rgba(16, 185, 129, 0.35);
+}
+
+.btn-gradient-red {
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+  color: white;
+  transition: all 0.2s;
+}
+
+.btn-gradient-red:hover {
+  background: linear-gradient(135deg, #dc2626, #b91c1c);
+  box-shadow: 0 4px 20px rgba(239, 68, 68, 0.35);
+}
+
+.btn-gradient-purple {
+  background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+  color: white;
+  transition: all 0.2s;
+}
+
+.btn-gradient-purple:hover {
+  background: linear-gradient(135deg, #7c3aed, #6d28d9);
+  box-shadow: 0 4px 20px rgba(139, 92, 246, 0.35);
+}
+
+.btn-gradient-amber {
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  color: white;
+  transition: all 0.2s;
+}
+
+.btn-gradient-amber:hover {
+  background: linear-gradient(135deg, #d97706, #b45309);
+  box-shadow: 0 4px 20px rgba(245, 158, 11, 0.35);
+}
+
+
+/* ========== GLOBAL ANIMATED GRADIENT BACKGROUND ========== */
+@keyframes gradient-shift {
+  0% {
+    background-position: 0% 50%;
+  }
+
+  50% {
+    background-position: 100% 50%;
+  }
+
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+body {
+  background: linear-gradient(-45deg, #f8fafc, #eef2ff, #f0f9ff, #faf5ff, #fdf2f8);
+  background-size: 400% 400%;
+  animation: gradient-shift 20s ease infinite;
+  min-height: 100vh;
+}
+
+/* ========== ANIMATED PROGRESS BAR ========== */
+@keyframes progress-shine {
+  0% {
+    background-position: -200% 0;
+  }
+
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.progress-animated {
+  background: linear-gradient(90deg, #3b82f6, #8b5cf6, #6366f1, #3b82f6);
+  background-size: 200% 100%;
+  animation: progress-shine 2s linear infinite;
+}
+
+.progress-animated-green {
+  background: linear-gradient(90deg, #10b981, #06b6d4, #10b981);
+  background-size: 200% 100%;
+  animation: progress-shine 2s linear infinite;
+}
+
+/* ========== ANIMATED GRADIENT BORDER ========== */
+@keyframes border-glow {
+
+  0%,
+  100% {
+    border-color: rgba(99, 102, 241, 0.3);
+  }
+
+  50% {
+    border-color: rgba(168, 85, 247, 0.5);
+  }
+}
+
+.border-animated {
+  animation: border-glow 3s ease-in-out infinite;
+}
+
+/* ========== FLOATING ORB ANIMATION ========== */
+@keyframes orb-float {
+
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+
+  25% {
+    transform: translate(10px, -15px) scale(1.05);
+  }
+
+  50% {
+    transform: translate(-5px, -25px) scale(1);
+  }
+
+  75% {
+    transform: translate(-15px, -10px) scale(0.95);
+  }
+}
+
+.animate-orb {
+  animation: orb-float 8s ease-in-out infinite;
+}
+
+.animate-orb-slow {
+  animation: orb-float 12s ease-in-out infinite;
+}
+
+/* ========== CARD HOVER LIFT ========== */
+.card-hover {
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.card-hover:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 40px rgba(99, 102, 241, 0.12), 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+/* ========== LOADING DOTS ========== */
+@keyframes loading-dots {
+
+  0%,
+  80%,
+  100% {
+    transform: scale(0);
+    opacity: 0.5;
+  }
+
+  40% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.loading-dot {
+  animation: loading-dots 1.4s infinite ease-in-out both;
+}
+
+.loading-dot:nth-child(1) {
+  animation-delay: -0.32s;
+}
+
+.loading-dot:nth-child(2) {
+  animation-delay: -0.16s;
+}
+
+.loading-dot:nth-child(3) {
+  animation-delay: 0s;
+}

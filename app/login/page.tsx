@@ -125,12 +125,8 @@ export default function LoginPage() {
         throw new Error('Account pending approval. Contact admin.');
       }
 
-      // Redirect based on is_faculty flag (set by admin)
-      if ((profile as any)?.is_faculty) {
-        window.location.href = '/dashboard/faculty';
-      } else {
-        window.location.href = '/dashboard';
-      }
+      // Redirect to dashboard (faculty gets full access via main dashboard)
+      window.location.href = '/dashboard';
     } catch (error: any) {
       console.error('Login error:', error);
       const errorMessage = error?.message || 'Login failed';
@@ -154,13 +150,16 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md">
+    <div className="min-h-screen bg-mesh flex items-center justify-center p-4">
+      <div className="glass-strong rounded-2xl shadow-2xl shadow-indigo-500/10 p-8 w-full max-w-md relative overflow-hidden">
+        {/* Decorative orbs */}
+        <div className="absolute -top-16 -right-16 w-40 h-40 rounded-full bg-gradient-to-br from-indigo-400/20 to-purple-400/20 blur-3xl" />
+        <div className="absolute -bottom-16 -left-16 w-40 h-40 rounded-full bg-gradient-to-br from-blue-400/15 to-cyan-400/15 blur-3xl" />
         <div className="text-center mb-8">
           <div className="flex items-center justify-center gap-3 mb-4">
             <DynamicLogo width={60} height={60} />
           </div>
-          <Link href="/" className="text-3xl font-bold text-blue-600">IIChE AVVU</Link>
+          <Link href="/" className="text-3xl font-bold text-blue-600">IIChE AVVU SC</Link>
           <p className="text-gray-600 mt-2">Welcome back</p>
         </div>
 
@@ -197,7 +196,7 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+            className="w-full btn-gradient-blue py-3 rounded-xl font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {loading ? (resetMode ? 'Sending...' : 'Signing in...') : (resetMode ? 'Send Reset Link' : 'Sign In')}
           </button>

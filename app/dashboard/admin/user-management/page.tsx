@@ -45,12 +45,12 @@ export default function UserManagementPage() {
 
         const { data: profile } = await supabase
             .from('profiles')
-            .select('is_admin')
+            .select('is_admin, is_faculty')
             .eq('id', user.id)
             .single();
 
-        if (!profile?.is_admin) {
-            toast.error('Access denied: Admin only');
+        if (!profile?.is_admin && !profile?.is_faculty) {
+            toast.error('Access denied: Admin or Faculty only');
             return router.push('/dashboard');
         }
 
@@ -203,21 +203,21 @@ export default function UserManagementPage() {
     }
 
     return (
-        <div className="min-h-screen bg-gray-50">
+        <div className="min-h-screen bg-mesh">
             {/* Header */}
-            <div className="bg-white shadow">
+            <div className="glass-strong shadow-lg shadow-indigo-500/5">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
-                            <Users className="w-8 h-8 text-blue-600" />
+                            <Users className="w-8 h-8 text-indigo-600" />
                             <div>
-                                <h1 className="text-3xl font-bold text-gray-900">User Management</h1>
-                                <p className="text-gray-600 mt-1">{filteredUsers.length} users</p>
+                                <h1 className="text-3xl font-bold text-gradient">User Management</h1>
+                                <p className="text-gray-500 mt-1">{filteredUsers.length} users</p>
                             </div>
                         </div>
                         <button
                             onClick={() => router.push('/dashboard/admin')}
-                            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                            className="btn-gradient-blue px-4 py-2 rounded-xl font-semibold"
                         >
                             Back to Admin
                         </button>
@@ -227,7 +227,7 @@ export default function UserManagementPage() {
 
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
                 {/* Filters */}
-                <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
+                <div className="glass rounded-2xl p-6 mb-6">
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         {/* Search */}
                         <div className="relative">
@@ -271,7 +271,7 @@ export default function UserManagementPage() {
                 </div>
 
                 {/* Users Table */}
-                <div className="bg-white rounded-xl shadow-lg overflow-hidden">
+                <div className="glass rounded-2xl overflow-hidden">
                     <div className="overflow-x-auto">
                         <table className="w-full">
                             <thead className="bg-gray-50 border-b">
@@ -435,9 +435,9 @@ function EditRoleModal({ user, onClose, onSave }: any) {
     ];
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-xl p-6 max-w-md w-full mx-4">
-                <h2 className="text-2xl font-bold text-gray-900 mb-4">Edit User Role</h2>
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+            <div className="glass-strong rounded-2xl p-6 max-w-md w-full mx-4">
+                <h2 className="text-2xl font-bold text-gradient mb-4">Edit User Role</h2>
 
                 <div className="mb-4">
                     <p className="text-sm text-gray-600 mb-2">User: {user.name}</p>
@@ -496,13 +496,13 @@ function EditRoleModal({ user, onClose, onSave }: any) {
                 <div className="flex gap-3">
                     <button
                         onClick={() => onSave(user.id, role, executiveRole, isFaculty)}
-                        className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                        className="flex-1 btn-gradient-blue px-4 py-2 rounded-xl font-semibold"
                     >
                         Save Changes
                     </button>
                     <button
                         onClick={onClose}
-                        className="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
+                        className="flex-1 px-4 py-2 glass rounded-xl text-gray-700 hover:shadow-md transition"
                     >
                         Cancel
                     </button>

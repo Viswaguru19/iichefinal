@@ -6,8 +6,8 @@ import { Toaster } from 'react-hot-toast';
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "IIChE AVVU Portal",
-  description: "Official portal for IIChE AVVU - Indian Institute of Chemical Engineers",
+  title: "IIChE AVVU SC Portal",
+  description: "Official portal for IIChE AVVU SC - Indian Institute of Chemical Engineers",
 };
 
 export default function RootLayout({

@@ -42,20 +42,20 @@ export default async function CommitteesPage() {
     }) || [];
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <nav className="bg-white shadow-sm">
+    <div className="min-h-screen bg-mesh">
+      <nav className="glass-strong shadow-lg shadow-indigo-500/5">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16 items-center">
-            <Link href="/" className="text-2xl font-bold text-blue-600">IIChE AVVU</Link>
-            <div className="flex gap-4">
-              <Link href="/committees" className="text-blue-600 font-medium">Committees</Link>
-              <Link href="/events" className="text-gray-700 hover:text-blue-600">Events</Link>
-              <Link href="/hiring" className="text-gray-700 hover:text-blue-600">Hiring</Link>
-              <Link href="/kickoff" className="text-gray-700 hover:text-blue-600">Kickoff</Link>
+            <Link href="/" className="text-2xl font-bold text-gradient">IIChE AVVU SC</Link>
+            <div className="flex gap-4 items-center">
+              <Link href="/committees" className="text-indigo-600 font-medium">Committees</Link>
+              <Link href="/events" className="text-gray-600 hover:text-indigo-600 transition">Events</Link>
+              <Link href="/hiring" className="text-gray-600 hover:text-indigo-600 transition">Hiring</Link>
+              <Link href="/kickoff" className="text-gray-600 hover:text-indigo-600 transition">Kickoff</Link>
               {isLoggedIn ? (
-                <Link href="/dashboard" className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">Dashboard</Link>
+                <Link href="/dashboard" className="btn-gradient-blue px-4 py-2 rounded-xl font-semibold">Dashboard</Link>
               ) : (
-                <Link href="/login" className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">Login</Link>
+                <Link href="/login" className="btn-gradient-blue px-4 py-2 rounded-xl font-semibold">Login</Link>
               )}
             </div>
           </div>
@@ -64,9 +64,9 @@ export default async function CommitteesPage() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
         <div className="text-center mb-12">
-          <h1 className="text-4xl font-bold text-gray-900 mb-4">Our Committees</h1>
-          <p className="text-xl text-gray-600">
-            Dedicated teams working together to make IIChE AVVU successful
+          <h1 className="text-4xl font-bold text-gradient mb-4">Our Committees</h1>
+          <p className="text-xl text-gray-500">
+            Dedicated teams working together to make IIChE AVVU SC successful
           </p>
         </div>
 
@@ -80,11 +80,11 @@ export default async function CommitteesPage() {
               <Link
                 key={committee.id}
                 href={`/committees/${committee.id}`}
-                className="bg-white rounded-xl shadow-md hover:shadow-xl transition p-6 block flex flex-col h-full"
+                className="glass rounded-2xl hover:shadow-xl hover:scale-[1.02] transition-all p-6 block flex flex-col h-full"
               >
                 <div className="flex items-center gap-4 mb-4">
-                  <div className="bg-blue-100 p-3 rounded-lg">
-                    <Users className="w-6 h-6 text-blue-600" />
+                  <div className="bg-gradient-to-br from-blue-500 to-indigo-500 p-3 rounded-xl text-white">
+                    <Users className="w-6 h-6" />
                   </div>
                   <h3 className="text-xl font-bold text-gray-900">{committee.name}</h3>
                 </div>

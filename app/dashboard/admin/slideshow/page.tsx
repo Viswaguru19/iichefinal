@@ -295,7 +295,7 @@ export default function SlideshowManagementPage() {
                                     type="text"
                                     value={title}
                                     onChange={(e) => setTitle(e.target.value)}
-                                    placeholder="e.g., Welcome to IIChE AVVU"
+                                    placeholder="e.g., Welcome to IIChE AVVU SC"
                                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                                 />
                             </div>

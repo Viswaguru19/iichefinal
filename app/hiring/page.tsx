@@ -18,7 +18,7 @@ export default async function HiringPage() {
         <nav className="bg-white shadow-sm">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex justify-between h-16 items-center">
-              <Link href="/" className="text-2xl font-bold text-blue-600">IIChE AVVU</Link>
+              <Link href="/" className="text-2xl font-bold text-blue-600">IIChE AVVU SC</Link>
               <Link href="/" className="text-gray-600 hover:text-blue-600">← Back to Home</Link>
             </div>
           </div>
@@ -46,7 +46,7 @@ export default async function HiringPage() {
       <nav className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16 items-center">
-            <Link href="/" className="text-2xl font-bold text-blue-600">IIChE AVVU</Link>
+            <Link href="/" className="text-2xl font-bold text-blue-600">IIChE AVVU SC</Link>
             <div className="flex gap-4">
               <Link href="/committees" className="text-gray-700 hover:text-blue-600">Committees</Link>
               <Link href="/events" className="text-gray-700 hover:text-blue-600">Events</Link>
@@ -69,7 +69,7 @@ export default async function HiringPage() {
             <div key={position.id} className="bg-white rounded-xl shadow-md hover:shadow-xl transition p-6">
               <h3 className="text-xl font-bold text-gray-900 mb-2">{position.title}</h3>
               <p className="text-gray-600 mb-4">{position.description}</p>
-              
+
               <div className="space-y-2 text-sm text-gray-500 mb-4">
                 {position.location && (
                   <div className="flex items-center gap-2">

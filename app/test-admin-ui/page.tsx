@@ -36,7 +36,7 @@ export default function TestAdminUIPage() {
                             </div>
                             <div>
                                 <h1 className="text-xl font-bold text-gray-900">Admin Dashboard</h1>
-                                <p className="text-xs text-gray-500">IIChE AVVU Portal</p>
+                                <p className="text-xs text-gray-500">IIChE AVVU SC Portal</p>
                             </div>
                         </div>
                         <div className="flex items-center gap-4">

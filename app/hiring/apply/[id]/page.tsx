@@ -66,7 +66,7 @@ export default function ApplyPage() {
       <nav className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16 items-center">
-            <Link href="/" className="text-2xl font-bold text-blue-600">IIChE AVVU</Link>
+            <Link href="/" className="text-2xl font-bold text-blue-600">IIChE AVVU SC</Link>
             <Link href="/hiring" className="text-gray-600 hover:text-blue-600">← Back to Hiring</Link>
           </div>
         </div>

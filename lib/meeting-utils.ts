@@ -454,7 +454,7 @@ export function generateICalendar(meeting: any): string {
 
     return `BEGIN:VCALENDAR
 VERSION:2.0
-PRODID:-//IIChE AVVU//Meeting//EN
+PRODID:-//IIChE AVVU SC//Meeting//EN
 BEGIN:VEVENT
 UID:${meeting.id}@iiche-avvu.org
 DTSTAMP:${formatDate(new Date())}

@@ -1,309 +1,287 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
-import { MessageSquare, Users, Search } from 'lucide-react';
+import ChatSidebar from '@/components/chat/ChatSidebar';
+import ChatWindow from '@/components/chat/ChatWindow';
+import ProfilePanel from '@/components/chat/ProfilePanel';
+import { MessageSquare } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
 
+export interface ChatItem {
+  id: string;
+  name: string;
+  avatar: string | null;
+  lastMessage: string;
+  time: string;
+  type: 'direct' | 'group';
+  unreadCount: number;
+}
+
+export interface UserProfile {
+  id: string;
+  name: string;
+  email: string;
+  avatar_url: string | null;
+  role: string;
+  executive_role: string | null;
+  is_faculty: boolean;
+  department: string | null;
+  phone: string | null;
+  created_at: string;
+  committee_name?: string;
+  committee_position?: string;
+}
+
 export default function ChatPage() {
-  const [chats, setChats] = useState<any[]>([]);
-  const [currentUser, setCurrentUser] = useState<any>(null);
-  const [search, setSearch] = useState('');
+  const [chats, setChats] = useState<ChatItem[]>([]);
+  const [allUsers, setAllUsers] = useState<UserProfile[]>([]);
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
+  const [activeChat, setActiveChat] = useState<ChatItem | null>(null);
+  const [profileUser, setProfileUser] = useState<UserProfile | null>(null);
+  const [showProfile, setShowProfile] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
   const supabase = createClient();
   const router = useRouter();
 
   useEffect(() => {
-    loadData();
-
-    const channel = supabase
-      .channel('chat-updates')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'direct_messages' },
-        (payload) => handleRealtimeUpdate(payload, 'direct')
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'group_messages' },
-        (payload) => handleRealtimeUpdate(payload, 'group')
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    init();
   }, []);
 
-  async function loadData() {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) return router.push('/login');
+  async function init() {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { router.push('/login'); return; }
 
+    // Load current user profile with committee info
     const { data: profile } = await supabase
       .from('profiles')
-      .select('id, name, avatar_url, role')
+      .select('*')
       .eq('id', user.id)
       .single();
-    setCurrentUser(profile);
+    if (!profile) return;
 
-    // Get direct messages
-    const { data: directMessages } = await supabase
+    const { data: membership } = await supabase
+      .from('committee_members')
+      .select('position, committees(name)')
+      .eq('user_id', user.id)
+      .neq('committee_id', '00000000-0000-0000-0000-000000000001')
+      .limit(1)
+      .single();
+
+    const currentProfile: UserProfile = {
+      ...profile,
+      committee_name: (membership as any)?.committees?.name || null,
+      committee_position: membership?.position || null,
+    };
+    setCurrentUser(currentProfile);
+
+    // Load all users for new chat / search
+    const { data: users } = await supabase
+      .from('profiles')
+      .select('*')
+      .neq('id', user.id)
+      .eq('is_active', true)
+      .order('name');
+    // Resolve avatar URLs from storage paths to public URLs
+    const usersWithAvatars = (users || []).map((u: any) => {
+      if (u.avatar_url && !u.avatar_url.startsWith('http')) {
+        const { data } = supabase.storage.from('avatars').getPublicUrl(u.avatar_url);
+        return { ...u, avatar_url: data.publicUrl };
+      }
+      return u;
+    });
+    setAllUsers(usersWithAvatars);
+
+    await loadChats(user.id);
+    setLoading(false);
+    setupRealtime(user.id);
+    setupPresence(user.id);
+  }
+
+  async function loadChats(userId: string) {
+    // Direct messages
+    const { data: dms } = await supabase
       .from('direct_messages')
-      .select(
-        '*, sender:profiles!direct_messages_sender_id_fkey(name, avatar_url), receiver:profiles!direct_messages_receiver_id_fkey(name, avatar_url)'
-      )
-      .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`)
+      .select('*, sender:profiles!direct_messages_sender_id_fkey(id, name, avatar_url), receiver:profiles!direct_messages_receiver_id_fkey(id, name, avatar_url)')
+      .or(`sender_id.eq.${userId},receiver_id.eq.${userId}`)
       .order('created_at', { ascending: false });
 
-    // Group by conversation and calculate unread counts
-    const conversations = new Map<string, any>();
-    const unreadCounts: Record<string, number> = {};
-
-    directMessages?.forEach((msg: any) => {
-      const otherId =
-        msg.sender_id === user.id ? msg.receiver_id : msg.sender_id;
-      const otherUser = msg.sender_id === user.id ? msg.receiver : msg.sender;
-
-      if (msg.receiver_id === user.id && !msg.read) {
-        unreadCounts[otherId] = (unreadCounts[otherId] || 0) + 1;
-      }
-
-      if (!conversations.has(otherId)) {
-        conversations.set(otherId, {
-          id: otherId,
-          name: otherUser.name,
-          avatar: otherUser.avatar_url,
-          lastMessage: msg.message,
-          time: msg.created_at,
-          type: 'direct',
+    const convos = new Map<string, ChatItem>();
+    const unread: Record<string, number> = {};
+    dms?.forEach((msg: any) => {
+      const otherId = msg.sender_id === userId ? msg.receiver_id : msg.sender_id;
+      const other = msg.sender_id === userId ? msg.receiver : msg.sender;
+      if (msg.receiver_id === userId && !msg.read) unread[otherId] = (unread[otherId] || 0) + 1;
+      if (!convos.has(otherId)) {
+        let avatarUrl = other?.avatar_url || null;
+        if (avatarUrl && !avatarUrl.startsWith('http')) {
+          const { data } = supabase.storage.from('avatars').getPublicUrl(avatarUrl);
+          avatarUrl = data.publicUrl;
+        }
+        convos.set(otherId, {
+          id: otherId, name: other?.name || 'Unknown', avatar: avatarUrl,
+          lastMessage: msg.message, time: msg.created_at, type: 'direct', unreadCount: 0,
         });
       }
     });
+    const directChats = Array.from(convos.values()).map(c => ({ ...c, unreadCount: unread[c.id] || 0 }));
 
-    const directChats = Array.from(conversations.values()).map((chat) => ({
-      ...chat,
-      unreadCount: unreadCounts[chat.id] || 0,
-    }));
-
-    // Get user's committees for group chats
-    const { data: userCommittees } = await supabase
+    // Committee group chats
+    const { data: memberships } = await supabase
       .from('committee_members')
       .select('committee_id, committees(name)')
-      .eq('user_id', user.id);
+      .eq('user_id', userId);
+    const groupChats: ChatItem[] = (memberships || []).map((m: any) => ({
+      id: m.committee_id, name: m.committees.name, avatar: null,
+      lastMessage: 'Group chat', time: new Date().toISOString(), type: 'group' as const, unreadCount: 0,
+    }));
 
-    const committeeChats =
-      userCommittees?.map((c: any) => ({
-        id: c.committee_id,
-        name: c.committees.name,
-        type: 'group',
-        lastMessage: 'Group chat',
-        time: new Date().toISOString(),
-        unreadCount: 0,
-      })) || [];
+    // Special groups
+    const { data: prof } = await supabase.from('profiles').select('role').eq('id', userId).single();
+    const specials: ChatItem[] = [
+      { id: 'iiche-main', name: 'IIChE AVVU SC', avatar: null, lastMessage: 'Main group', time: new Date().toISOString(), type: 'group', unreadCount: 0 },
+    ];
+    if (prof?.role === 'committee_head') specials.push({ id: 'all-heads', name: '👑 All Heads', avatar: null, lastMessage: 'Heads group', time: new Date().toISOString(), type: 'group', unreadCount: 0 });
+    if (prof?.role === 'committee_cohead') specials.push({ id: 'all-coheads', name: '⭐ All Co-Heads', avatar: null, lastMessage: 'Co-Heads group', time: new Date().toISOString(), type: 'group', unreadCount: 0 });
 
-    // Check if user is a head or co-head using new role system
-    const isHead = profile?.role === 'committee_head';
-    const isCoHead = profile?.role === 'committee_cohead';
-
-    // Add special group chats
-    const specialChats: any[] = [];
-
-    // IIChE main group (everyone)
-    specialChats.push({
-      id: 'iiche-main',
-      name: 'IIChE AVVU',
-      type: 'group',
-      lastMessage: 'Main group chat',
-      time: new Date().toISOString(),
-      unreadCount: 0,
+    setChats(prev => {
+      const newChats = [...directChats, ...specials, ...groupChats];
+      // Preserve any active chat that was started but has no DB messages yet
+      const activeId = activeChat?.id;
+      if (activeId && activeChat?.type === 'direct' && !newChats.find(c => c.id === activeId && c.type === 'direct')) {
+        const existing = prev.find(c => c.id === activeId && c.type === 'direct');
+        if (existing) newChats.unshift(existing);
+      }
+      return newChats;
     });
-
-    // All Heads group (only for heads)
-    if (isHead) {
-      specialChats.push({
-        id: 'all-heads',
-        name: '👑 All Committee Heads',
-        type: 'group',
-        lastMessage: 'Heads discussion group',
-        time: new Date().toISOString(),
-        unreadCount: 0,
-      });
-    }
-
-    // All Co-Heads group (only for co-heads)
-    if (isCoHead) {
-      specialChats.push({
-        id: 'all-coheads',
-        name: '⭐ All Committee Co-Heads',
-        type: 'group',
-        lastMessage: 'Co-Heads discussion group',
-        time: new Date().toISOString(),
-        unreadCount: 0,
-      });
-    }
-
-    setChats([...directChats, ...specialChats, ...committeeChats]);
   }
 
-  function handleRealtimeUpdate(payload: any, type: 'direct' | 'group') {
-    // Refresh chat list
-    loadData();
+  function setupRealtime(userId: string) {
+    const ch = supabase.channel('chat-live')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'direct_messages' }, () => loadChats(userId))
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'group_messages' }, () => loadChats(userId))
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }
 
+  function setupPresence(userId: string) {
+    const ch = supabase.channel('online-users', { config: { presence: { key: userId } } });
+    ch.on('presence', { event: 'sync' }, () => {
+      const state = ch.presenceState();
+      setOnlineUsers(new Set(Object.keys(state)));
+    }).subscribe(async (status) => {
+      if (status === 'SUBSCRIBED') await ch.track({ user_id: userId, online_at: new Date().toISOString() });
+    });
+    return () => { supabase.removeChannel(ch); };
+  }
+
+  function openChat(chat: ChatItem) {
+    setActiveChat(chat);
+    setShowProfile(false);
+    // Mark as read
+    if (chat.type === 'direct' && currentUser) {
+      supabase.from('direct_messages').update({ read: true } as any).eq('receiver_id', currentUser.id).eq('sender_id', chat.id).then(() => {
+        setChats(prev => prev.map(c => c.id === chat.id ? { ...c, unreadCount: 0 } : c));
+      });
+    }
+  }
+
+  function startNewChat(user: UserProfile) {
+    const existing = chats.find(c => c.type === 'direct' && c.id === user.id);
+    if (existing) { openChat(existing); return; }
+    const newChat: ChatItem = { id: user.id, name: user.name, avatar: user.avatar_url, lastMessage: '', time: new Date().toISOString(), type: 'direct', unreadCount: 0 };
+    setChats(prev => [newChat, ...prev]);
+    openChat(newChat);
+  }
+
+  async function createGroup(name: string, description: string, memberIds: string[]) {
     if (!currentUser) return;
-
-    if (type === 'direct') {
-      const msg = payload.new as any;
-      if (msg.receiver_id !== currentUser.id) return;
-
-      const otherId =
-        msg.sender_id === currentUser.id ? msg.receiver_id : msg.sender_id;
-      const existingChat = chats.find(
-        (c) => c.type === 'direct' && c.id === otherId
-      );
-
-      const name =
-        existingChat?.name ||
-        (msg.sender_id === currentUser.id
-          ? msg.receiver?.name
-          : msg.sender?.name) ||
-        'New message';
-
-      toast((t) => (
-        <button
-          onClick={() => {
-            toast.dismiss(t.id);
-            router.push(`/dashboard/messages?user=${otherId}&name=${name}`);
-          }}
-          className="flex flex-col items-start bg-gray-900 text-white px-4 py-3 rounded-lg shadow-lg text-left"
-        >
-          <span className="text-xs text-teal-300">New message</span>
-          <span className="font-semibold">{name}</span>
-          <span className="text-xs text-gray-300 truncate max-w-xs">
-            {msg.message}
-          </span>
-        </button>
-      ));
+    try {
+      const { data: group, error } = await supabase.from('chat_groups').insert({
+        name, description: description || null, chat_type: 'custom_group', created_by: currentUser.id,
+      }).select().single();
+      if (error) throw error;
+      // Add creator + selected members
+      const participants = [currentUser.id, ...memberIds].map(uid => ({ group_id: group.id, user_id: uid, is_admin: uid === currentUser.id }));
+      await supabase.from('chat_participants').insert(participants);
+      const newChat: ChatItem = { id: group.id, name, avatar: null, lastMessage: 'Group created', time: new Date().toISOString(), type: 'group', unreadCount: 0 };
+      setChats(prev => [newChat, ...prev]);
+      openChat(newChat);
+      toast.success('Group created!');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to create group');
     }
   }
 
-  const filteredChats = chats.filter((chat) =>
-    chat.name.toLowerCase().includes(search.toLowerCase())
-  );
+  async function openProfile(userId: string) {
+    const { data: prof } = await supabase.from('profiles').select('*').eq('id', userId).single();
+    if (!prof) return;
+    const { data: mem } = await supabase.from('committee_members').select('position, committees(name)').eq('user_id', userId).neq('committee_id', '00000000-0000-0000-0000-000000000001').limit(1).single();
+    setProfileUser({ ...prof, committee_name: (mem as any)?.committees?.name || null, committee_position: mem?.position || null });
+    setShowProfile(true);
+  }
+
+  const refreshChats = useCallback(() => { if (currentUser) loadChats(currentUser.id); }, [currentUser, activeChat]);
+
+  if (loading) {
+    return (
+      <div className="h-screen bg-mesh flex items-center justify-center">
+        <motion.div initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} className="text-center">
+          <div className="w-16 h-16 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 mx-auto mb-4 animate-pulse-glow" />
+          <p className="text-gray-400">Loading chats...</p>
+        </motion.div>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-gray-100 flex flex-col">
-      {/* WhatsApp-like header */}
-      <div className="bg-teal-700 text-white px-4 py-3 flex items-center justify-between shadow-md">
-        <h1 className="text-xl font-semibold">Chats</h1>
-        <button
-          onClick={() => router.back()}
-          className="text-sm px-3 py-1 rounded-full bg-teal-600 hover:bg-teal-500"
-        >
-          Back
-        </button>
-      </div>
+    <div className="h-screen flex bg-gray-100 overflow-hidden">
+      {/* Sidebar */}
+      <ChatSidebar
+        chats={chats}
+        allUsers={allUsers}
+        activeChat={activeChat}
+        onlineUsers={onlineUsers}
+        onSelectChat={openChat}
+        onNewChat={startNewChat}
+        onCreateGroup={createGroup}
+        onBack={() => router.push('/dashboard')}
+      />
 
-      {/* Search bar */}
-      <div className="px-3 py-2 bg-teal-800/80">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-teal-200" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search chats"
-            className="w-full pl-9 pr-3 py-2 rounded-full bg-teal-900/40 text-white placeholder:text-teal-200 text-sm border border-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-400"
+      {/* Chat Window or Empty State */}
+      <div className="flex-1 flex">
+        {activeChat ? (
+          <ChatWindow
+            chat={activeChat}
+            currentUser={currentUser!}
+            onlineUsers={onlineUsers}
+            onOpenProfile={openProfile}
+            onMessageSent={refreshChats}
           />
-        </div>
-      </div>
-
-      {/* Chat list */}
-      <div
-        className="flex-1 overflow-y-auto"
-        style={{
-          backgroundImage:
-            'url("data:image/svg+xml,%3Csvg width=\'100\' height=\'100\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cpath d=\'M0 0h100v100H0z\' fill=\'%23e5ddd5\'/%3E%3C/svg%3E")',
-          backgroundSize: '300px',
-        }}
-      >
-        <div className="divide-y divide-white/10 bg-black/10">
-          {filteredChats.map((chat) => (
-            <div
-              key={chat.id}
-              onClick={() => {
-                if (chat.type === 'direct') {
-                  router.push(
-                    `/dashboard/messages?user=${chat.id}&name=${encodeURIComponent(
-                      chat.name
-                    )}`
-                  );
-                } else {
-                  router.push(
-                    `/dashboard/chat/group?id=${chat.id}&name=${encodeURIComponent(
-                      chat.name
-                    )}`
-                  );
-                }
-              }}
-              className="px-3 py-2 hover:bg-white/40 cursor-pointer flex items-center gap-3"
-            >
-              <div className="relative">
-                {chat.avatar ? (
-                  <img
-                    src={chat.avatar}
-                    alt={chat.name}
-                    className="w-10 h-10 rounded-full object-cover"
-                  />
-                ) : (
-                  <div className="w-10 h-10 rounded-full bg-teal-600 flex items-center justify-center text-white font-semibold text-sm">
-                    {chat.type === 'group' ? (
-                      <Users className="w-5 h-5" />
-                    ) : (
-                      chat.name.charAt(0)
-                    )}
-                  </div>
-                )}
-                {chat.unreadCount > 0 && (
-                  <div className="absolute -bottom-1 -right-1 min-w-[18px] h-[18px] bg-emerald-500 rounded-full flex items-center justify-center text-white text-[10px] px-1">
-                    {chat.unreadCount}
-                  </div>
-                )}
-              </div>
-
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between gap-2">
-                  <h3 className="font-semibold text-gray-900 truncate text-sm">
-                    {chat.name}
-                  </h3>
-                  <span className="text-[11px] text-gray-500 whitespace-nowrap">
-                    {chat.time &&
-                      new Date(chat.time).toLocaleTimeString('en-IN', {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between gap-2 mt-0.5">
-                  <p className="text-xs text-gray-700 truncate">
-                    {chat.lastMessage}
-                  </p>
+        ) : (
+          <div className="flex-1 bg-[#f0f2f5] flex flex-col items-center justify-center">
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="text-center">
+              <div className="w-64 h-64 mx-auto mb-6 relative">
+                <div className="absolute inset-0 bg-gradient-to-br from-indigo-100 to-purple-100 rounded-full" />
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <MessageSquare className="w-24 h-24 text-indigo-300" />
                 </div>
               </div>
-            </div>
-          ))}
+              <h2 className="text-3xl font-light text-gray-600 mb-2">IIChE Chat</h2>
+              <p className="text-gray-400 text-sm max-w-md">Send and receive messages. Select a chat from the sidebar or start a new conversation.</p>
+            </motion.div>
+          </div>
+        )}
 
-          {filteredChats.length === 0 && (
-            <div className="p-8 text-center text-gray-600">
-              <MessageSquare className="w-10 h-10 mx-auto mb-3 text-gray-400" />
-              <p className="text-sm">
-                No chats yet. Start a conversation from the members list.
-              </p>
-            </div>
+        {/* Profile Panel */}
+        <AnimatePresence>
+          {showProfile && profileUser && (
+            <ProfilePanel user={profileUser} isOnline={onlineUsers.has(profileUser.id)} onClose={() => setShowProfile(false)} />
           )}
-        </div>
+        </AnimatePresence>
       </div>
     </div>
   );
