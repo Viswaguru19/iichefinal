@@ -114,22 +114,30 @@ export default async function HomePage() {
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50 to-indigo-50">
       <nav className="bg-white/80 backdrop-blur-md shadow-sm sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16 items-center">
-            <Link href="/" className="flex items-center gap-3">
-              <DynamicLogo width={44} height={44} />
-              <span className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">IIChE AVVU SC</span>
+          <div className="flex justify-between h-14 sm:h-16 items-center">
+            <Link href="/" className="flex items-center gap-2 sm:gap-3">
+              <DynamicLogo width={36} height={36} />
+              <span className="text-lg sm:text-2xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">IIChE AVVU SC</span>
             </Link>
-            <div className="flex gap-6">
-              <Link href="/committees" className="text-gray-700 hover:text-blue-600 transition font-medium">Committees</Link>
-              <Link href="/events" className="text-gray-700 hover:text-blue-600 transition font-medium">Events</Link>
-              <Link href="/kickoff" className="text-gray-700 hover:text-blue-600 transition font-medium">Kickoff</Link>
-              <Link href="/hiring" className="text-gray-700 hover:text-blue-600 transition font-medium">Hiring</Link>
+            <div className="flex items-center gap-2 sm:gap-6">
+              <Link href="/committees" className="text-gray-700 hover:text-blue-600 transition font-medium text-xs sm:text-base hidden sm:block">Committees</Link>
+              <Link href="/events" className="text-gray-700 hover:text-blue-600 transition font-medium text-xs sm:text-base hidden sm:block">Events</Link>
+              <Link href="/kickoff" className="text-gray-700 hover:text-blue-600 transition font-medium text-xs sm:text-base hidden sm:block">Kickoff</Link>
+              <Link href="/hiring" className="text-gray-700 hover:text-blue-600 transition font-medium text-xs sm:text-base hidden sm:block">Hiring</Link>
               {user ? (
-                <Link href="/dashboard" className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-5 py-2 rounded-full hover:shadow-lg transition-all hover:scale-105">Dashboard</Link>
+                <Link href="/dashboard" className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-3 sm:px-5 py-1.5 sm:py-2 rounded-full hover:shadow-lg transition-all text-xs sm:text-base font-medium">Dashboard</Link>
               ) : (
-                <Link href="/login" className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-5 py-2 rounded-full hover:shadow-lg transition-all hover:scale-105">Login</Link>
+                <Link href="/login" className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-3 sm:px-5 py-1.5 sm:py-2 rounded-full hover:shadow-lg transition-all text-xs sm:text-base font-medium">Login</Link>
               )}
             </div>
+          </div>
+          {/* Mobile nav links */}
+          <div className="flex sm:hidden gap-3 pb-2 overflow-x-auto scrollbar-hide">
+            <Link href="/committees" className="text-gray-600 hover:text-blue-600 text-xs font-medium whitespace-nowrap">Committees</Link>
+            <Link href="/events" className="text-gray-600 hover:text-blue-600 text-xs font-medium whitespace-nowrap">Events</Link>
+            <Link href="/kickoff" className="text-gray-600 hover:text-blue-600 text-xs font-medium whitespace-nowrap">Kickoff</Link>
+            <Link href="/hiring" className="text-gray-600 hover:text-blue-600 text-xs font-medium whitespace-nowrap">Hiring</Link>
+            <Link href="/about" className="text-gray-600 hover:text-blue-600 text-xs font-medium whitespace-nowrap">About</Link>
           </div>
         </div>
       </nav>
@@ -140,23 +148,23 @@ export default async function HomePage() {
       </div>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        <div className="grid md:grid-cols-3 gap-6 mb-16">
-          <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-xl p-8 text-center hover:shadow-2xl transition-all hover:scale-105">
-            <div className="text-5xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent mb-2">8+</div>
-            <div className="text-gray-700 font-medium">Active Committees</div>
+        <div className="grid grid-cols-3 gap-3 sm:gap-6 mb-12 sm:mb-16">
+          <div className="bg-white/80 backdrop-blur-sm rounded-xl sm:rounded-2xl shadow-xl p-4 sm:p-8 text-center hover:shadow-2xl transition-all">
+            <div className="text-3xl sm:text-5xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent mb-1 sm:mb-2">8+</div>
+            <div className="text-gray-700 font-medium text-xs sm:text-base">Active Committees</div>
           </div>
-          <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-xl p-8 text-center hover:shadow-2xl transition-all hover:scale-105">
-            <div className="text-5xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent mb-2">100+</div>
-            <div className="text-gray-700 font-medium">Active Members</div>
+          <div className="bg-white/80 backdrop-blur-sm rounded-xl sm:rounded-2xl shadow-xl p-4 sm:p-8 text-center hover:shadow-2xl transition-all">
+            <div className="text-3xl sm:text-5xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent mb-1 sm:mb-2">100+</div>
+            <div className="text-gray-700 font-medium text-xs sm:text-base">Active Members</div>
           </div>
-          <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-xl p-8 text-center hover:shadow-2xl transition-all hover:scale-105">
-            <div className="text-5xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent mb-2">50+</div>
-            <div className="text-gray-700 font-medium">Events Organized</div>
+          <div className="bg-white/80 backdrop-blur-sm rounded-xl sm:rounded-2xl shadow-xl p-4 sm:p-8 text-center hover:shadow-2xl transition-all">
+            <div className="text-3xl sm:text-5xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent mb-1 sm:mb-2">50+</div>
+            <div className="text-gray-700 font-medium text-xs sm:text-base">Events Organized</div>
           </div>
         </div>
 
-        <div className="bg-white/80 backdrop-blur-sm rounded-3xl shadow-2xl p-10 md:p-14 mb-16">
-          <h2 className="text-4xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent mb-8 text-center">About IIChE AVVU SC</h2>
+        <div className="bg-white/80 backdrop-blur-sm rounded-2xl sm:rounded-3xl shadow-2xl p-6 sm:p-10 md:p-14 mb-12 sm:mb-16">
+          <h2 className="text-2xl sm:text-4xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent mb-6 sm:mb-8 text-center">About IIChE AVVU SC</h2>
           <div className="max-w-4xl mx-auto space-y-6">
             <p className="text-lg text-gray-700 leading-relaxed">
               Welcome to the Indian Institute of Chemical Engineers (IIChE) Student Chapter at Amrita Vishwa Vidyapeetham.
@@ -171,11 +179,11 @@ export default async function HomePage() {
 
         {/* Committees Section */}
         <div className="mt-16">
-          <div className="flex items-center justify-center gap-3 mb-8">
-            <Users className="w-8 h-8 text-blue-600" />
-            <h2 className="text-3xl font-bold text-gray-900">Our Committees</h2>
+          <div className="flex items-center justify-center gap-2 sm:gap-3 mb-6 sm:mb-8">
+            <Users className="w-6 h-6 sm:w-8 sm:h-8 text-blue-600" />
+            <h2 className="text-2xl sm:text-3xl font-bold text-gray-900">Our Committees</h2>
           </div>
-          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6">
             {committees?.map((committee: any) => (
               <Link key={committee.id} href={`/committees/${committee.id}`} className="bg-white rounded-xl shadow-lg p-6 hover:shadow-2xl transition">
                 <h3 className="text-lg font-bold text-gray-900 mb-2">{committee.name}</h3>
@@ -187,12 +195,12 @@ export default async function HomePage() {
 
         {/* Executive Committee Section */}
         <div className="mt-16">
-          <div className="flex items-center justify-center gap-3 mb-8">
-            <Crown className="w-8 h-8 text-yellow-600" />
-            <h2 className="text-3xl font-bold text-gray-900">Executive Committee</h2>
+          <div className="flex items-center justify-center gap-2 sm:gap-3 mb-6 sm:mb-8">
+            <Crown className="w-6 h-6 sm:w-8 sm:h-8 text-yellow-600" />
+            <h2 className="text-2xl sm:text-3xl font-bold text-gray-900">Executive Committee</h2>
           </div>
-          <div className="bg-white rounded-2xl shadow-xl p-8">
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="bg-white rounded-2xl shadow-xl p-4 sm:p-8">
+            <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-6">
               {executiveMembers?.map((member: any) => (
                 <Link
                   key={member.id}
@@ -229,11 +237,11 @@ export default async function HomePage() {
         {/* Events Showcase - Public Gallery */}
         {recentEvents && recentEvents.length > 0 && (
           <div className="mt-16 mb-16">
-            <div className="flex items-center justify-center gap-3 mb-8">
-              <Calendar className="w-8 h-8 text-purple-600" />
-              <h2 className="text-3xl font-bold text-gray-900">Our Events</h2>
+            <div className="flex items-center justify-center gap-2 sm:gap-3 mb-6 sm:mb-8">
+              <Calendar className="w-6 h-6 sm:w-8 sm:h-8 text-purple-600" />
+              <h2 className="text-2xl sm:text-3xl font-bold text-gray-900">Our Events</h2>
             </div>
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
               {recentEvents.map((event: any) => (
                 <div key={event.id} className="bg-white rounded-2xl shadow-xl overflow-hidden hover:shadow-2xl transition-all hover:scale-[1.02]">
                   {event.poster_url ? (
@@ -270,12 +278,12 @@ export default async function HomePage() {
         )}
 
         {/* Upcoming Events Section */}
-        <div className="mt-16 mb-16">
-          <div className="flex items-center justify-center gap-3 mb-8">
-            <Calendar className="w-8 h-8 text-green-600" />
-            <h2 className="text-3xl font-bold text-gray-900">Upcoming Events</h2>
+        <div className="mt-12 sm:mt-16 mb-12 sm:mb-16">
+          <div className="flex items-center justify-center gap-2 sm:gap-3 mb-6 sm:mb-8">
+            <Calendar className="w-6 h-6 sm:w-8 sm:h-8 text-green-600" />
+            <h2 className="text-2xl sm:text-3xl font-bold text-gray-900">Upcoming Events</h2>
           </div>
-          <div className="bg-white rounded-2xl shadow-xl p-8">
+          <div className="bg-white rounded-2xl shadow-xl p-4 sm:p-8">
             {upcomingEvents && upcomingEvents.length > 0 ? (
               <div className="space-y-6">
                 {upcomingEvents.map((event: any) => (
