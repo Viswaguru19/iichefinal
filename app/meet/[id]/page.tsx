@@ -20,6 +20,7 @@ import {
     Send,
     Pin,
     PinOff,
+    Link2,
 } from 'lucide-react';
 import { useWebRTC, type PeerState } from '@/hooks/useWebRTC';
 import type { ChatMessage, RoomParticipant } from '@/hooks/useWebRTC';
@@ -374,6 +375,9 @@ export default function MeetingRoomPage() {
         );
     }
 
+    // Check if screen sharing is supported (not on most mobile browsers)
+    const canScreenShare = typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getDisplayMedia;
+
     // Control bar buttons config
     const controls = [
         {
@@ -390,22 +394,22 @@ export default function MeetingRoomPage() {
             active: !isCameraOff,
             danger: isCameraOff,
         },
-        {
+        ...(canScreenShare ? [{
             icon: MonitorUp,
             label: isScreenSharing ? 'Stop Sharing' : 'Share Screen',
             onClick: toggleScreenShare,
             active: isScreenSharing,
-        },
+        }] : []),
         {
             icon: MessageSquare,
             label: 'Chat',
-            onClick: () => setIsChatOpen((prev) => !prev),
+            onClick: () => setIsChatOpen((prev: boolean) => !prev),
             active: isChatOpen,
         },
         {
             icon: Users,
             label: 'Participants',
-            onClick: () => setIsParticipantListOpen((prev) => !prev),
+            onClick: () => setIsParticipantListOpen((prev: boolean) => !prev),
             active: isParticipantListOpen,
         },
     ];
@@ -557,8 +561,21 @@ export default function MeetingRoomPage() {
                     </motion.button>
                 ))}
 
-                {/* Leave button — separated */}
+                {/* Invite & Leave */}
                 <div className="w-px h-8 bg-white/10 mx-2" />
+                <motion.button
+                    whileHover={{ scale: 1.08 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => {
+                        const link = `${window.location.origin}/meet/${roomId}`;
+                        navigator.clipboard.writeText(link);
+                        import('react-hot-toast').then(m => m.default.success('Meeting link copied!'));
+                    }}
+                    title="Copy Meeting Link"
+                    className="p-3 rounded-xl bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30 transition-all"
+                >
+                    <Link2 className="w-5 h-5" />
+                </motion.button>
                 <motion.button
                     whileHover={{ scale: 1.08 }}
                     whileTap={{ scale: 0.95 }}
