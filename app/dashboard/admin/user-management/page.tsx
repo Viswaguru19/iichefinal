@@ -361,13 +361,6 @@ export default function UserManagementPage() {
                                                     <Edit className="w-5 h-5" />
                                                 </button>
                                                 <button
-                                                    onClick={() => resetUserPassword(user.id, user.email)}
-                                                    className="text-yellow-600 hover:text-yellow-900"
-                                                    title="Reset Password"
-                                                >
-                                                    <Key className="w-5 h-5" />
-                                                </button>
-                                                <button
                                                     onClick={() => updateUserEmail(user.id, user.email)}
                                                     className="text-purple-600 hover:text-purple-900"
                                                     title="Change Email"

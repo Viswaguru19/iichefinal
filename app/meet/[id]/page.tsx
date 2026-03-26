@@ -597,19 +597,25 @@ function RemoteVideo({ peer, isPinned, onPin, small }: { peer: PeerState; isPinn
     const [hasVideo, setHasVideo] = useState(false);
 
     useEffect(() => {
-        if (videoRef.current && peer.remoteStream) {
-            videoRef.current.srcObject = peer.remoteStream;
-            setHasVideo(peer.remoteStream.getVideoTracks().some(t => t.enabled && !t.muted));
-            const checkTracks = () => { setHasVideo(peer.remoteStream!.getVideoTracks().some(t => t.enabled && !t.muted)); };
-            peer.remoteStream.onaddtrack = checkTracks;
-            peer.remoteStream.onremovetrack = checkTracks;
-        }
+        if (!peer.remoteStream) return;
+        if (videoRef.current) videoRef.current.srcObject = peer.remoteStream;
+
+        const check = () => {
+            const tracks = peer.remoteStream?.getVideoTracks() || [];
+            setHasVideo(tracks.length > 0 && tracks.some(t => t.readyState === 'live'));
+        };
+        check();
+        peer.remoteStream.onaddtrack = check;
+        peer.remoteStream.onremovetrack = check;
+        // Poll for track state changes (enabled/muted don't fire events)
+        const interval = setInterval(check, 1000);
+        return () => clearInterval(interval);
     }, [peer.remoteStream]);
 
     if (small) {
         return (
             <div className="relative rounded-xl overflow-hidden bg-slate-900/80 border border-white/5 w-40 h-24 flex-shrink-0 cursor-pointer group" onClick={onPin}>
-                <video ref={videoRef} autoPlay playsInline className={`w-full h-full object-cover ${hasVideo ? '' : 'hidden'}`} />
+                <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" style={{ display: hasVideo ? 'block' : 'none' }} />
                 {!hasVideo && <div className="w-full h-full flex items-center justify-center"><UserCircle className="w-6 h-6 text-white/40" /></div>}
                 {peer.remoteStream && <AudioPlayer stream={peer.remoteStream} />}
                 <div className="absolute bottom-1 left-1 bg-black/60 rounded px-1.5 py-0.5"><p className="text-white text-[10px]">{peer.userName}</p></div>
@@ -619,7 +625,7 @@ function RemoteVideo({ peer, isPinned, onPin, small }: { peer: PeerState; isPinn
 
     return (
         <div className={`relative rounded-2xl overflow-hidden bg-slate-900/80 border border-white/5 ${isPinned ? 'w-full h-full' : 'aspect-video'} group`}>
-            <video ref={videoRef} autoPlay playsInline className={`w-full h-full object-cover ${hasVideo ? '' : 'hidden'}`} />
+            <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" style={{ display: hasVideo ? 'block' : 'none' }} />
             {!hasVideo && (
                 <div className="w-full h-full flex flex-col items-center justify-center gap-3">
                     <div className="w-20 h-20 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center"><UserCircle className="w-8 h-8 text-white" /></div>

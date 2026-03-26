@@ -47,10 +47,10 @@ export default function MeetingsPage() {
     const now = new Date().toISOString();
     const { data: up } = await supabase.from('meetings')
       .select('*, creator:created_by(name, avatar_url), committee:committee_id(name)')
-      .gte('meeting_date', now).order('meeting_date', { ascending: true });
+      .gte('meeting_date', now).neq('status', 'completed').order('meeting_date', { ascending: true });
     const { data: pa } = await supabase.from('meetings')
       .select('*, creator:created_by(name, avatar_url), committee:committee_id(name)')
-      .lt('meeting_date', now).order('meeting_date', { ascending: false }).limit(20);
+      .or(`meeting_date.lt.${now},status.eq.completed`).order('meeting_date', { ascending: false }).limit(30);
     setUpcoming(up || []);
     setPast(pa || []);
     setLoading(false);
@@ -412,12 +412,10 @@ export default function MeetingsPage() {
                         </div>
                       )}
                       {/* Delete button */}
-                      {isEditorial && (
-                        <button onClick={(e) => deleteMeeting(meeting.id, e)}
-                          className="text-red-400 hover:text-red-600 p-1 transition-colors" title="Delete Meeting">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      )}
+                      <button onClick={(e) => deleteMeeting(meeting.id, e)}
+                        className="text-red-400 hover:text-red-600 p-1 transition-colors mt-2" title="Delete Meeting">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </div>
                   </div>
                 </motion.div>

@@ -159,6 +159,12 @@ export async function POST(request: Request) {
                 .from('meeting_attendance')
                 .update({ submitted: true })
                 .eq('meeting_id', meetingId);
+
+            // Mark meeting as completed
+            await (supabase as any)
+                .from('meetings')
+                .update({ status: 'completed' })
+                .eq('id', meetingId);
         }
 
         return NextResponse.json({ success: true });
