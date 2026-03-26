@@ -73,7 +73,6 @@ export default function UserTable({ initialUsers, committees }: UserTableProps) 
               <th className="text-left py-3 px-4">Name</th>
               <th className="text-left py-3 px-4">Email</th>
               <th className="text-left py-3 px-4">Username</th>
-              <th className="text-left py-3 px-4">Password</th>
               <th className="text-left py-3 px-4">Executive Role</th>
               <th className="text-left py-3 px-4">Committees</th>
               <th className="text-left py-3 px-4">Status</th>
@@ -112,9 +111,6 @@ export default function UserTable({ initialUsers, committees }: UserTableProps) 
                 <td className="py-3 px-4 text-xs">{u.email}</td>
                 <td className="py-3 px-4">
                   <span className="font-mono bg-gray-100 px-2 py-1 rounded">{u.username || '-'}</span>
-                </td>
-                <td className="py-3 px-4">
-                  <span className="font-mono bg-yellow-100 px-2 py-1 rounded text-xs">iichelogin</span>
                 </td>
                 <td className="py-3 px-4">
                   {u.executive_role ? (
