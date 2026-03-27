@@ -10,6 +10,7 @@ import AnimatedCommitteeCard from '@/components/dashboard/AnimatedCommitteeCard'
 import AnimatedUpcomingEvents from '@/components/dashboard/AnimatedUpcomingEvents';
 import FacultyApprovals from '@/components/dashboard/FacultyApprovals';
 import PastEvents from '@/components/dashboard/PastEvents';
+import { groupMessagesChannelId } from '@/lib/chat-group-keys';
 
 export const dynamic = 'force-dynamic';
 
@@ -43,6 +44,7 @@ export default async function DashboardPage() {
     pastEventsRes,
     userMembershipsRes,
     unreadDmCountRes,
+    chatParticipantsRes,
   ] = await Promise.all([
     supabase
       .from('committee_members')
@@ -74,6 +76,10 @@ export default async function DashboardPage() {
       .select('id', { count: 'exact', head: true })
       .eq('receiver_id', user.id)
       .eq('read', false),
+    supabase
+      .from('chat_participants')
+      .select('last_read_at, group:chat_groups(id, chat_type, committee_id)')
+      .eq('user_id', user.id),
   ]);
 
   const userCommittee = userCommitteeRes.data;
@@ -82,7 +88,30 @@ export default async function DashboardPage() {
   const eventProposals = eventProposalsRes.data;
   const pastEvents = pastEventsRes.data;
   const userMemberships = userMembershipsRes.data;
-  const unreadDmCount = unreadDmCountRes.count;
+  const unreadDmCount = unreadDmCountRes.count ?? 0;
+
+  let groupChatUnreadTotal = 0;
+  const partRows = chatParticipantsRes.data || [];
+  if (partRows.length > 0) {
+    const groupUnreadCounts = await Promise.all(
+      partRows.map(async (row: any) => {
+        const g = row.group;
+        if (!g) return 0;
+        const chId = groupMessagesChannelId(g);
+        const lr = row.last_read_at || '1970-01-01T00:00:00.000Z';
+        const { count } = await supabase
+          .from('group_messages')
+          .select('id', { count: 'exact', head: true })
+          .eq('group_id', chId)
+          .neq('sender_id', user.id)
+          .gt('created_at', lr);
+        return count ?? 0;
+      }),
+    );
+    groupChatUnreadTotal = groupUnreadCounts.reduce((a, b) => a + b, 0);
+  }
+
+  const chatUnreadBadgeTotal = unreadDmCount + groupChatUnreadTotal;
 
   const committeeRole = userCommittee ? `${(userCommittee as any).committees.name} ${(userCommittee as any).position === 'head' ? 'Head' : (userCommittee as any).position === 'co_head' ? 'Co-Head' : 'Member'}` : null;
 
@@ -302,7 +331,7 @@ export default async function DashboardPage() {
               gradientFrom="green-600"
               gradientTo="green-700"
               index={0}
-              badge={unreadDmCount ?? 0}
+              badge={chatUnreadBadgeTotal}
             />
             <AnimatedDashboardCard
               href="/dashboard/propose-event"

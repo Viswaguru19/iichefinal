@@ -13,7 +13,26 @@ const ICE_SERVERS: RTCConfiguration = {
 };
 
 export interface PeerState { connection: RTCPeerConnection; remoteStream: MediaStream | null; userName: string; }
-export interface ChatMessage { id: string; senderId: string; senderName: string; message: string; timestamp: string; }
+export interface ChatMessage {
+    id: string;
+    senderId: string;
+    senderName: string;
+    /** Caption or text-only body */
+    message: string;
+    timestamp: string;
+    attachmentUrl?: string | null;
+    attachmentKind?: 'image' | 'file' | null;
+    fileName?: string | null;
+}
+
+export type SendChatPayload =
+    | string
+    | {
+          message?: string;
+          attachmentUrl: string;
+          attachmentKind: 'image' | 'file';
+          fileName: string;
+      };
 export interface RoomParticipant { userId: string; userName: string; userRole?: string | null; joinedAt: string; }
 
 interface UseWebRTCOptions {
@@ -214,9 +233,23 @@ export function useWebRTC({ supabase, roomId, userId, userName, userRole, localS
         await Promise.all(promises);
     }, []);
 
-    const sendChatMessage = useCallback((message: string) => {
-        if (!channelRef.current || !message.trim()) return;
-        const chatMsg: ChatMessage = { id: `${userIdRef.current}-${Date.now()}`, senderId: userIdRef.current, senderName: userNameRef.current, message: message.trim(), timestamp: new Date().toISOString() };
+    const sendChatMessage = useCallback((payload: SendChatPayload) => {
+        if (!channelRef.current) return;
+        const text = typeof payload === 'string' ? payload.trim() : (payload.message ?? '').trim();
+        const attachmentUrl = typeof payload === 'string' ? undefined : payload.attachmentUrl;
+        const attachmentKind = typeof payload === 'string' ? undefined : payload.attachmentKind;
+        const fileName = typeof payload === 'string' ? undefined : payload.fileName;
+        if (!text && !attachmentUrl) return;
+        const chatMsg: ChatMessage = {
+            id: `${userIdRef.current}-${Date.now()}`,
+            senderId: userIdRef.current,
+            senderName: userNameRef.current,
+            message: text,
+            timestamp: new Date().toISOString(),
+            attachmentUrl: attachmentUrl ?? null,
+            attachmentKind: attachmentKind ?? null,
+            fileName: fileName ?? null,
+        };
         channelRef.current.send({ type: 'broadcast', event: 'chat-message', payload: chatMsg });
         setChatMessages(prev => [...prev, chatMsg]);
     }, []);

@@ -9,6 +9,7 @@ import ProfilePanel from '@/components/chat/ProfilePanel';
 import { MessageSquare } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
+import { groupMessagesChannelId } from '@/lib/chat-group-keys';
 
 export interface ChatItem {
   id: string;
@@ -18,6 +19,13 @@ export interface ChatItem {
   time: string;
   type: 'direct' | 'group';
   unreadCount: number;
+  /** chat_groups.id — use for chat_participants.last_read_at (differs from id for committee chats where id is committee_id) */
+  participantGroupId?: string;
+}
+
+function displayGroupName(g: { name: string; chat_type: string | null }) {
+  if (g.chat_type === 'organization') return 'IIChE AVVU SC';
+  return g.name;
 }
 
 export interface UserProfile {
@@ -149,37 +157,72 @@ export default function ChatPage() {
     });
     const directChats = Array.from(convos.values()).map(c => ({ ...c, unreadCount: unread[c.id] || 0 }));
 
-    // Committee group chats
-    const { data: memberships } = await supabase
-      .from('committee_members')
-      .select('committee_id, committees(name)')
+    // All groups the user is in (committee, system, custom) via chat_participants
+    const { data: participantRows, error: partErr } = await supabase
+      .from('chat_participants')
+      .select('last_read_at, group:chat_groups(id, name, chat_type, committee_id)')
       .eq('user_id', userId);
-    const groupChats: ChatItem[] = (memberships || []).map((m: any) => ({
-      id: m.committee_id, name: m.committees.name, avatar: null,
-      lastMessage: 'Group chat', time: new Date().toISOString(), type: 'group' as const, unreadCount: 0,
+
+    if (partErr) console.error('chat_participants load error:', partErr);
+
+    const groupRows = (participantRows || []).filter((r: any) => r.group).map((r: any) => ({
+      last_read_at: r.last_read_at as string | null,
+      group: r.group as { id: string; name: string; chat_type: string | null; committee_id: string | null },
     }));
 
-    // Special groups
-    const { data: prof } = await supabase.from('profiles').select('role').eq('id', userId).single();
-    const specials: ChatItem[] = [
-      { id: 'iiche-main', name: 'IIChE AVVU SC', avatar: null, lastMessage: 'Main group', time: new Date().toISOString(), type: 'group', unreadCount: 0 },
-    ];
-    if (prof?.role === 'committee_head') specials.push({ id: 'all-heads', name: '👑 All Heads', avatar: null, lastMessage: 'Heads group', time: new Date().toISOString(), type: 'group', unreadCount: 0 });
-    if (prof?.role === 'committee_cohead') specials.push({ id: 'all-coheads', name: '⭐ All Co-Heads', avatar: null, lastMessage: 'Co-Heads group', time: new Date().toISOString(), type: 'group', unreadCount: 0 });
+    const messageChannelIds = [...new Set(groupRows.map((r) => groupMessagesChannelId(r.group)))];
+    const latestByChannel: Record<string, { message: string; created_at: string }> = {};
+    if (messageChannelIds.length > 0) {
+      const { data: gmRows } = await supabase
+        .from('group_messages')
+        .select('group_id, message, created_at')
+        .in('group_id', messageChannelIds)
+        .order('created_at', { ascending: false });
+      for (const row of gmRows || []) {
+        const key = String((row as any).group_id);
+        if (!latestByChannel[key]) {
+          latestByChannel[key] = { message: (row as any).message, created_at: (row as any).created_at };
+        }
+      }
+    }
 
-    setChats(prev => {
-      const newChats = [...directChats, ...specials, ...groupChats];
-      // Sort direct chats by most recent message first
-      newChats.sort((a, b) => {
-        if (a.type !== 'direct' && b.type !== 'direct') return 0;
-        if (a.type !== 'direct') return 1;
-        if (b.type !== 'direct') return -1;
-        return new Date(b.time).getTime() - new Date(a.time).getTime();
-      });
-      // Preserve any active chat that was started but has no DB messages yet
+    const unreadByChannel: Record<string, number> = {};
+    await Promise.all(
+      groupRows.map(async (r) => {
+        const chId = groupMessagesChannelId(r.group);
+        const lr = r.last_read_at || '1970-01-01T00:00:00.000Z';
+        const { count } = await supabase
+          .from('group_messages')
+          .select('id', { count: 'exact', head: true })
+          .eq('group_id', chId)
+          .neq('sender_id', userId)
+          .gt('created_at', lr);
+        unreadByChannel[chId] = count ?? 0;
+      }),
+    );
+
+    const groupChats: ChatItem[] = groupRows.map((r) => {
+      const chId = groupMessagesChannelId(r.group);
+      const latest = latestByChannel[chId];
+      return {
+        id: chId,
+        participantGroupId: String(r.group.id),
+        name: displayGroupName(r.group),
+        avatar: null,
+        lastMessage: latest?.message ?? 'No messages yet',
+        time: latest?.created_at ?? new Date().toISOString(),
+        type: 'group' as const,
+        unreadCount: unreadByChannel[chId] ?? 0,
+      };
+    });
+
+    setChats((prev) => {
+      const newChats = [...directChats, ...groupChats];
+      newChats.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
       const activeId = activeChat?.id;
-      if (activeId && activeChat?.type === 'direct' && !newChats.find(c => c.id === activeId && c.type === 'direct')) {
-        const existing = prev.find(c => c.id === activeId && c.type === 'direct');
+      const activeType = activeChat?.type;
+      if (activeId && activeType && !newChats.find((c) => c.id === activeId && c.type === activeType)) {
+        const existing = prev.find((c) => c.id === activeId && c.type === activeType);
         if (existing) newChats.unshift(existing);
       }
       return newChats;
@@ -234,7 +277,16 @@ export default function ChatPage() {
       // Add creator + selected members
       const participants = [currentUser.id, ...memberIds].map(uid => ({ group_id: group.id, user_id: uid, is_admin: uid === currentUser.id }));
       await supabase.from('chat_participants').insert(participants);
-      const newChat: ChatItem = { id: group.id, name, avatar: null, lastMessage: 'Group created', time: new Date().toISOString(), type: 'group', unreadCount: 0 };
+      const newChat: ChatItem = {
+        id: String(group.id),
+        participantGroupId: String(group.id),
+        name,
+        avatar: null,
+        lastMessage: 'Group created',
+        time: new Date().toISOString(),
+        type: 'group',
+        unreadCount: 0,
+      };
       setChats(prev => [newChat, ...prev]);
       openChat(newChat);
       toast.success('Group created!');

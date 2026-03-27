@@ -30,9 +30,11 @@ import {
     PanelLeftClose,
     PanelLeftOpen,
     Copy,
+    Paperclip,
+    FileText,
 } from 'lucide-react';
 import { useWebRTC, type PeerState } from '@/hooks/useWebRTC';
-import type { ChatMessage, RoomParticipant } from '@/hooks/useWebRTC';
+import type { ChatMessage, RoomParticipant, SendChatPayload } from '@/hooks/useWebRTC';
 import DynamicLogo from '@/components/DynamicLogo';
 
 interface Meeting {
@@ -124,6 +126,30 @@ export default function MeetingRoomPage() {
         localStream,
         enabled: !!meeting && !!currentUserId && !!currentUserName && hasJoinedMeeting,
     });
+
+    const uploadMeetingChatFile = useCallback(
+        async (file: File) => {
+            const maxBytes = 15 * 1024 * 1024;
+            if (file.size > maxBytes) {
+                throw new Error('File is too large (max 15 MB)');
+            }
+            const safeRoom = roomId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 100);
+            const uidSeg = currentUserId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 48);
+            const ext = file.name.includes('.') ? file.name.slice(file.name.lastIndexOf('.')).slice(0, 20) : '';
+            const base = `${uidSeg}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+            const path = `${safeRoom}/${base}${ext}`;
+            const { error } = await supabase.storage.from('meeting-chat').upload(path, file, {
+                cacheControl: '3600',
+                upsert: false,
+                contentType: file.type || undefined,
+            });
+            if (error) throw new Error(error.message);
+            const { data } = supabase.storage.from('meeting-chat').getPublicUrl(path);
+            const kind: 'image' | 'file' = file.type.startsWith('image/') ? 'image' : 'file';
+            return { url: data.publicUrl, kind, fileName: file.name };
+        },
+        [roomId, currentUserId, supabase],
+    );
 
     // Initialize: authenticate, fetch meeting, check access, get media
     useEffect(() => {
@@ -1062,6 +1088,7 @@ export default function MeetingRoomPage() {
                                     messages={chatMessages}
                                     currentUserId={currentUserId}
                                     onSend={sendChatMessage}
+                                    uploadMeetingFile={uploadMeetingChatFile}
                                 />
                             ) : isParticipantListOpen ? (
                                 <ParticipantsPanel
@@ -1287,13 +1314,17 @@ function ChatPanel({
     messages,
     currentUserId,
     onSend,
+    uploadMeetingFile,
 }: {
     messages: ChatMessage[];
     currentUserId: string;
-    onSend: (message: string) => void;
+    onSend: (payload: SendChatPayload) => void;
+    uploadMeetingFile: (file: File) => Promise<{ url: string; kind: 'image' | 'file'; fileName: string }>;
 }) {
     const [input, setInput] = useState('');
+    const [uploading, setUploading] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
 
     // Auto-scroll to latest message
     useEffect(() => {
@@ -1302,7 +1333,7 @@ function ChatPanel({
 
     const handleSend = () => {
         if (!input.trim()) return;
-        onSend(input);
+        onSend(input.trim());
         setInput('');
     };
 
@@ -1313,6 +1344,28 @@ function ChatPanel({
         }
     };
 
+    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        e.target.value = '';
+        if (!file) return;
+        setUploading(true);
+        try {
+            const { url, kind, fileName } = await uploadMeetingFile(file);
+            const caption = input.trim();
+            onSend({
+                message: caption || undefined,
+                attachmentUrl: url,
+                attachmentKind: kind,
+                fileName,
+            });
+            setInput('');
+        } catch (err: unknown) {
+            toast.error(err instanceof Error ? err.message : 'Could not upload file');
+        } finally {
+            setUploading(false);
+        }
+    };
+
     const formatTime = (timestamp: string) => {
         const date = new Date(timestamp);
         return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -1320,17 +1373,26 @@ function ChatPanel({
 
     return (
         <div className="flex-1 flex flex-col overflow-hidden">
+            <input
+                ref={fileInputRef}
+                type="file"
+                className="hidden"
+                accept="image/*,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.zip"
+                onChange={handleFileChange}
+            />
             {/* Messages area */}
             <div className="flex-1 overflow-y-auto p-3 space-y-3">
                 {messages.length === 0 && (
                     <div className="flex-1 flex items-center justify-center h-full">
                         <p className="text-white/30 text-xs text-center">
-                            No messages yet. Start the conversation!
+                            No messages yet. Send text or attach a photo or document.
                         </p>
                     </div>
                 )}
                 {messages.map((msg) => {
                     const isOwn = msg.senderId === currentUserId;
+                    const hasImage = msg.attachmentKind === 'image' && msg.attachmentUrl;
+                    const hasFile = msg.attachmentKind === 'file' && msg.attachmentUrl;
                     return (
                         <div
                             key={msg.id}
@@ -1347,7 +1409,32 @@ function ChatPanel({
                                     : 'bg-white/5 text-white/90'
                                     }`}
                             >
-                                {msg.message}
+                                {hasImage ? (
+                                    <a href={msg.attachmentUrl!} target="_blank" rel="noopener noreferrer" className="block -mx-1 -mt-1">
+                                        <img
+                                            src={msg.attachmentUrl!}
+                                            alt={msg.fileName || 'Shared image'}
+                                            className="rounded-lg max-h-52 w-full object-contain bg-black/20"
+                                        />
+                                    </a>
+                                ) : null}
+                                {hasFile ? (
+                                    <a
+                                        href={msg.attachmentUrl!}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className={`flex items-center gap-2 ${hasImage ? 'mt-2' : ''} p-2 rounded-lg bg-black/25 text-indigo-200 hover:bg-black/35`}
+                                    >
+                                        <FileText className="w-4 h-4 shrink-0" />
+                                        <span className="truncate text-[11px] font-medium">{msg.fileName || 'File'}</span>
+                                    </a>
+                                ) : null}
+                                {msg.message ? (
+                                    <p className={`whitespace-pre-wrap break-words ${hasImage || hasFile ? 'mt-2' : ''}`}>{msg.message}</p>
+                                ) : null}
+                                {!msg.message && !hasImage && !hasFile ? (
+                                    <p className="text-white/50">(empty)</p>
+                                ) : null}
                             </div>
                             <span className="text-[10px] text-white/30 mt-0.5 px-1">
                                 {formatTime(msg.timestamp)}
@@ -1361,18 +1448,28 @@ function ChatPanel({
             {/* Input area */}
             <div className="p-3 border-t border-white/5">
                 <div className="flex items-center gap-2">
+                    <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={uploading}
+                        title="Attach photo or document"
+                        className="p-2 rounded-lg bg-white/5 text-white/60 hover:bg-white/10 hover:text-white/90 transition-colors disabled:opacity-40 shrink-0"
+                    >
+                        {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Paperclip className="w-4 h-4" />}
+                    </button>
                     <input
                         type="text"
                         value={input}
                         onChange={(e) => setInput(e.target.value)}
                         onKeyDown={handleKeyDown}
-                        placeholder="Type a message..."
-                        className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder-white/30 focus:outline-none focus:border-indigo-500/50"
+                        placeholder="Message or caption for attachment…"
+                        className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs text-white placeholder-white/30 focus:outline-none focus:border-indigo-500/50 min-w-0"
                     />
                     <button
+                        type="button"
                         onClick={handleSend}
                         disabled={!input.trim()}
-                        className="p-2 rounded-lg bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                        className="p-2 rounded-lg bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30 transition-colors disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
                     >
                         <Send className="w-4 h-4" />
                     </button>
