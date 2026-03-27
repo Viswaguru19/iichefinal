@@ -46,6 +46,8 @@ interface Meeting {
     created_by: string | null;
     status: string;
     require_approval?: boolean | null;
+    /** From DB — general link meetings always queue unauthenticated guests for approval */
+    access_type?: string | null;
 }
 
 type PendingJoinRequest =
@@ -123,6 +125,32 @@ export default function MeetingRoomPage() {
             return null;
         }
     }, [localStream]);
+
+    const resolvePortalPresenceRole = useCallback(
+        async (userId: string): Promise<string | null> => {
+            const { data: p } = await supabase
+                .from('profiles')
+                .select('executive_role, is_faculty, is_admin, role')
+                .eq('id', userId)
+                .maybeSingle();
+
+            // Priority matters: if user has multiple roles, show the strongest role.
+            if (p?.executive_role) return 'Executive';
+            if (p?.is_faculty) return 'Faculty';
+
+            const { data: memberships } = await supabase
+                .from('committee_members')
+                .select('position')
+                .eq('user_id', userId);
+            const positions = (memberships || []).map((m: any) => String(m.position));
+            if (positions.includes('head')) return 'Head';
+            if (positions.includes('co_head')) return 'Co-Head';
+
+            if (p?.is_admin || p?.role === 'super_admin' || p?.role === 'secretary') return 'Admin';
+            return null;
+        },
+        [supabase],
+    );
 
     // WebRTC peer connections
     const { peers, participants, chatMessages, sendChatMessage, replaceVideoTrack } = useWebRTC({
@@ -264,7 +292,10 @@ export default function MeetingRoomPage() {
                 const meetingData = accessResult.meeting;
                 setMeeting(meetingData);
                 setCurrentUserId(accessResult.userId);
-                setCurrentUserRole(accessResult.userRole || null);
+                const resolvedRole = await resolvePortalPresenceRole(accessResult.userId);
+                if (!cancelled) {
+                    setCurrentUserRole(resolvedRole || accessResult.userRole || null);
+                }
 
                 // 5. Fetch user profile name
                 const { data: profile } = await supabase
@@ -359,8 +390,12 @@ export default function MeetingRoomPage() {
         };
     }, [currentUserId, supabase]);
 
+    const meetingUsesGuestApprovalQueue =
+        meeting?.access_type === 'general' || !!meeting?.require_approval;
+
     const canApproveRequests =
-        !!meeting?.require_approval &&
+        meetingUsesGuestApprovalQueue &&
+        !!meeting?.id &&
         !!currentUserId &&
         !currentUserId.startsWith('guest-') &&
         (meeting?.created_by === currentUserId ||
@@ -440,7 +475,10 @@ export default function MeetingRoomPage() {
                 setPendingApproval(false);
                 setMeeting(next.meeting);
                 setCurrentUserId(next.userId);
-                setCurrentUserRole(next.userRole || null);
+                const resolvedRole = await resolvePortalPresenceRole(next.userId);
+                if (!cancelled) {
+                    setCurrentUserRole(resolvedRole || next.userRole || null);
+                }
                 const { data: profile } = await supabase
                     .from('profiles')
                     .select('name')
@@ -468,7 +506,7 @@ export default function MeetingRoomPage() {
             cancelled = true;
             clearInterval(timer);
         };
-    }, [pendingApproval, roomId]);
+    }, [pendingApproval, roomId, resolvePortalPresenceRole, supabase]);
 
     useEffect(() => {
         if (!guestWaitingForApproval || !meeting?.id || !currentUserId) return;
@@ -570,9 +608,6 @@ export default function MeetingRoomPage() {
             const v = stream.getVideoTracks()[0];
             const cameraOn = !!(v && v.enabled);
             setIsCameraOff(!cameraOn);
-            if (cameraOn) {
-                setLocalVideoRenderKey((k) => k + 1);
-            }
         };
         void run();
     }, [ensureLocalMedia]);
@@ -766,7 +801,10 @@ export default function MeetingRoomPage() {
             if (!guestName.trim() || !meeting?.id) return;
             setGuestRejectedReason(null);
 
-            if (meeting.require_approval) {
+            // Public / general link meetings: guests always submit a join request (not only when require_approval is checked).
+            const guestMustWaitForApproval = meeting.access_type === 'general';
+
+            if (guestMustWaitForApproval) {
                 const guestId = `guest-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
                 const { error } = await supabase.from('meeting_guest_requests').insert({
                     meeting_id: meeting.id,
@@ -820,9 +858,9 @@ export default function MeetingRoomPage() {
                     ) : null}
                     <p className="text-white/45 text-xs mb-4 leading-relaxed">
                         Signing in is optional. Enter the name you want others to see.
-                        {meeting?.require_approval ? (
+                        {meeting?.access_type === 'general' ? (
                             <span className="block mt-2 text-amber-200/70">
-                                This meeting requires approval: you will get a <strong className="text-amber-100">guest ID</strong> so the organizer can approve you in the Approvals panel.
+                                An organizer will approve your request before you enter. You will get a <strong className="text-amber-100">guest ID</strong> to share if needed; watch this page for approval.
                             </span>
                         ) : null}
                     </p>
@@ -1358,6 +1396,8 @@ function LocalVideoTile({
     compact?: boolean;
 }) {
     const ref = useRef<HTMLVideoElement>(null);
+
+    // Keep <video> mounted when a stream exists — unmounting on camera-off breaks Chrome/WebKit after re-enabling the track.
     useEffect(() => {
         const el = ref.current;
         if (!el || !stream) return;
@@ -1369,27 +1409,56 @@ function LocalVideoTile({
         };
         bind();
 
-        const v = stream.getVideoTracks()[0];
-        if (!v) return;
+        const cleanups: (() => void)[] = [];
+        for (const t of stream.getVideoTracks()) {
+            const refresh = () => bind();
+            t.addEventListener('unmute', refresh);
+            t.addEventListener('ended', refresh);
+            cleanups.push(() => {
+                t.removeEventListener('unmute', refresh);
+                t.removeEventListener('ended', refresh);
+            });
+        }
+        return () => cleanups.forEach((c) => c());
+    }, [stream, isScreenSharing]);
 
-        const onLiveAgain = () => bind();
-        v.addEventListener('unmute', onLiveAgain);
-        v.addEventListener('ended', onLiveAgain);
+    useEffect(() => {
+        const el = ref.current;
+        if (!el || !stream) return;
+        if (isCameraOff && !isScreenSharing) return;
+        void el.play().catch(() => undefined);
+    }, [isCameraOff, isScreenSharing, stream]);
 
-        return () => {
-            v.removeEventListener('unmute', onLiveAgain);
-            v.removeEventListener('ended', onLiveAgain);
-        };
-    }, [stream, isCameraOff, isScreenSharing]);
-    if (stream && (!isCameraOff || isScreenSharing)) {
-        return <video ref={ref} autoPlay playsInline muted className="w-full h-full object-cover" />;
-    }
-    return (
-        <div className="w-full h-full flex flex-col items-center justify-center gap-3">
-            <div className={`${compact ? 'w-8 h-8' : 'w-20 h-20'} rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center`}>
-                <VideoOff className={`${compact ? 'w-4 h-4' : 'w-8 h-8'} text-white`} />
+    if (!stream) {
+        return (
+            <div className="w-full h-full flex flex-col items-center justify-center gap-3">
+                <div className={`${compact ? 'w-8 h-8' : 'w-20 h-20'} rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center`}>
+                    <VideoOff className={`${compact ? 'w-4 h-4' : 'w-8 h-8'} text-white`} />
+                </div>
+                {!compact && <p className="text-white/50 text-sm">No camera</p>}
             </div>
-            {!compact && <p className="text-white/50 text-sm">{isCameraOff ? 'Camera is off' : 'No camera'}</p>}
+        );
+    }
+
+    const showCameraOffOverlay = isCameraOff && !isScreenSharing;
+
+    return (
+        <div className="relative w-full h-full min-h-0">
+            <video
+                ref={ref}
+                autoPlay
+                playsInline
+                muted
+                className={`w-full h-full object-cover ${showCameraOffOverlay ? 'opacity-0 absolute inset-0 min-h-0 pointer-events-none' : ''}`}
+            />
+            {showCameraOffOverlay && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-slate-900/90">
+                    <div className={`${compact ? 'w-8 h-8' : 'w-20 h-20'} rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center`}>
+                        <VideoOff className={`${compact ? 'w-4 h-4' : 'w-8 h-8'} text-white`} />
+                    </div>
+                    {!compact && <p className="text-white/50 text-sm">Camera is off</p>}
+                </div>
+            )}
         </div>
     );
 }
@@ -1606,9 +1675,13 @@ function ParticipantsPanel({
                         >
                             {/* Avatar */}
                             <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${p.userRole === 'Guest' ? 'bg-gradient-to-br from-gray-500 to-gray-600' :
-                                p.userRole === 'Faculty' ? 'bg-gradient-to-br from-amber-500 to-orange-600' :
-                                    p.userRole ? 'bg-gradient-to-br from-amber-400 to-yellow-500' :
-                                        'bg-gradient-to-br from-indigo-500 to-purple-600'
+                                p.userRole === 'Executive' ? 'bg-gradient-to-br from-yellow-400 to-amber-600' :
+                                    p.userRole === 'Faculty' ? 'bg-gradient-to-br from-amber-500 to-orange-600' :
+                                        p.userRole === 'Head' ? 'bg-gradient-to-br from-blue-500 to-indigo-600' :
+                                            p.userRole === 'Co-Head' ? 'bg-gradient-to-br from-cyan-500 to-sky-600' :
+                                                p.userRole === 'Admin' ? 'bg-gradient-to-br from-red-500 to-rose-600' :
+                                                    p.userRole ? 'bg-gradient-to-br from-amber-400 to-yellow-500' :
+                                                        'bg-gradient-to-br from-indigo-500 to-purple-600'
                                 }`}>
                                 <span className="text-white text-[10px] font-bold">{initials}</span>
                             </div>
@@ -1621,14 +1694,20 @@ function ParticipantsPanel({
                                     </p>
                                     {p.userRole && (
                                         <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-semibold ${p.userRole === 'Guest' ? 'bg-gray-500/30 text-gray-300' :
-                                            p.userRole === 'Faculty' ? 'bg-amber-500/30 text-amber-300' :
-                                                p.userRole === 'Admin' ? 'bg-red-500/30 text-red-300' :
-                                                    'bg-yellow-500/30 text-yellow-300'
+                                            p.userRole === 'Executive' ? 'bg-yellow-500/30 text-yellow-300' :
+                                                p.userRole === 'Faculty' ? 'bg-amber-500/30 text-amber-300' :
+                                                    p.userRole === 'Head' ? 'bg-blue-500/30 text-blue-200' :
+                                                        p.userRole === 'Co-Head' ? 'bg-cyan-500/30 text-cyan-200' :
+                                                            p.userRole === 'Admin' ? 'bg-red-500/30 text-red-300' :
+                                                                'bg-yellow-500/30 text-yellow-300'
                                             }`}>
                                             {p.userRole === 'Guest' ? '👤 Guest' :
-                                                p.userRole === 'Faculty' ? '🎓 Faculty' :
-                                                    p.userRole === 'Admin' ? '🛡️ Admin' :
-                                                        `👑 ${p.userRole}`}
+                                                p.userRole === 'Executive' ? '👑 Executive' :
+                                                    p.userRole === 'Faculty' ? '🎓 Faculty' :
+                                                        p.userRole === 'Head' ? '🧭 Head' :
+                                                            p.userRole === 'Co-Head' ? '📍 Co-Head' :
+                                                                p.userRole === 'Admin' ? '🛡️ Admin' :
+                                                                    `👑 ${p.userRole}`}
                                         </span>
                                     )}
                                 </div>
