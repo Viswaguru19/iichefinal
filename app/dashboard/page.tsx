@@ -397,7 +397,7 @@ export default async function DashboardPage() {
         {/* Committees Section */}
         <AnimatedSection delay={0.6}>
           <div className="mt-6 sm:mt-8">
-            <h3 className="text-xl sm:text-2xl font-bold text-gray-900 mb-3 sm:mb-4">Our Committees</h3>
+            <h3 className="text-xl sm:text-2xl font-bold dashboard-section-title mb-3 sm:mb-4">Our Committees</h3>
             <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
               {committees?.map((committee: any, index: number) => (
                 <AnimatedCommitteeCard key={committee.id} committee={committee} index={index} />
@@ -408,7 +408,7 @@ export default async function DashboardPage() {
 
         <AnimatedSection delay={1.0}>
           <div className="mt-6 sm:mt-8">
-            <h3 className="text-lg sm:text-xl font-bold text-gray-900 mb-3 sm:mb-4">Committee Tools</h3>
+            <h3 className="text-lg sm:text-xl font-bold dashboard-section-title mb-3 sm:mb-4">Committee Tools</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
               <AnimatedDashboardCard
                 href="/dashboard/forms"
