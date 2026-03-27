@@ -34,7 +34,7 @@ import {
     FileText,
 } from 'lucide-react';
 import { useWebRTC, type PeerState } from '@/hooks/useWebRTC';
-import type { ChatMessage, RoomParticipant, SendChatPayload } from '@/hooks/useWebRTC';
+import type { ChatMessage, RoomControlPayload, RoomParticipant, SendChatPayload } from '@/hooks/useWebRTC';
 import DynamicLogo from '@/components/DynamicLogo';
 
 interface Meeting {
@@ -94,6 +94,7 @@ export default function MeetingRoomPage() {
     const [localPreviewStream, setLocalPreviewStream] = useState<MediaStream | null>(null);
     /** Bumps when camera is turned back on so the preview element re-attaches (fixes black tile until pin/unpin). */
     const [localVideoRenderKey, setLocalVideoRenderKey] = useState(0);
+    const [selfUnmuteLocked, setSelfUnmuteLocked] = useState(false);
 
     // Panel state
     const [isChatOpen, setIsChatOpen] = useState(false);
@@ -153,7 +154,7 @@ export default function MeetingRoomPage() {
     );
 
     // WebRTC peer connections
-    const { peers, participants, chatMessages, sendChatMessage, replaceVideoTrack } = useWebRTC({
+    const { peers, participants, chatMessages, sendChatMessage, replaceVideoTrack, sendRoomControl } = useWebRTC({
         supabase,
         roomId,
         userId: currentUserId,
@@ -161,6 +162,19 @@ export default function MeetingRoomPage() {
         userRole: currentUserRole,
         localStream,
         enabled: !!meeting && !!currentUserId && !!currentUserName && hasJoinedMeeting,
+        onRoomControl: (payload: RoomControlPayload) => {
+            // Ignore your own control broadcast; sender already knows what they did.
+            if (payload.senderId === currentUserId) return;
+            if (payload.action === 'mute-all') {
+                localStream?.getAudioTracks().forEach((t) => { t.enabled = false; });
+                setIsMuted(true);
+                setSelfUnmuteLocked(true);
+                toast('Moderator muted everyone. Wait until unmute is allowed.', { icon: '🔇' });
+            } else if (payload.action === 'allow-unmute') {
+                setSelfUnmuteLocked(false);
+                toast('Moderator allowed unmuting.', { icon: '🔊' });
+            }
+        },
     });
 
     const uploadMeetingChatFile = useCallback(
@@ -405,6 +419,17 @@ export default function MeetingRoomPage() {
             moderatorProfile?.role === 'super_admin' ||
             moderatorProfile?.role === 'secretary');
 
+    const canModerateAudio =
+        !!meeting?.id &&
+        !!currentUserId &&
+        !currentUserId.startsWith('guest-') &&
+        (meeting?.created_by === currentUserId ||
+            !!moderatorProfile?.is_faculty ||
+            !!moderatorProfile?.is_admin ||
+            !!moderatorProfile?.executive_role ||
+            moderatorProfile?.role === 'super_admin' ||
+            moderatorProfile?.role === 'secretary');
+
     const loadPendingRequests = useCallback(async () => {
         if (!meeting?.id || !canApproveRequests) return;
         const [mpRes, grRes] = await Promise.all([
@@ -590,27 +615,70 @@ export default function MeetingRoomPage() {
         const run = async () => {
             const stream = await ensureLocalMedia();
             if (!stream) return;
+            if (isMuted && selfUnmuteLocked && !canModerateAudio) {
+                toast.error('A moderator has locked unmute. Please wait for "Allow unmute".');
+                return;
+            }
             stream.getAudioTracks().forEach((track) => {
                 track.enabled = !track.enabled;
             });
             setIsMuted((prev) => !prev);
         };
         run();
-    }, [ensureLocalMedia]);
+    }, [canModerateAudio, ensureLocalMedia, isMuted, selfUnmuteLocked]);
+
+    const reacquireAndBindCameraTrack = useCallback(
+        async (stream: MediaStream) => {
+            const camOnly = await navigator.mediaDevices.getUserMedia({ video: true });
+            const freshTrack = camOnly.getVideoTracks()[0];
+            if (!freshTrack) return null;
+            freshTrack.enabled = true;
+
+            const oldTrack = stream.getVideoTracks()[0];
+            if (oldTrack) {
+                stream.removeTrack(oldTrack);
+                oldTrack.stop();
+            }
+            stream.addTrack(freshTrack);
+
+            await replaceVideoTrack(freshTrack);
+            setLocalPreviewStream(stream);
+            setLocalVideoRenderKey((k) => k + 1);
+            return freshTrack;
+        },
+        [replaceVideoTrack],
+    );
 
     const toggleCamera = useCallback(() => {
         const run = async () => {
             const stream = await ensureLocalMedia();
             if (!stream) return;
-            stream.getVideoTracks().forEach((track) => {
-                track.enabled = !track.enabled;
-            });
-            const v = stream.getVideoTracks()[0];
-            const cameraOn = !!(v && v.enabled);
-            setIsCameraOff(!cameraOn);
+
+            const currentTrack = stream.getVideoTracks()[0];
+            const turnOn = !currentTrack || !currentTrack.enabled || currentTrack.readyState !== 'live';
+
+            if (turnOn) {
+                try {
+                    if (!currentTrack || currentTrack.readyState !== 'live') {
+                        await reacquireAndBindCameraTrack(stream);
+                    } else {
+                        currentTrack.enabled = true;
+                        await replaceVideoTrack(currentTrack);
+                        setLocalPreviewStream(stream);
+                        setLocalVideoRenderKey((k) => k + 1);
+                    }
+                    setIsCameraOff(false);
+                } catch {
+                    toast.error('Could not turn on camera. Check browser camera permissions.');
+                }
+                return;
+            }
+
+            currentTrack.enabled = false;
+            setIsCameraOff(true);
         };
         void run();
-    }, [ensureLocalMedia]);
+    }, [ensureLocalMedia, reacquireAndBindCameraTrack, replaceVideoTrack]);
 
     const toggleScreenShare = useCallback(async () => {
         const activeStream = localStream || await ensureLocalMedia();
@@ -995,6 +1063,27 @@ export default function MeetingRoomPage() {
             onClick: () => { setIsApprovalsOpen((prev: boolean) => !prev); setIsChatOpen(false); setIsParticipantListOpen(false); },
             active: isApprovalsOpen,
         }] : []),
+        ...(canModerateAudio ? [
+            {
+                icon: MicOff,
+                label: 'Mute All',
+                onClick: () => {
+                    sendRoomControl('mute-all');
+                    toast.success('Sent: mute all participants');
+                },
+                active: false,
+                danger: true,
+            },
+            {
+                icon: Volume2,
+                label: 'Allow Unmute',
+                onClick: () => {
+                    sendRoomControl('allow-unmute');
+                    toast.success('Sent: participants can unmute');
+                },
+                active: false,
+            },
+        ] : []),
     ];
 
     return (
@@ -1284,7 +1373,9 @@ function RemoteVideo({ peer, isPinned, onPin, small }: { peer: PeerState; isPinn
         const check = () => {
             const tracks = stream.getVideoTracks() || [];
             const live = tracks.some((t) => t.readyState === 'live');
-            setHasVideo(tracks.length > 0 && live);
+            // When remote camera is turned off, many browsers keep the track "live" but muted.
+            const hasRenderableFrames = tracks.some((t) => t.readyState === 'live' && !t.muted);
+            setHasVideo(tracks.length > 0 && hasRenderableFrames);
             const sharing = tracks.some((track) => {
                 const settings = track.getSettings?.() as MediaTrackSettings | undefined;
                 const displaySurface = settings?.displaySurface;

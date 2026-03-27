@@ -34,13 +34,20 @@ export type SendChatPayload =
           fileName: string;
       };
 export interface RoomParticipant { userId: string; userName: string; userRole?: string | null; joinedAt: string; }
+export interface RoomControlPayload {
+    action: 'mute-all' | 'allow-unmute';
+    senderId: string;
+    senderName: string;
+    timestamp: string;
+}
 
 interface UseWebRTCOptions {
     supabase: SupabaseClient; roomId: string; userId: string; userName: string;
     userRole?: string | null; localStream: MediaStream | null; enabled: boolean;
+    onRoomControl?: (payload: RoomControlPayload) => void;
 }
 
-export function useWebRTC({ supabase, roomId, userId, userName, userRole, localStream, enabled }: UseWebRTCOptions) {
+export function useWebRTC({ supabase, roomId, userId, userName, userRole, localStream, enabled, onRoomControl }: UseWebRTCOptions) {
     const [peers, setPeers] = useState<Map<string, PeerState>>(new Map());
     const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
     const [participants, setParticipants] = useState<RoomParticipant[]>([]);
@@ -49,10 +56,12 @@ export function useWebRTC({ supabase, roomId, userId, userName, userRole, localS
     const localStreamRef = useRef<MediaStream | null>(null);
     const userIdRef = useRef(userId);
     const userNameRef = useRef(userName);
+    const onRoomControlRef = useRef(onRoomControl);
 
     useEffect(() => { localStreamRef.current = localStream; }, [localStream]);
     useEffect(() => { userIdRef.current = userId; }, [userId]);
     useEffect(() => { userNameRef.current = userName; }, [userName]);
+    useEffect(() => { onRoomControlRef.current = onRoomControl; }, [onRoomControl]);
 
     const syncPeers = useCallback(() => { setPeers(new Map(peersRef.current)); }, []);
 
@@ -186,6 +195,9 @@ export function useWebRTC({ supabase, roomId, userId, userName, userRole, localS
 
         channel.on('broadcast', { event: 'peer-left' }, (msg) => { removePC((msg.payload as { senderId: string }).senderId); });
         channel.on('broadcast', { event: 'chat-message' }, (msg) => { setChatMessages(prev => [...prev, msg.payload as ChatMessage]); });
+        channel.on('broadcast', { event: 'room-control' }, (msg) => {
+            onRoomControlRef.current?.(msg.payload as RoomControlPayload);
+        });
         channel.on('presence', { event: 'leave' }, ({ leftPresences }) => { leftPresences.forEach((p: any) => { if (p.userId && p.userId !== userIdRef.current) removePC(p.userId); }); });
         channel.on('presence', { event: 'sync' }, () => {
             const state = channel.presenceState();
@@ -254,5 +266,19 @@ export function useWebRTC({ supabase, roomId, userId, userName, userRole, localS
         setChatMessages(prev => [...prev, chatMsg]);
     }, []);
 
-    return { peers, participants, channelRef, chatMessages, sendChatMessage, replaceVideoTrack };
+    const sendRoomControl = useCallback((action: RoomControlPayload['action']) => {
+        if (!channelRef.current) return;
+        channelRef.current.send({
+            type: 'broadcast',
+            event: 'room-control',
+            payload: {
+                action,
+                senderId: userIdRef.current,
+                senderName: userNameRef.current,
+                timestamp: new Date().toISOString(),
+            } as RoomControlPayload,
+        });
+    }, []);
+
+    return { peers, participants, channelRef, chatMessages, sendChatMessage, replaceVideoTrack, sendRoomControl };
 }
