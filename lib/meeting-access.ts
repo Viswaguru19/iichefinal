@@ -10,13 +10,15 @@ export interface AccessCheckResult {
 
 /**
  * Check whether a user has access to a meeting room.
- * 
+ *
  * Access is granted when:
  *  - The user is authenticated
  *  - A meeting with the given room_id in its meeting_link exists
  *  - The meeting is "general" (open join rules below), OR
  *  - The user is the meeting creator, OR
  *  - The user is in the participants array or meeting_participants table
+ *  - General + require_approval: any authenticated user with a portal `profiles` row joins immediately;
+ *    only guests (unauthenticated join flow) go through the approval queue.
  */
 export async function checkMeetingAccess(
     supabase: SupabaseClient,
@@ -50,16 +52,23 @@ export async function checkMeetingAccess(
     // 4. Fetch user profile for role info
     const { data: profile } = await supabase
         .from('profiles')
-        .select('executive_role, is_faculty, is_admin, name')
+        .select('executive_role, is_faculty, is_admin, name, role')
         .eq('id', user.id)
         .single();
 
     let userRole: string | null = null;
     if (profile?.is_faculty) userRole = 'Faculty';
-    else if (profile?.is_admin) userRole = 'Admin';
-    else if (profile?.executive_role) userRole = profile.executive_role.replace(/_/g, ' ');
+    else if (profile?.is_admin || profile?.role === 'super_admin' || profile?.role === 'secretary') {
+        userRole = 'Admin';
+    } else if (profile?.executive_role) userRole = profile.executive_role.replace(/_/g, ' ');
 
-    const isPrivileged = !!(profile?.executive_role || profile?.is_faculty || profile?.is_admin);
+    const isPrivileged = !!(
+        profile?.executive_role ||
+        profile?.is_faculty ||
+        profile?.is_admin ||
+        profile?.role === 'super_admin' ||
+        profile?.role === 'secretary'
+    );
 
     // 5. General meetings — anyone authenticated can join unless approval is required
     if (meetingData.access_type === 'general' && !meetingData.require_approval) {
@@ -90,12 +99,18 @@ export async function checkMeetingAccess(
         return { granted: true, reason: 'granted', meeting: meetingData, userId: user.id, userRole };
     }
 
+    // 8.5 General + require_approval: only guests (no portal profile / unauthenticated flow) wait in the queue.
+    // Authenticated users with a profiles row are portal members and join immediately.
+    if (meetingData.access_type === 'general' && meetingData.require_approval && profile) {
+        return { granted: true, reason: 'granted', meeting: meetingData, userId: user.id, userRole };
+    }
+
     // 9. EC members and faculty always have access
     if (isPrivileged) {
         return { granted: true, reason: 'granted', meeting: meetingData, userId: user.id, userRole };
     }
 
-    // 10. If general meeting requires approval, return pending for regular users
+    // 10. If general meeting requires approval and user has no profile row, treat as needing approval (edge case)
     if (meetingData.access_type === 'general' && meetingData.require_approval) {
         return { granted: false, reason: 'pending_approval', meeting: meetingData, userId: user.id };
     }

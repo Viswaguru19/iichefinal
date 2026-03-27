@@ -132,7 +132,7 @@ describe('Meeting room access control', () => {
 
         mockFromHandlers = {
             meetings: () => createQueryBuilder([MEETING], null),
-            profiles: () => createQueryBuilder({ executive_role: null, is_faculty: false, is_admin: false, name: 'Creator' }, null),
+            profiles: () => createQueryBuilder({ executive_role: null, is_faculty: false, is_admin: false, name: 'Creator', role: null }, null),
         };
 
         const result = await checkMeetingAccess(mockSupabase, 'room-abc');
@@ -174,12 +174,42 @@ describe('Meeting room access control', () => {
         mockFromHandlers = {
             meetings: () => createQueryBuilder([MEETING], null),
             meeting_participants: () => createQueryBuilder(null, { message: 'No rows found' }),
-            profiles: () => createQueryBuilder({ executive_role: null, is_faculty: false, is_admin: false, name: 'R' }, null),
+            profiles: () => createQueryBuilder({ executive_role: null, is_faculty: false, is_admin: false, name: 'R', role: null }, null),
         };
 
         const result = await checkMeetingAccess(mockSupabase, 'room-abc');
 
         expect(result.granted).toBe(false);
         expect(result.reason).toBe('not_participant');
+    });
+
+    it('grants portal users immediately for general + require_approval (approval queue is for guests only)', async () => {
+        mockSupabase.auth.getUser.mockResolvedValue({
+            data: { user: { id: 'portal-user' } },
+            error: null,
+        });
+
+        const generalApprovalMeeting = {
+            ...MEETING,
+            access_type: 'general' as const,
+            require_approval: true,
+            participants: [] as string[],
+            created_by: 'creator-user',
+        };
+        mockFromHandlers = {
+            meetings: () => createQueryBuilder([generalApprovalMeeting], null),
+            meeting_participants: () => createQueryBuilder(null, { message: 'No rows found' }),
+            profiles: () =>
+                createQueryBuilder(
+                    { executive_role: null, is_faculty: false, is_admin: false, name: 'Student', role: 'student' },
+                    null,
+                ),
+        };
+
+        const result = await checkMeetingAccess(mockSupabase, 'room-abc');
+
+        expect(result.granted).toBe(true);
+        expect(result.reason).toBe('granted');
+        expect(result.userId).toBe('portal-user');
     });
 });

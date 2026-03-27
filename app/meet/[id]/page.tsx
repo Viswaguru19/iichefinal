@@ -70,6 +70,13 @@ export default function MeetingRoomPage() {
     const [currentUserId, setCurrentUserId] = useState<string>('');
     const [currentUserName, setCurrentUserName] = useState<string>('');
     const [currentUserRole, setCurrentUserRole] = useState<string | null>(null);
+    /** Loaded for signed-in portal users — used to show Approvals tab (not derived from presence label). */
+    const [moderatorProfile, setModeratorProfile] = useState<{
+        role: string | null;
+        is_faculty: boolean | null;
+        is_admin: boolean | null;
+        executive_role: string | null;
+    } | null>(null);
     const [showGuestEntry, setShowGuestEntry] = useState(false);
     const [guestWaitingForApproval, setGuestWaitingForApproval] = useState(false);
     const [guestRejectedReason, setGuestRejectedReason] = useState<string | null>(null);
@@ -333,10 +340,35 @@ export default function MeetingRoomPage() {
         };
     }, [localStream]);
 
+    useEffect(() => {
+        if (!currentUserId || currentUserId.startsWith('guest-')) {
+            setModeratorProfile(null);
+            return;
+        }
+        let cancelled = false;
+        void (async () => {
+            const { data: p } = await supabase
+                .from('profiles')
+                .select('role, is_faculty, is_admin, executive_role')
+                .eq('id', currentUserId)
+                .maybeSingle();
+            if (!cancelled) setModeratorProfile(p ?? null);
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [currentUserId, supabase]);
+
     const canApproveRequests =
         !!meeting?.require_approval &&
         !!currentUserId &&
-        (meeting?.created_by === currentUserId || (!!currentUserRole && currentUserRole !== 'Guest'));
+        !currentUserId.startsWith('guest-') &&
+        (meeting?.created_by === currentUserId ||
+            !!moderatorProfile?.is_faculty ||
+            !!moderatorProfile?.is_admin ||
+            !!moderatorProfile?.executive_role ||
+            moderatorProfile?.role === 'super_admin' ||
+            moderatorProfile?.role === 'secretary');
 
     const loadPendingRequests = useCallback(async () => {
         if (!meeting?.id || !canApproveRequests) return;

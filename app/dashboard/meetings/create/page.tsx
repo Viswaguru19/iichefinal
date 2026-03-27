@@ -230,7 +230,7 @@ export default function CreateMeetingPage() {
                   className="w-4 h-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500"
                 />
                 <label htmlFor="requireApproval" className="text-sm text-amber-800">
-                  Require approval before joining (organizer, EC, or faculty must approve)
+                  Require approval for guests only — anyone signed into the portal joins immediately; organizer, EC, faculty, or admins approve guest requests in the meeting Approvals panel
                 </label>
               </div>
             )}
