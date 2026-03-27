@@ -446,15 +446,20 @@ export default function MeetingRoomPage() {
                 .eq('status', 'pending')
                 .order('created_at', { ascending: true }),
         ]);
-        const members = (mpRes.data || []).map(
-            (r: { user_id: string; profiles?: { name?: string | null; email?: string | null } }) =>
-                ({
-                    requestKind: 'member' as const,
-                    key: `m:${r.user_id}`,
-                    user_id: r.user_id,
-                    profiles: r.profiles,
-                }),
-        );
+        const members = (mpRes.data || []).map((r: any) => {
+            const profileRow = Array.isArray(r?.profiles) ? r.profiles[0] : r?.profiles;
+            return {
+                requestKind: 'member' as const,
+                key: `m:${String(r?.user_id || '')}`,
+                user_id: String(r?.user_id || ''),
+                profiles: profileRow
+                    ? {
+                          name: profileRow.name ?? null,
+                          email: profileRow.email ?? null,
+                      }
+                    : undefined,
+            };
+        });
         const guests = (grRes.data || []).map(
             (r: { id: string; guest_id: string; display_name: string }) =>
                 ({
