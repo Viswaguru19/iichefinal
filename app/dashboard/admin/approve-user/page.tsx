@@ -78,10 +78,20 @@ function ApproveUserContent() {
   }
 
   async function handleReject() {
-    if (!confirm('Delete this user account?')) return;
+    if (!userId) {
+      toast.error('Missing user id');
+      return;
+    }
+    if (!confirm('Delete this user account? This removes their login from Supabase.')) return;
 
     try {
-      await (supabase as any).from('profiles').delete().eq('id', userId);
+      const res = await fetch('/api/admin/delete-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Delete failed');
       toast.success('User rejected and deleted');
       router.push('/dashboard/admin/users');
     } catch (error: any) {

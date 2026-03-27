@@ -31,11 +31,16 @@ export default function UserTable({ initialUsers, committees }: UserTableProps) 
   const supabase = createClient();
 
   async function deleteUser(userId: string, userName: string) {
-    if (!confirm(`Delete user ${userName}? This cannot be undone.`)) return;
+    if (!confirm(`Delete user ${userName}? This removes their login and profile. This cannot be undone.`)) return;
 
     try {
-      const { error } = await supabase.from('profiles').delete().eq('id', userId);
-      if (error) throw error;
+      const res = await fetch('/api/admin/delete-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Delete failed');
       await refreshUsers();
     } catch (error: any) {
       alert(error.message);
