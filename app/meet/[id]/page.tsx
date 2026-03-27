@@ -177,6 +177,12 @@ export default function MeetingRoomPage() {
         },
     });
 
+    const presenceRoleByUserId = useMemo(() => {
+        const m = new Map<string, string | null | undefined>();
+        for (const p of participants) m.set(p.userId, p.userRole);
+        return m;
+    }, [participants]);
+
     const uploadMeetingChatFile = useCallback(
         async (file: File) => {
             const maxBytes = 15 * 1024 * 1024;
@@ -1026,12 +1032,6 @@ export default function MeetingRoomPage() {
 
     const screenShareApiAvailable =
         typeof navigator !== 'undefined' && typeof navigator.mediaDevices?.getDisplayMedia === 'function';
-
-    const presenceRoleByUserId = useMemo(() => {
-        const m = new Map<string, string | null | undefined>();
-        for (const p of participants) m.set(p.userId, p.userRole);
-        return m;
-    }, [participants]);
 
     // Control bar buttons config (screen share always listed; unsupported browsers get a toast on tap)
     const controls = [

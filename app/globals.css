@@ -312,6 +312,77 @@ html[data-portal-theme='dark'] .premium-card .bg-white\/40 {
   background: rgba(71, 85, 105, 0.18) !important;
 }
 
+/* Native controls + form copy that stayed “light-theme colors” on dark panels */
+html[data-portal-theme='dark'] {
+  color-scheme: dark;
+}
+
+html[data-portal-theme='dark'] body {
+  color: #e2e8f0;
+}
+
+html[data-portal-theme='dark'] .premium-panel .text-indigo-900,
+html[data-portal-theme='dark'] .premium-card .text-indigo-900,
+html[data-portal-theme='dark'] .glass .text-indigo-900,
+html[data-portal-theme='dark'] .glass-strong .text-indigo-900,
+html[data-portal-theme='dark'] .premium-panel .text-indigo-950,
+html[data-portal-theme='dark'] .premium-card .text-indigo-950 {
+  color: #e0e7ff !important;
+}
+
+html[data-portal-theme='dark'] .premium-panel .text-amber-900,
+html[data-portal-theme='dark'] .premium-card .text-amber-900,
+html[data-portal-theme='dark'] .premium-panel .text-amber-800,
+html[data-portal-theme='dark'] .premium-card .text-amber-800,
+html[data-portal-theme='dark'] .premium-panel .text-amber-700,
+html[data-portal-theme='dark'] .premium-card .text-amber-700 {
+  color: #fde68a !important;
+}
+
+html[data-portal-theme='dark'] .premium-panel .text-gray-300,
+html[data-portal-theme='dark'] .premium-card .text-gray-300,
+html[data-portal-theme='dark'] .glass .text-gray-300,
+html[data-portal-theme='dark'] .glass-strong .text-gray-300 {
+  color: #94a3b8 !important;
+}
+
+/* Inputs/selects without explicit text-* were browser-default (often black on dark cards) */
+html[data-portal-theme='dark'] .premium-panel input,
+html[data-portal-theme='dark'] .premium-panel textarea,
+html[data-portal-theme='dark'] .premium-panel select,
+html[data-portal-theme='dark'] .premium-card input,
+html[data-portal-theme='dark'] .premium-card textarea,
+html[data-portal-theme='dark'] .premium-card select {
+  color: #f1f5f9;
+  caret-color: #f1f5f9;
+}
+
+html[data-portal-theme='dark'] .premium-panel input::placeholder,
+html[data-portal-theme='dark'] .premium-panel textarea::placeholder,
+html[data-portal-theme='dark'] .premium-card input::placeholder,
+html[data-portal-theme='dark'] .premium-card textarea::placeholder {
+  color: rgba(226, 232, 240, 0.45) !important;
+}
+
+html[data-portal-theme='dark'] .premium-panel select option,
+html[data-portal-theme='dark'] .premium-card select option {
+  background-color: #1e293b;
+  color: #f8fafc;
+}
+
+/* Light-theme callout boxes inside dark panels */
+html[data-portal-theme='dark'] .premium-panel .border-indigo-100,
+html[data-portal-theme='dark'] .premium-card .border-indigo-100 {
+  border-color: rgba(129, 140, 248, 0.35) !important;
+}
+
+html[data-portal-theme='dark'] .premium-panel .bg-indigo-50,
+html[data-portal-theme='dark'] .premium-panel .bg-indigo-50\/70,
+html[data-portal-theme='dark'] .premium-card .bg-indigo-50,
+html[data-portal-theme='dark'] .premium-card .bg-indigo-50\/70 {
+  background: rgba(49, 46, 129, 0.35) !important;
+}
+
 .text-gradient-warm {
   background: linear-gradient(135deg, #f59e0b, #ef4444);
   -webkit-background-clip: text;

@@ -95,12 +95,14 @@ export default function ProposeEventPage() {
       // insert into the `events` table with the correct initial status. this
       // ensures the proposal appears in the proposals screen (which only
       // queries `events`) and routes to the committee head for approval.
+      const when = new Date(eventDate).toISOString();
       const { error } = await supabase
         .from('events')
         .insert({
           title,
           description,
-          date: new Date(eventDate).toISOString(),
+          date: when,
+          event_date: when,
           location,
           budget: parseFloat(budget) || null,
           event_duration: duration || null,

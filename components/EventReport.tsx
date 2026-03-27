@@ -12,6 +12,45 @@ interface EventReportProps {
     canEdit: boolean; // EC, faculty, editorial
 }
 
+function resolveStorageUrl(
+    supabase: ReturnType<typeof createClient>,
+    pathOrUrl: string | null | undefined,
+    bucket: 'event-documents' | 'event-photos',
+): string {
+    if (!pathOrUrl) return '';
+    const s = String(pathOrUrl).trim();
+    if (s.startsWith('http://') || s.startsWith('https://')) return s;
+    return supabase.storage.from(bucket).getPublicUrl(s).data.publicUrl;
+}
+
+/** Fetch image for jsPDF addImage (CORS must allow storage origin). */
+async function loadImageForPdf(url: string): Promise<{ dataUrl: string; format: string; width: number; height: number } | null> {
+    try {
+        const res = await fetch(url, { mode: 'cors' });
+        if (!res.ok) return null;
+        const blob = await res.blob();
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+            const r = new FileReader();
+            r.onloadend = () => resolve(r.result as string);
+            r.onerror = () => reject(new Error('read'));
+            r.readAsDataURL(blob);
+        });
+        const mime = (blob.type || '').toLowerCase();
+        let format = 'JPEG';
+        if (mime.includes('png')) format = 'PNG';
+        else if (mime.includes('webp')) format = 'WEBP';
+        const dims = await new Promise<{ w: number; h: number }>((resolve, reject) => {
+            const image = new window.Image();
+            image.onload = () => resolve({ w: image.naturalWidth, h: image.naturalHeight });
+            image.onerror = () => reject(new Error('decode'));
+            image.src = dataUrl;
+        });
+        return { dataUrl, format, width: dims.w, height: dims.h };
+    } catch {
+        return null;
+    }
+}
+
 export default function EventReport({ event, tasks, eventPhotos = [], canEdit }: EventReportProps) {
     const [report, setReport] = useState<any>(null);
     const [loading, setLoading] = useState(true);
@@ -59,11 +98,11 @@ export default function EventReport({ event, tasks, eventPhotos = [], canEdit }:
 
     function generateReportContent() {
         const posterUrl = event.poster_url
-            ? (String(event.poster_url).startsWith('http')
-                ? event.poster_url
-                : supabase.storage.from('event-documents').getPublicUrl(event.poster_url).data.publicUrl)
+            ? resolveStorageUrl(supabase, event.poster_url, 'event-documents') || null
             : null;
-        const photoUrls = (eventPhotos || []).map((p: any) => p.photo_url).filter(Boolean);
+        const photoUrls = (eventPhotos || [])
+            .map((p: any) => resolveStorageUrl(supabase, p.photo_url, 'event-photos'))
+            .filter(Boolean);
 
         return {
             event_name: event.title,
@@ -177,6 +216,7 @@ export default function EventReport({ event, tasks, eventPhotos = [], canEdit }:
     function downloadAsText() {
         const data = getReportData();
         if (!data) return;
+        const hasImages = !!(data.poster_url || (Array.isArray(data.event_photo_urls) && data.event_photo_urls.length > 0));
         const text = `EVENT REPORT
 ${'='.repeat(50)}
 
@@ -195,8 +235,7 @@ ${data.registration_fee ? `\nRegistration Fee: ${data.registration_fee}` : ''}
 ${data.prize ? `\nPrize: ${data.prize}` : ''}
 ${data.expected_participants ? `\nExpected Participants: ${data.expected_participants}` : ''}
 ${data.include_participants_count ? `\nParticipants Count: ${data.participants_count ?? 0}` : ''}
-${data.poster_url ? `\nPoster: ${data.poster_url}` : ''}
-${Array.isArray(data.event_photo_urls) && data.event_photo_urls.length > 0 ? `\nEvent Photos: ${data.event_photo_urls.join(', ')}` : ''}
+${hasImages ? `\nPOSTER & EVENT PHOTOS\n${'-'.repeat(30)}\nThe event poster and gallery photos are shown as images in the portal (View report) and embedded in the PDF download — not as plain-text links.\n` : ''}
 ${data.include_participants ? `\n\nPARTICIPANTS\n${'-'.repeat(30)}\n${(data.participants || []).map((p: any) => `${p.serial}. ${p.name} | ${p.email} | ${p.attendance}`).join('\n') || 'No participants found.'}` : ''}
 ${report.additional_notes ? `\nADDITIONAL NOTES\n${'-'.repeat(30)}\n${report.additional_notes}` : ''}
 
@@ -215,6 +254,7 @@ IIChE AVVU Student Chapter`;
     }
 
     function buildPlainText(data: any) {
+        const hasImages = !!(data.poster_url || (Array.isArray(data.event_photo_urls) && data.event_photo_urls.length > 0));
         return `EVENT REPORT
 ${'='.repeat(50)}
 
@@ -233,8 +273,7 @@ ${data.registration_fee ? `\nRegistration Fee: ${data.registration_fee}` : ''}
 ${data.prize ? `\nPrize: ${data.prize}` : ''}
 ${data.expected_participants ? `\nExpected Participants: ${data.expected_participants}` : ''}
 ${data.include_participants_count ? `\nParticipants Count: ${data.participants_count ?? 0}` : ''}
-${data.poster_url ? `\nPoster: ${data.poster_url}` : ''}
-${Array.isArray(data.event_photo_urls) && data.event_photo_urls.length > 0 ? `\nEvent Photos: ${data.event_photo_urls.join(', ')}` : ''}
+${hasImages ? `\nPOSTER & EVENT PHOTOS\n${'-'.repeat(30)}\n(See following pages in PDF for embedded images.)\n` : ''}
 ${data.include_participants ? `\n\nPARTICIPANTS\n${'-'.repeat(30)}\n${(data.participants || []).map((p: any) => `${p.serial}. ${p.name} | ${p.email} | ${p.attendance}`).join('\n') || 'No participants found.'}` : ''}
 ${report.additional_notes ? `\nADDITIONAL NOTES\n${'-'.repeat(30)}\n${report.additional_notes}` : ''}
 
@@ -245,22 +284,92 @@ IIChE AVVU Student Chapter`;
 
     async function downloadAsPDF() {
         const data = getReportData();
-        if (!data) return;
-        const { jsPDF } = await import('jspdf');
-        const doc = new jsPDF({ unit: 'pt', format: 'a4' });
-        const text = buildPlainText(data);
-        const lines = doc.splitTextToSize(text, 520);
-        let y = 40;
-        lines.forEach((line: string) => {
-            if (y > 790) {
-                doc.addPage();
-                y = 40;
+        if (!data || !report) return;
+        const tid = toast.loading('Building PDF with images…');
+        try {
+            const { jsPDF } = await import('jspdf');
+            const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+            const margin = 40;
+            const pageW = doc.internal.pageSize.getWidth();
+            const maxW = pageW - margin * 2;
+            let y = 40;
+
+            const text = buildPlainText(data);
+            const lines = doc.splitTextToSize(text, maxW);
+            for (const line of lines) {
+                if (y > 780) {
+                    doc.addPage();
+                    y = 40;
+                }
+                doc.text(line, margin, y);
+                y += 14;
             }
-            doc.text(line, 40, y);
-            y += 14;
-        });
-        doc.save(`Event_Report_${data.event_name.replace(/\s+/g, '_')}.pdf`);
-        toast.success('Report downloaded as PDF');
+
+            const posterDisplayUrl = data.poster_url
+                ? resolveStorageUrl(supabase, data.poster_url, 'event-documents')
+                : '';
+            if (posterDisplayUrl) {
+                const img = await loadImageForPdf(posterDisplayUrl);
+                if (img) {
+                    try {
+                        if (y > 700) {
+                            doc.addPage();
+                            y = 40;
+                        }
+                        doc.setFontSize(11);
+                        doc.setTextColor(40, 40, 40);
+                        doc.text('Event poster', margin, y);
+                        y += 18;
+                        const targetH = Math.min((img.height * maxW) / img.width, 420);
+                        const targetW = (img.width * targetH) / img.height;
+                        if (y + targetH > 820) {
+                            doc.addPage();
+                            y = 40;
+                        }
+                        doc.addImage(img.dataUrl, img.format, margin, y, targetW, targetH);
+                        y += targetH + 24;
+                    } catch (imgErr) {
+                        console.warn('PDF poster embed failed', imgErr);
+                    }
+                }
+            }
+
+            const photoList = Array.isArray(data.event_photo_urls) ? data.event_photo_urls : [];
+            const photoCap = 30;
+            if (photoList.length > 0) {
+                if (y > 720) {
+                    doc.addPage();
+                    y = 40;
+                }
+                doc.setFontSize(11);
+                doc.text(`Event photos${photoList.length > photoCap ? ` (first ${photoCap} of ${photoList.length})` : ''}`, margin, y);
+                y += 20;
+                for (let i = 0; i < Math.min(photoList.length, photoCap); i++) {
+                    const raw = photoList[i];
+                    const url = resolveStorageUrl(supabase, raw, 'event-photos');
+                    const img = await loadImageForPdf(url);
+                    if (!img) continue;
+                    try {
+                        const targetH = Math.min((img.height * maxW) / img.width, 280);
+                        const targetW = (img.width * targetH) / img.height;
+                        if (y + targetH > 820) {
+                            doc.addPage();
+                            y = 40;
+                        }
+                        doc.addImage(img.dataUrl, img.format, margin, y, targetW, targetH);
+                        y += targetH + 16;
+                    } catch (imgErr) {
+                        console.warn('PDF photo embed failed', imgErr);
+                    }
+                }
+            }
+
+            doc.save(`Event_Report_${data.event_name.replace(/\s+/g, '_')}.pdf`);
+            toast.success('Report downloaded as PDF', { id: tid });
+        } catch (e: any) {
+            console.error(e);
+            toast.error(e?.message || 'Could not build PDF', { id: tid });
+        }
     }
 
     if (loading) return null;
@@ -373,16 +482,28 @@ IIChE AVVU Student Chapter`;
                     {reportData.poster_url && (
                         <div>
                             <p className="font-semibold text-gray-500 text-sm mb-2">Event Poster</p>
-                            <img src={reportData.poster_url} alt="Event poster" className="w-full max-w-md rounded-lg border border-gray-200" />
+                            <img
+                                src={resolveStorageUrl(supabase, reportData.poster_url, 'event-documents')}
+                                alt="Event poster"
+                                className="w-full max-w-md rounded-lg border border-gray-200 object-contain bg-gray-50 max-h-[480px]"
+                            />
                         </div>
                     )}
                     {Array.isArray(reportData.event_photo_urls) && reportData.event_photo_urls.length > 0 && (
                         <div>
                             <p className="font-semibold text-gray-500 text-sm mb-2">Event Photos</p>
                             <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                                {reportData.event_photo_urls.slice(0, 9).map((url: string, idx: number) => (
-                                    <img key={`report-photo-${idx}`} src={url} alt={`Event photo ${idx + 1}`} className="w-full h-28 object-cover rounded-lg border border-gray-200" />
-                                ))}
+                                {reportData.event_photo_urls.map((rawUrl: string, idx: number) => {
+                                    const src = resolveStorageUrl(supabase, rawUrl, 'event-photos');
+                                    return (
+                                        <img
+                                            key={`report-photo-${idx}-${rawUrl}`}
+                                            src={src}
+                                            alt={`Event photo ${idx + 1}`}
+                                            className="w-full h-36 object-cover rounded-lg border border-gray-200"
+                                        />
+                                    );
+                                })}
                             </div>
                         </div>
                     )}

@@ -44,6 +44,17 @@ function generateId() {
   return 'f_' + Math.random().toString(36).substring(2, 9);
 }
 
+/** Event row may use `event_date` and/or legacy `date` from different code paths. */
+function formatEventListDate(ev: { event_date?: string | null; date?: string | null }) {
+  const raw = ev.event_date || ev.date;
+  if (!raw) return 'Date TBA';
+  try {
+    return new Date(raw).toLocaleDateString('en-IN');
+  } catch {
+    return 'Date TBA';
+  }
+}
+
 export default function CreateFormPage() {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -76,13 +87,39 @@ export default function CreateFormPage() {
 
   async function loadActiveEvents() {
     setEventsLoading(true);
-    const { data, error } = await supabase
+    // Match dashboard “upcoming” visibility: not only strict `active` (e.g. faculty_approved / in_progress).
+    const registrationReadyStatuses = ['active', 'in_progress', 'faculty_approved'] as const;
+    const wide = await supabase
       .from('events')
-      .select('id, title, event_date, location')
-      .eq('status', 'active')
-      .order('event_date', { ascending: true });
-    if (error) toast.error('Failed to load active events');
-    setActiveEvents(data || []);
+      .select('id, title, location, event_date, date, status, created_at')
+      .in('status', [...registrationReadyStatuses])
+      .order('created_at', { ascending: false });
+
+    let rows: any[] | null = wide.data;
+    let error = wide.error;
+
+    if (
+      error &&
+      (error.message?.toLowerCase().includes('column') ||
+        error.message?.includes('date') ||
+        (error as { code?: string }).code === '42703')
+    ) {
+      const narrow = await supabase
+        .from('events')
+        .select('id, title, location, event_date, status, created_at')
+        .in('status', [...registrationReadyStatuses])
+        .order('created_at', { ascending: false });
+      rows = narrow.data;
+      error = narrow.error;
+    }
+
+    if (error) {
+      console.error('loadActiveEvents', error);
+      toast.error(error.message || 'Failed to load events');
+      setActiveEvents([]);
+    } else {
+      setActiveEvents(rows || []);
+    }
     setEventsLoading(false);
   }
 
@@ -399,13 +436,13 @@ export default function CreateFormPage() {
                       {eventsLoading ? (
                         <div className="w-full border border-gray-200 rounded-xl px-3 py-2 bg-white/80 text-gray-500 text-sm">Loading active events...</div>
                       ) : activeEvents.length === 0 ? (
-                        <div className="w-full border border-amber-200 rounded-xl px-3 py-2 bg-amber-50 text-amber-700 text-sm">No active events found</div>
+                        <div className="w-full border border-amber-200 rounded-xl px-3 py-2 bg-amber-50 text-amber-700 text-sm">No published events found (active, in progress, or faculty-approved). Approve the event in Proposals first.</div>
                       ) : (
                         <select value={selectedEventId} onChange={e => setSelectedEventId(e.target.value)} className="w-full border border-gray-200 rounded-xl px-3 py-2 bg-white/80">
                           <option value="">Select an event</option>
                           {activeEvents.map((ev) => (
                             <option key={ev.id} value={ev.id}>
-                              {ev.title} · {ev.event_date ? new Date(ev.event_date).toLocaleDateString('en-IN') : 'Date TBA'} · {ev.location || 'Venue TBA'}
+                              {ev.title} · {formatEventListDate(ev)} · {ev.location || 'Venue TBA'}
                             </option>
                           ))}
                         </select>
