@@ -14,7 +14,7 @@ export interface AccessCheckResult {
  * Access is granted when:
  *  - The user is authenticated
  *  - A meeting with the given room_id in its meeting_link exists
- *  - The meeting is "general" (anyone can join), OR
+ *  - The meeting is "general" (open join rules below), OR
  *  - The user is the meeting creator, OR
  *  - The user is in the participants array or meeting_participants table
  */
@@ -39,7 +39,7 @@ export async function checkMeetingAccess(
         return { granted: false, reason: 'meeting_not_found' };
     }
 
-    // 3. If not authenticated but meeting is general, allow as guest
+    // 3. If not authenticated: general meetings allow optional guest entry (sign-in not required)
     if (!user) {
         if (meetingData.access_type === 'general') {
             return { granted: false, reason: 'guest_allowed', meeting: meetingData };

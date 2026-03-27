@@ -2,9 +2,11 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 import { createClient } from '@/lib/supabase/client';
 import { checkMeetingAccess } from '@/lib/meeting-access';
+import toast from 'react-hot-toast';
 import {
     Mic,
     MicOff,
@@ -27,6 +29,7 @@ import {
     X,
     PanelLeftClose,
     PanelLeftOpen,
+    Copy,
 } from 'lucide-react';
 import { useWebRTC, type PeerState } from '@/hooks/useWebRTC';
 import type { ChatMessage, RoomParticipant } from '@/hooks/useWebRTC';
@@ -41,6 +44,14 @@ interface Meeting {
     created_by: string | null;
     status: string;
     require_approval?: boolean | null;
+}
+
+type PendingJoinRequest =
+    | { requestKind: 'member'; key: string; user_id: string; profiles?: { name?: string | null; email?: string | null } }
+    | { requestKind: 'guest'; key: string; rowId: string; guest_id: string; display_name: string };
+
+function guestSessionStorageKey(roomId: string) {
+    return `avvu_meet_guest_${roomId}`;
 }
 
 export default function MeetingRoomPage() {
@@ -58,6 +69,8 @@ export default function MeetingRoomPage() {
     const [currentUserName, setCurrentUserName] = useState<string>('');
     const [currentUserRole, setCurrentUserRole] = useState<string | null>(null);
     const [showGuestEntry, setShowGuestEntry] = useState(false);
+    const [guestWaitingForApproval, setGuestWaitingForApproval] = useState(false);
+    const [guestRejectedReason, setGuestRejectedReason] = useState<string | null>(null);
     const [guestName, setGuestName] = useState('');
     const [hasJoinedMeeting, setHasJoinedMeeting] = useState(false);
 
@@ -74,8 +87,8 @@ export default function MeetingRoomPage() {
     const [isParticipantListOpen, setIsParticipantListOpen] = useState(false);
     const [isApprovalsOpen, setIsApprovalsOpen] = useState(false);
     const [showBrandRail, setShowBrandRail] = useState(false);
-    const [pendingRequests, setPendingRequests] = useState<any[]>([]);
-    const [processingRequestId, setProcessingRequestId] = useState<string | null>(null);
+    const [pendingRequests, setPendingRequests] = useState<PendingJoinRequest[]>([]);
+    const [processingApprovalKey, setProcessingApprovalKey] = useState<string | null>(null);
     const [approvalStatusMessage, setApprovalStatusMessage] = useState('Waiting for approval...');
 
     // Pin state
@@ -138,7 +151,69 @@ export default function MeetingRoomPage() {
                 }
 
                 if (accessResult.reason === 'guest_allowed') {
-                    setMeeting(accessResult.meeting);
+                    const m = accessResult.meeting as Meeting | null | undefined;
+                    if (!m?.id) {
+                        setMeeting(m ?? null);
+                        setShowGuestEntry(true);
+                        setLoading(false);
+                        return;
+                    }
+                    const gkey = guestSessionStorageKey(roomId);
+                    const raw = typeof window !== 'undefined' ? sessionStorage.getItem(gkey) : null;
+                    if (raw) {
+                        try {
+                            const parsed = JSON.parse(raw) as { guestId: string; displayName: string; waiting: boolean };
+                            if (parsed.guestId && parsed.displayName) {
+                                const { data: st } = await supabase.rpc('get_meeting_guest_request_status', {
+                                    p_meeting_id: m.id,
+                                    p_guest_id: parsed.guestId,
+                                });
+                                if (st === 'rejected') {
+                                    sessionStorage.removeItem(gkey);
+                                    setMeeting(m);
+                                    setGuestRejectedReason('Your join request was not approved.');
+                                    setGuestName(parsed.displayName);
+                                    setShowGuestEntry(true);
+                                    setGuestWaitingForApproval(false);
+                                    setLoading(false);
+                                    return;
+                                }
+                                if (st === 'approved') {
+                                    setMeeting(m);
+                                    setCurrentUserId(parsed.guestId);
+                                    setCurrentUserName(parsed.displayName);
+                                    setCurrentUserRole('Guest');
+                                    setShowGuestEntry(false);
+                                    setGuestWaitingForApproval(false);
+                                    sessionStorage.setItem(gkey, JSON.stringify({ ...parsed, waiting: false }));
+                                    try {
+                                        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                                        if (!cancelled) setLocalStream(stream);
+                                    } catch {
+                                        console.warn('Camera/mic permissions denied');
+                                    }
+                                    setLoading(false);
+                                    return;
+                                }
+                                if (st === 'pending') {
+                                    setMeeting(m);
+                                    setCurrentUserId(parsed.guestId);
+                                    setCurrentUserName(parsed.displayName);
+                                    setCurrentUserRole('Guest');
+                                    setGuestWaitingForApproval(true);
+                                    setShowGuestEntry(false);
+                                    setLoading(false);
+                                    return;
+                                }
+                                if (st == null) {
+                                    sessionStorage.removeItem(gkey);
+                                }
+                            }
+                        } catch {
+                            /* fall through to guest form */
+                        }
+                    }
+                    setMeeting(m);
                     setShowGuestEntry(true);
                     setLoading(false);
                     return;
@@ -238,18 +313,48 @@ export default function MeetingRoomPage() {
         };
     }, [localStream]);
 
-    const canApproveRequests = !!meeting?.require_approval && !!currentUserId && (meeting?.created_by === currentUserId || !!currentUserRole);
+    const canApproveRequests =
+        !!meeting?.require_approval &&
+        !!currentUserId &&
+        (meeting?.created_by === currentUserId || (!!currentUserRole && currentUserRole !== 'Guest'));
 
     const loadPendingRequests = useCallback(async () => {
         if (!meeting?.id || !canApproveRequests) return;
-        const { data } = await (supabase as any)
-            .from('meeting_participants')
-            .select('meeting_id, user_id, rsvp_status, invited_at, profiles:user_id(name, email)')
-            .eq('meeting_id', meeting.id)
-            .eq('rsvp_status', 'pending')
-            .order('invited_at', { ascending: true });
-        setPendingRequests(data || []);
-    }, [meeting?.id, canApproveRequests]);
+        const [mpRes, grRes] = await Promise.all([
+            supabase
+                .from('meeting_participants')
+                .select('meeting_id, user_id, rsvp_status, invited_at, profiles:user_id(name, email)')
+                .eq('meeting_id', meeting.id)
+                .eq('rsvp_status', 'pending')
+                .order('invited_at', { ascending: true }),
+            supabase
+                .from('meeting_guest_requests')
+                .select('id, guest_id, display_name, created_at')
+                .eq('meeting_id', meeting.id)
+                .eq('status', 'pending')
+                .order('created_at', { ascending: true }),
+        ]);
+        const members = (mpRes.data || []).map(
+            (r: { user_id: string; profiles?: { name?: string | null; email?: string | null } }) =>
+                ({
+                    requestKind: 'member' as const,
+                    key: `m:${r.user_id}`,
+                    user_id: r.user_id,
+                    profiles: r.profiles,
+                }),
+        );
+        const guests = (grRes.data || []).map(
+            (r: { id: string; guest_id: string; display_name: string }) =>
+                ({
+                    requestKind: 'guest' as const,
+                    key: `g:${r.id}`,
+                    rowId: r.id,
+                    guest_id: r.guest_id,
+                    display_name: r.display_name,
+                }),
+        );
+        setPendingRequests([...members, ...guests]);
+    }, [meeting?.id, canApproveRequests, supabase]);
 
     useEffect(() => {
         if (!meeting?.id || !canApproveRequests) return;
@@ -312,6 +417,47 @@ export default function MeetingRoomPage() {
             clearInterval(timer);
         };
     }, [pendingApproval, roomId]);
+
+    useEffect(() => {
+        if (!guestWaitingForApproval || !meeting?.id || !currentUserId) return;
+        let cancelled = false;
+        const tick = async () => {
+            const { data: st, error } = await supabase.rpc('get_meeting_guest_request_status', {
+                p_meeting_id: meeting.id,
+                p_guest_id: currentUserId,
+            });
+            if (cancelled || error) return;
+            if (st === 'approved') {
+                sessionStorage.setItem(
+                    guestSessionStorageKey(roomId),
+                    JSON.stringify({
+                        guestId: currentUserId,
+                        displayName: currentUserName,
+                        waiting: false,
+                    }),
+                );
+                setGuestWaitingForApproval(false);
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                    if (!cancelled) setLocalStream(stream);
+                } catch {
+                    console.warn('Camera/mic permissions denied');
+                }
+            } else if (st === 'rejected') {
+                sessionStorage.removeItem(guestSessionStorageKey(roomId));
+                setGuestWaitingForApproval(false);
+                setGuestRejectedReason('Your join request was not approved.');
+                setGuestName(currentUserName);
+                setShowGuestEntry(true);
+            }
+        };
+        void tick();
+        const timer = setInterval(() => { void tick(); }, 3500);
+        return () => {
+            cancelled = true;
+            clearInterval(timer);
+        };
+    }, [guestWaitingForApproval, meeting?.id, currentUserId, currentUserName, roomId, supabase]);
 
     useEffect(() => {
         if (!localStream || isMuted) {
@@ -379,7 +525,12 @@ export default function MeetingRoomPage() {
         if (!activeStream) return;
 
         if (!isScreenSharing) {
-            // Start screen sharing
+            if (typeof navigator.mediaDevices?.getDisplayMedia !== 'function') {
+                toast.error(
+                    'Screen sharing is not available in this browser. Try Chrome or Edge on a desktop; many mobile browsers do not support it yet.',
+                );
+                return;
+            }
             try {
                 const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
                 const screenTrack = screenStream.getVideoTracks()[0];
@@ -438,14 +589,15 @@ export default function MeetingRoomPage() {
     }, [localStream, ensureLocalMedia, isScreenSharing, replaceVideoTrack]);
 
     const leaveMeeting = useCallback(() => {
-        // Stop all local media tracks (camera, mic, screen share)
         localStream?.getTracks().forEach((track) => track.stop());
-        // Also stop the saved camera track if screen sharing was active
         cameraTrackRef.current?.stop();
         cameraTrackRef.current = null;
         setLocalStream(null);
+        if (typeof window !== 'undefined') {
+            sessionStorage.removeItem(guestSessionStorageKey(roomId));
+        }
         router.push('/dashboard/meetings');
-    }, [localStream, router]);
+    }, [localStream, router, roomId]);
 
     // Loading state
     if (loading) {
@@ -508,19 +660,102 @@ export default function MeetingRoomPage() {
         );
     }
 
+    if (guestWaitingForApproval && meeting) {
+        return (
+            <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
+                <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="glass-dark rounded-2xl p-8 max-w-md w-full text-center"
+                >
+                    <Loader2 className="w-12 h-12 text-amber-400 mx-auto mb-4 animate-spin" />
+                    <h2 className="text-xl font-bold text-white mb-2">Waiting for approval</h2>
+                    <p className="text-white/60 text-sm mb-4">{meeting.title}</p>
+                    <p className="text-white/45 text-xs mb-4">
+                        You joined as <span className="text-white/80 font-medium">{currentUserName}</span>. The organizer will use your <strong className="text-amber-200/90">guest ID</strong> to approve you.
+                    </p>
+                    <div className="rounded-xl border border-amber-400/35 bg-black/30 p-3 mb-4 text-left">
+                        <p className="text-[10px] uppercase tracking-wide text-amber-200/70 mb-1">Your guest ID</p>
+                        <div className="flex items-center gap-2">
+                            <code className="text-amber-100 text-xs break-all flex-1 font-mono">{currentUserId}</code>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    void navigator.clipboard.writeText(currentUserId);
+                                    toast.success('Guest ID copied');
+                                }}
+                                className="shrink-0 p-2 rounded-lg bg-white/10 hover:bg-white/15 text-white/80"
+                                title="Copy guest ID"
+                            >
+                                <Copy className="w-4 h-4" />
+                            </button>
+                        </div>
+                    </div>
+                    <p className="text-white/35 text-[11px] mb-6">Keep this page open. You can refresh; your browser remembers this ID for this room.</p>
+                    <motion.button
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        onClick={() => {
+                            sessionStorage.removeItem(guestSessionStorageKey(roomId));
+                            setGuestWaitingForApproval(false);
+                            setShowGuestEntry(true);
+                            setCurrentUserId('');
+                            setCurrentUserName('');
+                        }}
+                        className="text-white/50 hover:text-white/70 text-xs underline underline-offset-2"
+                    >
+                        Cancel and go back
+                    </motion.button>
+                </motion.div>
+            </div>
+        );
+    }
+
     // Guest entry screen
     if (showGuestEntry) {
         const joinAsGuest = async () => {
-            if (!guestName.trim()) return;
+            if (!guestName.trim() || !meeting?.id) return;
+            setGuestRejectedReason(null);
+
+            if (meeting.require_approval) {
+                const guestId = `guest-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+                const { error } = await supabase.from('meeting_guest_requests').insert({
+                    meeting_id: meeting.id,
+                    guest_id: guestId,
+                    display_name: guestName.trim(),
+                    status: 'pending',
+                });
+                if (error) {
+                    toast.error(error.message || 'Could not submit join request');
+                    return;
+                }
+                setCurrentUserId(guestId);
+                setCurrentUserName(guestName.trim());
+                setCurrentUserRole('Guest');
+                sessionStorage.setItem(
+                    guestSessionStorageKey(roomId),
+                    JSON.stringify({
+                        guestId,
+                        displayName: guestName.trim(),
+                        waiting: true,
+                    }),
+                );
+                setShowGuestEntry(false);
+                setGuestWaitingForApproval(true);
+                return;
+            }
+
             setShowGuestEntry(false);
             setLoading(true);
-            setCurrentUserId(`guest-${Date.now()}`);
+            setCurrentUserId(`guest-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`);
             setCurrentUserName(guestName.trim());
             setCurrentUserRole('Guest');
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
                 setLocalStream(stream);
-            } catch { console.warn('Camera/mic denied'); }
+            } catch {
+                console.warn('Camera/mic denied');
+            }
             setLoading(false);
         };
 
@@ -530,7 +765,18 @@ export default function MeetingRoomPage() {
                     className="glass-dark rounded-2xl p-8 max-w-md w-full text-center">
                     <UserCircle className="w-16 h-16 text-indigo-400 mx-auto mb-4" />
                     <h2 className="text-xl font-bold text-white mb-2">Join as Guest</h2>
-                    <p className="text-white/60 text-sm mb-6">{meeting?.title}</p>
+                    <p className="text-white/60 text-sm mb-3">{meeting?.title}</p>
+                    {guestRejectedReason ? (
+                        <p className="text-rose-300/90 text-xs mb-3 rounded-lg border border-rose-400/30 bg-rose-500/10 px-3 py-2">{guestRejectedReason}</p>
+                    ) : null}
+                    <p className="text-white/45 text-xs mb-4 leading-relaxed">
+                        Signing in is optional. Enter the name you want others to see.
+                        {meeting?.require_approval ? (
+                            <span className="block mt-2 text-amber-200/70">
+                                This meeting requires approval: you will get a <strong className="text-amber-100">guest ID</strong> so the organizer can approve you in the Approvals panel.
+                            </span>
+                        ) : null}
+                    </p>
                     <input type="text" value={guestName} onChange={e => setGuestName(e.target.value)}
                         onKeyDown={e => e.key === 'Enter' && joinAsGuest()}
                         placeholder="Enter your name" autoFocus
@@ -540,6 +786,12 @@ export default function MeetingRoomPage() {
                         className="w-full bg-gradient-to-r from-indigo-500 to-purple-500 text-white px-6 py-3 rounded-xl text-sm font-semibold disabled:opacity-40">
                         Join Meeting
                     </motion.button>
+                    <p className="text-white/35 text-[11px] mt-4">
+                        <Link href={`/login?next=${encodeURIComponent(`/meet/${roomId}`)}`} className="text-indigo-300 hover:text-indigo-200 underline underline-offset-2">
+                            Sign in with your account
+                        </Link>
+                        {' '}— optional, for portal members
+                    </p>
                 </motion.div>
             </div>
         );
@@ -612,10 +864,10 @@ export default function MeetingRoomPage() {
         );
     }
 
-    // Check if screen sharing is supported (not on most mobile browsers)
-    const canScreenShare = typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getDisplayMedia;
+    const screenShareApiAvailable =
+        typeof navigator !== 'undefined' && typeof navigator.mediaDevices?.getDisplayMedia === 'function';
 
-    // Control bar buttons config
+    // Control bar buttons config (screen share always listed; unsupported browsers get a toast on tap)
     const controls = [
         {
             icon: isMuted ? MicOff : Mic,
@@ -631,12 +883,13 @@ export default function MeetingRoomPage() {
             active: !isCameraOff,
             danger: isCameraOff,
         },
-        ...(canScreenShare ? [{
+        {
             icon: MonitorUp,
             label: isScreenSharing ? 'Stop Sharing' : 'Share Screen',
             onClick: toggleScreenShare,
             active: isScreenSharing,
-        }] : []),
+            dimmed: !screenShareApiAvailable && !isScreenSharing,
+        },
         {
             icon: MessageSquare,
             label: 'Chat',
@@ -680,12 +933,10 @@ export default function MeetingRoomPage() {
                                 </div>
                             )}
                         </div>
-                        <p className="text-[11px] text-amber-50/70 mb-2 uppercase tracking-wide">Live Mic Waves</p>
+                        <p className="text-[11px] text-amber-50/70 mb-2 uppercase tracking-wide">Your mic</p>
+                        <p className="text-[10px] text-amber-50/45 mb-2">Only your microphone level is shown here (not other participants).</p>
                         <div className="space-y-2 overflow-y-auto pr-1">
                             <ParticipantMicSphere name={currentUserName || 'You'} stream={localStream} muted={isMuted} isYou compact />
-                            {Array.from(peers.entries()).map(([id, peer]) => (
-                                <ParticipantMicSphere key={`rail-mic-${id}`} name={peer.userName} stream={peer.remoteStream} muted={false} compact />
-                            ))}
                         </div>
                     </motion.aside>
                 )}
@@ -820,20 +1071,34 @@ export default function MeetingRoomPage() {
                             ) : isApprovalsOpen ? (
                                 <ApprovalsPanel
                                     pendingRequests={pendingRequests}
-                                    processingRequestId={processingRequestId}
-                                    onApprove={async (userId) => {
+                                    processingApprovalKey={processingApprovalKey}
+                                    onApprove={async (req) => {
                                         if (!meeting?.id) return;
-                                        setProcessingRequestId(userId);
-                                        await (supabase as any).from('meeting_participants').update({ rsvp_status: 'approved' }).eq('meeting_id', meeting.id).eq('user_id', userId);
-                                        setProcessingRequestId(null);
-                                        void loadPendingRequests();
+                                        setProcessingApprovalKey(req.key);
+                                        try {
+                                            if (req.requestKind === 'member') {
+                                                await supabase.from('meeting_participants').update({ rsvp_status: 'approved' }).eq('meeting_id', meeting.id).eq('user_id', req.user_id);
+                                            } else {
+                                                await supabase.from('meeting_guest_requests').update({ status: 'approved' }).eq('id', req.rowId).eq('meeting_id', meeting.id);
+                                            }
+                                        } finally {
+                                            setProcessingApprovalKey(null);
+                                            void loadPendingRequests();
+                                        }
                                     }}
-                                    onReject={async (userId) => {
+                                    onReject={async (req) => {
                                         if (!meeting?.id) return;
-                                        setProcessingRequestId(userId);
-                                        await (supabase as any).from('meeting_participants').update({ rsvp_status: 'rejected' }).eq('meeting_id', meeting.id).eq('user_id', userId);
-                                        setProcessingRequestId(null);
-                                        void loadPendingRequests();
+                                        setProcessingApprovalKey(req.key);
+                                        try {
+                                            if (req.requestKind === 'member') {
+                                                await supabase.from('meeting_participants').update({ rsvp_status: 'rejected' }).eq('meeting_id', meeting.id).eq('user_id', req.user_id);
+                                            } else {
+                                                await supabase.from('meeting_guest_requests').update({ status: 'rejected' }).eq('id', req.rowId).eq('meeting_id', meeting.id);
+                                            }
+                                        } finally {
+                                            setProcessingApprovalKey(null);
+                                            void loadPendingRequests();
+                                        }
                                     }}
                                 />
                             ) : (
@@ -855,14 +1120,18 @@ export default function MeetingRoomPage() {
                 className="relative z-10 flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-2 sm:gap-3 px-2 sm:px-6 py-2.5 sm:py-4 glass-dark border-t border-white/5"
             >
                 <div className="w-full flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 mobile-clean-scroll">
-                    {controls.map((ctrl) => (
+                    {controls.map((ctrl) => {
+                        const dimmed = 'dimmed' in ctrl && ctrl.dimmed;
+                        return (
                         <motion.button
                             key={ctrl.label}
                             whileHover={{ scale: 1.08 }}
                             whileTap={{ scale: 0.95 }}
                             onClick={ctrl.onClick}
-                            title={ctrl.label}
-                            className={`p-2.5 sm:p-3 rounded-xl transition-all shrink-0 ${ctrl.danger
+                            title={dimmed ? `${ctrl.label} (not supported on this device)` : ctrl.label}
+                            className={`p-2.5 sm:p-3 rounded-xl transition-all shrink-0 ${dimmed
+                                ? 'bg-white/[0.04] text-white/40 hover:bg-white/[0.07] hover:text-white/50'
+                                : ctrl.danger
                                 ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
                                 : ctrl.active
                                     ? 'bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30'
@@ -871,7 +1140,8 @@ export default function MeetingRoomPage() {
                         >
                             <ctrl.icon className="w-5 h-5" />
                         </motion.button>
-                    ))}
+                        );
+                    })}
 
                     <motion.button
                         whileHover={{ scale: 1.08 }}
@@ -910,7 +1180,6 @@ function RemoteVideo({ peer, isPinned, onPin, small }: { peer: PeerState; isPinn
 
     useEffect(() => {
         if (!peer.remoteStream) return;
-        if (videoRef.current) videoRef.current.srcObject = peer.remoteStream;
 
         const check = () => {
             const tracks = peer.remoteStream?.getVideoTracks() || [];
@@ -931,10 +1200,17 @@ function RemoteVideo({ peer, isPinned, onPin, small }: { peer: PeerState; isPinn
         return () => clearInterval(interval);
     }, [peer.remoteStream]);
 
+    useEffect(() => {
+        const el = videoRef.current;
+        if (!el || !peer.remoteStream) return;
+        el.srcObject = peer.remoteStream;
+        void el.play().catch(() => undefined);
+    }, [peer.remoteStream]);
+
     if (small) {
         return (
             <div className="relative rounded-xl overflow-hidden bg-slate-900/80 border border-white/5 w-40 h-24 flex-shrink-0 cursor-pointer group" onClick={onPin}>
-                <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" style={{ display: hasVideo ? 'block' : 'none' }} />
+                <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" style={{ display: hasVideo ? 'block' : 'none' }} />
                 {!hasVideo && <div className="w-full h-full flex items-center justify-center"><UserCircle className="w-6 h-6 text-white/40" /></div>}
                 {peer.remoteStream && <AudioPlayer stream={peer.remoteStream} />}
                 {isRemoteScreenShare && <div className="absolute top-1 left-1 rounded-md border border-emerald-400/40 bg-emerald-500/20 px-1.5 py-0.5"><p className="text-[9px] text-emerald-200 font-semibold">Sharing</p></div>}
@@ -945,7 +1221,7 @@ function RemoteVideo({ peer, isPinned, onPin, small }: { peer: PeerState; isPinn
 
     return (
         <div className={`relative rounded-2xl overflow-hidden bg-slate-900/80 border border-white/5 ${isPinned ? 'w-full h-full' : 'aspect-video'} group`}>
-            <video ref={videoRef} autoPlay playsInline className="w-full h-full object-cover" style={{ display: hasVideo ? 'block' : 'none' }} />
+            <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" style={{ display: hasVideo ? 'block' : 'none' }} />
             {!hasVideo && (
                 <div className="w-full h-full flex flex-col items-center justify-center gap-3">
                     <div className="w-20 h-20 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center"><UserCircle className="w-8 h-8 text-white" /></div>
@@ -966,9 +1242,10 @@ function RemoteVideo({ peer, isPinned, onPin, small }: { peer: PeerState; isPinn
 function AudioPlayer({ stream }: { stream: MediaStream }) {
     const audioRef = useRef<HTMLAudioElement>(null);
     useEffect(() => {
-        if (audioRef.current) {
-            audioRef.current.srcObject = stream;
-        }
+        const el = audioRef.current;
+        if (!el) return;
+        el.srcObject = stream;
+        void el.play().catch(() => undefined);
     }, [stream]);
     return <audio ref={audioRef} autoPlay playsInline className="hidden" />;
 }
@@ -986,8 +1263,12 @@ function LocalVideoTile({
 }) {
     const ref = useRef<HTMLVideoElement>(null);
     useEffect(() => {
-        if (ref.current) ref.current.srcObject = stream;
-    }, [stream]);
+        const el = ref.current;
+        if (!el || !stream) return;
+        el.srcObject = null;
+        el.srcObject = stream;
+        void el.play().catch(() => undefined);
+    }, [stream, isCameraOff, isScreenSharing]);
     if (stream && (!isCameraOff || isScreenSharing)) {
         return <video ref={ref} autoPlay playsInline muted className="w-full h-full object-cover" />;
     }
@@ -1184,7 +1465,6 @@ function MeetingDetailsPanel({
     meeting,
     participants,
     currentUserId,
-    peers,
     localStream,
     currentUserName,
     isMuted,
@@ -1193,7 +1473,6 @@ function MeetingDetailsPanel({
     meeting: Meeting;
     participants: RoomParticipant[];
     currentUserId: string;
-    peers: Map<string, PeerState>;
     localStream: MediaStream | null;
     currentUserName: string;
     isMuted: boolean;
@@ -1220,12 +1499,10 @@ function MeetingDetailsPanel({
                 <p className="text-white/70 text-xs mt-1">{when.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</p>
             </div>
             <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-                <p className="text-white/50 text-[11px] mb-2">Live Mic Levels</p>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                <p className="text-white/50 text-[11px] mb-1">Your microphone</p>
+                <p className="text-white/35 text-[10px] mb-3">Only your mic level is shown here, not other participants.</p>
+                <div className="flex justify-center max-w-[200px] mx-auto">
                     <ParticipantMicSphere name={currentUserName || 'You'} stream={localStream} muted={isMuted} isYou />
-                    {Array.from(peers.entries()).map(([id, peer]) => (
-                        <ParticipantMicSphere key={id} name={peer.userName} stream={peer.remoteStream} muted={false} />
-                    ))}
                 </div>
             </div>
             <div className="rounded-xl border border-white/10 bg-white/5 p-3">
@@ -1345,43 +1622,72 @@ function ParticipantCardsGrid({
 
 function ApprovalsPanel({
     pendingRequests,
-    processingRequestId,
+    processingApprovalKey,
     onApprove,
     onReject,
 }: {
-    pendingRequests: any[];
-    processingRequestId: string | null;
-    onApprove: (userId: string) => Promise<void>;
-    onReject: (userId: string) => Promise<void>;
+    pendingRequests: PendingJoinRequest[];
+    processingApprovalKey: string | null;
+    onApprove: (req: PendingJoinRequest) => Promise<void>;
+    onReject: (req: PendingJoinRequest) => Promise<void>;
 }) {
     return (
         <div className="flex-1 overflow-y-auto p-3 space-y-2">
             <div className="rounded-xl border border-amber-400/30 bg-gradient-to-br from-amber-500/15 to-yellow-500/10 p-3">
                 <p className="text-amber-200 text-xs font-semibold">Join Approval Requests</p>
-                <p className="text-white/70 text-[11px] mt-1">Approve or reject members waiting to enter this meeting.</p>
+                <p className="text-white/70 text-[11px] mt-1">Approve signed-in members or guests (match guest ID + name).</p>
             </div>
             {pendingRequests.length === 0 ? (
                 <p className="text-white/40 text-xs px-1 py-4 text-center">No pending requests.</p>
             ) : (
                 pendingRequests.map((req) => {
-                    const userId = req.user_id as string;
+                    const busy = processingApprovalKey === req.key;
+                    if (req.requestKind === 'guest') {
+                        return (
+                            <div key={req.key} className="rounded-xl border border-indigo-400/25 bg-indigo-500/10 p-3">
+                                <p className="text-[10px] uppercase tracking-wide text-indigo-200/80 mb-1">Guest</p>
+                                <p className="text-white text-xs font-semibold truncate">{req.display_name}</p>
+                                <p className="text-white/45 text-[10px] mt-1 font-mono break-all">{req.guest_id}</p>
+                                <div className="mt-3 flex items-center gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => { void onApprove(req); }}
+                                        disabled={busy}
+                                        className="flex-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-200 text-xs py-1.5 flex items-center justify-center gap-1 disabled:opacity-50"
+                                    >
+                                        <Check className="w-3.5 h-3.5" /> Approve
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => { void onReject(req); }}
+                                        disabled={busy}
+                                        className="flex-1 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-200 text-xs py-1.5 flex items-center justify-center gap-1 disabled:opacity-50"
+                                    >
+                                        <X className="w-3.5 h-3.5" /> Reject
+                                    </button>
+                                </div>
+                            </div>
+                        );
+                    }
                     const name = req.profiles?.name || 'Member';
                     const email = req.profiles?.email || '';
-                    const busy = processingRequestId === userId;
                     return (
-                        <div key={userId} className="rounded-xl border border-white/10 bg-white/5 p-3">
+                        <div key={req.key} className="rounded-xl border border-white/10 bg-white/5 p-3">
+                            <p className="text-[10px] uppercase tracking-wide text-white/40 mb-1">Member</p>
                             <p className="text-white text-xs font-semibold truncate">{name}</p>
-                            {email && <p className="text-white/50 text-[11px] truncate">{email}</p>}
+                            {email ? <p className="text-white/50 text-[11px] truncate">{email}</p> : null}
                             <div className="mt-3 flex items-center gap-2">
                                 <button
-                                    onClick={() => { void onApprove(userId); }}
+                                    type="button"
+                                    onClick={() => { void onApprove(req); }}
                                     disabled={busy}
                                     className="flex-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-200 text-xs py-1.5 flex items-center justify-center gap-1 disabled:opacity-50"
                                 >
                                     <Check className="w-3.5 h-3.5" /> Approve
                                 </button>
                                 <button
-                                    onClick={() => { void onReject(userId); }}
+                                    type="button"
+                                    onClick={() => { void onReject(req); }}
                                     disabled={busy}
                                     className="flex-1 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-200 text-xs py-1.5 flex items-center justify-center gap-1 disabled:opacity-50"
                                 >

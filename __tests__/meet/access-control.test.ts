@@ -9,6 +9,7 @@ function createQueryBuilder(resolvedData: any = null, resolvedError: any = null)
         select: function (...args: any[]) { this._calls.push({ method: 'select', args }); return this; },
         insert: function (...args: any[]) { this._calls.push({ method: 'insert', args }); return this; },
         eq: function (...args: any[]) { this._calls.push({ method: 'eq', args }); return this; },
+        ilike: function (...args: any[]) { this._calls.push({ method: 'ilike', args }); return this; },
         single: function () { this._calls.push({ method: 'single', args: [] }); return { data: resolvedData, error: resolvedError }; },
     };
     builder.then = (resolve: any) => resolve({ data: resolvedData, error: resolvedError });
@@ -19,6 +20,7 @@ let mockFromHandlers: Record<string, (...args: any[]) => any> = {};
 
 const mockSupabase = {
     auth: {
+        getSession: vi.fn(),
         getUser: vi.fn(),
     },
     from: vi.fn((table: string) => {
@@ -48,14 +50,19 @@ describe('Meeting room access control', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mockFromHandlers = {};
+        mockSupabase.auth.getSession.mockResolvedValue({ data: { session: null } });
     });
 
-    // 1. Unauthenticated users are denied access
+    // 1. Unauthenticated users on non-general meetings
     it('denies access when user is not authenticated (getUser returns null)', async () => {
         mockSupabase.auth.getUser.mockResolvedValue({
             data: { user: null },
             error: { message: 'Not authenticated' },
         });
+
+        mockFromHandlers = {
+            meetings: () => createQueryBuilder([{ ...MEETING, access_type: 'invite_only' }], null),
+        };
 
         const result = await checkMeetingAccess(mockSupabase, 'room-abc');
 
@@ -69,10 +76,34 @@ describe('Meeting room access control', () => {
             error: { message: 'JWT expired' },
         });
 
+        mockFromHandlers = {
+            meetings: () => createQueryBuilder([{ ...MEETING, access_type: 'invite_only' }], null),
+        };
+
         const result = await checkMeetingAccess(mockSupabase, 'room-abc');
 
         expect(result.granted).toBe(false);
         expect(result.reason).toBe('unauthenticated');
+    });
+
+    it('allows guest entry for general + require_approval when unauthenticated (sign-in optional)', async () => {
+        mockSupabase.auth.getUser.mockResolvedValue({ data: { user: null }, error: null });
+
+        const generalApprovalMeeting = {
+            ...MEETING,
+            access_type: 'general',
+            require_approval: true,
+            participants: [] as string[],
+        };
+        mockFromHandlers = {
+            meetings: () => createQueryBuilder([generalApprovalMeeting], null),
+        };
+
+        const result = await checkMeetingAccess(mockSupabase, 'room-abc');
+
+        expect(result.granted).toBe(false);
+        expect(result.reason).toBe('guest_allowed');
+        expect(result.meeting).toEqual(generalApprovalMeeting);
     });
 
     // 2. Non-existent room_id results in access denied
@@ -100,7 +131,8 @@ describe('Meeting room access control', () => {
         });
 
         mockFromHandlers = {
-            meetings: () => createQueryBuilder(MEETING, null),
+            meetings: () => createQueryBuilder([MEETING], null),
+            profiles: () => createQueryBuilder({ executive_role: null, is_faculty: false, is_admin: false, name: 'Creator' }, null),
         };
 
         const result = await checkMeetingAccess(mockSupabase, 'room-abc');
@@ -119,8 +151,9 @@ describe('Meeting room access control', () => {
         });
 
         mockFromHandlers = {
-            meetings: () => createQueryBuilder(MEETING, null),
-            meeting_participants: () => createQueryBuilder({ id: 'mp-1' }, null),
+            meetings: () => createQueryBuilder([MEETING], null),
+            meeting_participants: () => createQueryBuilder({ id: 'mp-1', rsvp_status: 'accepted' }, null),
+            profiles: () => createQueryBuilder({ executive_role: null, is_faculty: false, is_admin: false, name: 'P' }, null),
         };
 
         const result = await checkMeetingAccess(mockSupabase, 'room-abc');
@@ -139,8 +172,9 @@ describe('Meeting room access control', () => {
         });
 
         mockFromHandlers = {
-            meetings: () => createQueryBuilder(MEETING, null),
+            meetings: () => createQueryBuilder([MEETING], null),
             meeting_participants: () => createQueryBuilder(null, { message: 'No rows found' }),
+            profiles: () => createQueryBuilder({ executive_role: null, is_faculty: false, is_admin: false, name: 'R' }, null),
         };
 
         const result = await checkMeetingAccess(mockSupabase, 'room-abc');

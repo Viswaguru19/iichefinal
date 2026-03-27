@@ -45,6 +45,28 @@ export function useWebRTC({ supabase, roomId, userId, userName, userRole, localS
             localStreamRef.current.getTracks().forEach(track => { pc.addTrack(track, localStreamRef.current!); });
         }
         const remoteStream = new MediaStream();
+        let negotiationBusy = false;
+        pc.onnegotiationneeded = async () => {
+            // Initial SDP is driven by the peer-joined handler; this handles late tracks / transceiver changes only.
+            if (!pc.localDescription || !pc.remoteDescription) return;
+            if (negotiationBusy || pc.signalingState !== 'stable') return;
+            const ch = channelRef.current;
+            if (!ch) return;
+            negotiationBusy = true;
+            try {
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+                ch.send({
+                    type: 'broadcast',
+                    event: 'sdp-offer',
+                    payload: { senderId: userIdRef.current, senderName: userNameRef.current, targetId: peerId, sdp: pc.localDescription },
+                });
+            } catch (e) {
+                console.error('Renegotiation offer error:', e);
+            } finally {
+                negotiationBusy = false;
+            }
+        };
         pc.ontrack = (event) => {
             if (event.streams[0]) {
                 event.streams[0].getTracks().forEach(t => { if (!remoteStream.getTracks().find(rt => rt.id === t.id)) remoteStream.addTrack(t); });
@@ -85,6 +107,8 @@ export function useWebRTC({ supabase, roomId, userId, userName, userRole, localS
         channel.on('broadcast', { event: 'peer-joined' }, async (msg) => {
             const { senderId, senderName } = msg.payload as { senderId: string; senderName: string };
             if (senderId === userIdRef.current || peersRef.current.has(senderId)) return;
+            // Glare avoidance: only the lexicographically smaller userId sends the initial offer.
+            if (userIdRef.current > senderId) return;
             const pc = createPC(senderId, senderName);
             try {
                 const offer = await pc.createOffer();
@@ -96,7 +120,21 @@ export function useWebRTC({ supabase, roomId, userId, userName, userRole, localS
         channel.on('broadcast', { event: 'sdp-offer' }, async (msg) => {
             const { senderId, senderName, targetId, sdp } = msg.payload as { senderId: string; senderName: string; targetId: string; sdp: RTCSessionDescriptionInit };
             if (targetId !== userIdRef.current) return;
-            if (peersRef.current.has(senderId)) { peersRef.current.get(senderId)!.connection.close(); peersRef.current.delete(senderId); }
+            const existing = peersRef.current.get(senderId);
+            if (existing) {
+                const conn = existing.connection;
+                try {
+                    await conn.setRemoteDescription(new RTCSessionDescription(sdp));
+                    if (conn.signalingState === 'have-remote-offer') {
+                        const answer = await conn.createAnswer();
+                        await conn.setLocalDescription(answer);
+                        channel.send({ type: 'broadcast', event: 'sdp-answer', payload: { senderId: userIdRef.current, targetId: senderId, sdp: conn.localDescription } });
+                    }
+                } catch (err) {
+                    console.error('Renegotiation answer error:', err);
+                }
+                return;
+            }
             const pc = createPC(senderId, senderName);
             try {
                 await pc.setRemoteDescription(new RTCSessionDescription(sdp));

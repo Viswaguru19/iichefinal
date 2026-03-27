@@ -125,8 +125,11 @@ export default function LoginPage() {
         throw new Error('Account pending approval. Contact admin.');
       }
 
-      // Redirect to dashboard (faculty gets full access via main dashboard)
-      window.location.href = '/dashboard';
+      // Redirect: meeting links use ?next=/meet/... ; default dashboard (open-redirect safe: internal paths only)
+      const rawNext = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('next') : null;
+      const nextPath =
+        rawNext && rawNext.startsWith('/') && !rawNext.startsWith('//') ? rawNext : null;
+      window.location.href = nextPath || '/dashboard';
     } catch (error: any) {
       console.error('Login error:', error);
       const errorMessage = error?.message || 'Login failed';
