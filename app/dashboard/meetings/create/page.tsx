@@ -51,7 +51,6 @@ export default function CreateMeetingPage() {
 
     if (meetingType === 'offline') {
       requestBody.location = formData.get('location') as string;
-      requestBody.venue_details = (formData.get('venue_details') as string) || undefined;
     }
 
     // Online meetings always use internal portal — no platform choice needed
@@ -91,8 +90,8 @@ export default function CreateMeetingPage() {
     }
   }
 
-  const inputClass = "w-full border border-gray-200 rounded-xl px-4 py-2.5 bg-white/80 text-sm outline-none focus:ring-2 focus:ring-indigo-300/50 transition-all";
-  const labelClass = "block text-sm font-medium text-gray-600 mb-1.5";
+  const inputClass = "premium-input w-full rounded-xl px-4 py-2.5 text-sm";
+  const labelClass = "block text-sm font-semibold text-gray-700 mb-1.5";
 
   return (
     <div className="min-h-screen bg-mesh py-8 px-4 relative overflow-hidden">
@@ -106,7 +105,7 @@ export default function CreateMeetingPage() {
         </motion.div>
 
         {createdLink && (
-          <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="glass-strong rounded-2xl p-5 mb-6 border-l-4 border-emerald-500">
+          <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="premium-panel rounded-2xl p-5 mb-6 border-l-4 border-emerald-500">
             <p className="text-sm font-semibold text-emerald-700 mb-2">Meeting created! Share this link:</p>
             <div className="flex items-center gap-2">
               <input type="text" readOnly value={createdLink} className="flex-1 bg-gray-50 rounded-xl px-3 py-2 text-sm text-gray-700" />
@@ -117,7 +116,7 @@ export default function CreateMeetingPage() {
         )}
 
         <motion.form initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
-          onSubmit={handleSubmit} className="glass-strong rounded-2xl shadow-md overflow-hidden">
+          onSubmit={handleSubmit} className="premium-panel rounded-2xl shadow-md overflow-hidden">
           <div className="h-1.5 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500" />
           <div className="p-6 space-y-5">
             <div>
@@ -190,10 +189,6 @@ export default function CreateMeetingPage() {
                   <div>
                     <label className={labelClass}>Location</label>
                     <input type="text" name="location" required placeholder="e.g., Main Auditorium" className={inputClass} />
-                  </div>
-                  <div>
-                    <label className={labelClass}>Venue Details</label>
-                    <textarea name="venue_details" rows={2} placeholder="Floor, room number, parking info, etc." className={inputClass} />
                   </div>
                 </motion.div>
               )}

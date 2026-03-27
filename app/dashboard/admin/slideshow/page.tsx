@@ -174,10 +174,12 @@ export default function SlideshowManagementPage() {
         if (!confirm('Are you sure you want to delete this photo?')) return;
 
         try {
-            // Delete from storage
-            await supabase.storage
-                .from('slideshow-photos')
-                .remove([photoUrl]);
+            // Delete from storage only for internal uploads
+            if (!photoUrl.startsWith('http')) {
+                await supabase.storage
+                    .from('slideshow-photos')
+                    .remove([photoUrl]);
+            }
 
             // Delete from database
             const { error } = await supabase
@@ -195,10 +197,10 @@ export default function SlideshowManagementPage() {
     };
 
     const getPhotoUrl = (path: string) => {
+        if (path.startsWith('http')) return path;
         const { data } = supabase.storage
             .from('slideshow-photos')
             .getPublicUrl(path);
-        console.log('Generated photo URL:', data.publicUrl);
         return data.publicUrl;
     };
 

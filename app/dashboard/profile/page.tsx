@@ -16,13 +16,26 @@ export default function ProfilePage() {
   const [photo, setPhoto] = useState<File | null>(null);
   const [photoUrl, setPhotoUrl] = useState('');
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [portalTheme, setPortalTheme] = useState<'dark-gradient' | 'light-gradient'>('dark-gradient');
   const [loading, setLoading] = useState(false);
   const supabase = createClient();
   const router = useRouter();
 
   useEffect(() => {
     loadProfile();
+    try {
+      const saved = localStorage.getItem('portal-theme');
+      if (saved === 'light-gradient') setPortalTheme('light-gradient');
+    } catch { }
   }, []);
+
+  const applyPortalTheme = (theme: 'dark-gradient' | 'light-gradient') => {
+    setPortalTheme(theme);
+    try {
+      localStorage.setItem('portal-theme', theme);
+      document.documentElement.setAttribute('data-portal-theme', theme === 'light-gradient' ? 'light' : 'dark');
+    } catch { }
+  };
 
   const loadProfile = async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -190,6 +203,26 @@ export default function ProfilePage() {
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
               />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Portal Theme</label>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => applyPortalTheme('dark-gradient')}
+                  className={`px-4 py-2 rounded-lg text-sm font-semibold ${portalTheme === 'dark-gradient' ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                >
+                  Black Gradient
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applyPortalTheme('light-gradient')}
+                  className={`px-4 py-2 rounded-lg text-sm font-semibold ${portalTheme === 'light-gradient' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                >
+                  White Gradient
+                </button>
+              </div>
             </div>
 
             <div>

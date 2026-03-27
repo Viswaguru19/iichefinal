@@ -74,15 +74,28 @@ export default function ProposeEventPage() {
         .neq('committee_id', '00000000-0000-0000-0000-000000000001')
         .single();
 
-      // Check if user is an executive member
+      // Role-based initial routing priority:
+      // Faculty/Admin -> active
+      // EC -> pending_faculty_approval
+      // Head/Co-head (non-EC) -> pending_ec_approval
+      // Others -> pending_head_approval
       const { data: profile } = await supabase
         .from('profiles')
-        .select('executive_role')
+        .select('executive_role, is_faculty, is_admin, committee_members(position)')
         .eq('id', user.id)
         .single();
 
       const isExecutive = profile?.executive_role != null;
-      const initialStatus = isExecutive ? 'pending_faculty_approval' : 'pending_head_approval';
+      const isFacultyOrAdmin = !!(profile?.is_faculty || profile?.is_admin);
+      const hasHeadOrCoheadRole = !!(profile as any)?.committee_members?.some((m: any) => {
+        const pos = String(m?.position || '').toLowerCase();
+        return pos === 'head' || pos === 'co_head' || pos === 'cohead' || (pos.includes('co') && pos.includes('head'));
+      });
+      const initialStatus =
+        isFacultyOrAdmin ? 'active' :
+          isExecutive ? 'pending_faculty_approval' :
+            hasHeadOrCoheadRole ? 'pending_ec_approval' :
+              'pending_head_approval';
 
       // insert into the `events` table with the correct initial status. this
       // ensures the proposal appears in the proposals screen (which only
@@ -196,7 +209,16 @@ export default function ProposeEventPage() {
                 type="file"
                 multiple
                 accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.jpg,.jpeg,.png"
-                onChange={(e) => setDocuments(Array.from(e.target.files || []))}
+                onChange={(e) => {
+                  const picked = Array.from(e.target.files || []);
+                  if (picked.length === 0) return;
+                  setDocuments((prev) => {
+                    const byKey = new Map<string, File>();
+                    [...prev, ...picked].forEach((f) => byKey.set(`${f.name}-${f.size}-${f.lastModified}`, f));
+                    return Array.from(byKey.values());
+                  });
+                  e.currentTarget.value = '';
+                }}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
               />
               <p className="text-xs text-gray-500 mt-1">

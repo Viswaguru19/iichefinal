@@ -7,6 +7,7 @@ import { ArrowLeft, Share2, Check, Lock, AlertTriangle, Upload } from 'lucide-re
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
+import QRCode from 'qrcode';
 
 interface FormField {
   id: string;
@@ -49,6 +50,11 @@ export default function FormSubmitPage() {
   const [user, setUser] = useState<any>(null);
   const [profile, setProfile] = useState<any>(null);
   const [canViewResponses, setCanViewResponses] = useState(false);
+  const [participantQrImage, setParticipantQrImage] = useState<string | null>(null);
+  const [participantQrPayload, setParticipantQrPayload] = useState<any>(null);
+  const [eventDetails, setEventDetails] = useState<any>(null);
+  const [externalName, setExternalName] = useState('');
+  const [externalEmail, setExternalEmail] = useState('');
   const params = useParams();
   const router = useRouter();
   const supabase = createClient();
@@ -58,9 +64,11 @@ export default function FormSubmitPage() {
   async function fetchForm() {
     const { data: { user: authUser } } = await supabase.auth.getUser();
     setUser(authUser);
+    let profileForPrefill: any = null;
     if (authUser) {
       const { data: prof } = await supabase.from('profiles').select('name, email, is_admin, is_faculty, executive_role, committee_members(committee_id)').eq('id', authUser.id).single();
       setProfile(prof);
+      profileForPrefill = prof;
       const p = prof as any;
       setCanViewResponses(p?.is_admin || p?.is_faculty || p?.executive_role || (p?.committee_members?.length > 0));
     }
@@ -70,17 +78,38 @@ export default function FormSubmitPage() {
     if (settings.status === 'draft' || !formData.is_active) { setFormClosed(true); setClosedReason('This form is not accepting responses.'); }
     else if (settings.end_date && new Date(settings.end_date) < new Date()) { setFormClosed(true); setClosedReason('This form has passed its deadline.'); }
     else if (settings.start_date && new Date(settings.start_date) > new Date()) { setFormClosed(true); setClosedReason(`This form opens on ${new Date(settings.start_date).toLocaleDateString()}.`); }
-    if (settings.requireLogin && !authUser) { setFormClosed(true); setClosedReason('You must be logged in to fill this form.'); }
-    if (!settings.allowMultiple && authUser) {
+    if ((settings.require_login ?? settings.requireLogin) && !authUser) { setFormClosed(true); setClosedReason('You must be logged in to fill this form.'); }
+    if (!(settings.allow_multiple ?? settings.allowMultiple) && authUser) {
       const { data: existing } = await supabase.from('form_responses').select('id').eq('form_id', params.id).eq('user_id', authUser.id).limit(1);
       if (existing && existing.length > 0) { setFormClosed(true); setClosedReason('You have already submitted a response.'); }
     }
-    if (settings.accessType === 'internal' && !authUser) { setFormClosed(true); setClosedReason('This form is only available to portal members.'); }
+    if ((settings.access_type ?? settings.accessType) === 'internal' && !authUser) { setFormClosed(true); setClosedReason('This form is only available to portal members.'); }
     setForm(formData);
     setFields(formData.fields || []);
-    if (authUser && profile) {
-      const emailField = (formData.fields || []).find((f: FormField) => f.field_type === 'email');
-      if (emailField) setAnswers(prev => ({ ...prev, [emailField.id]: profile?.email || '' }));
+    if (formData.form_type === 'event_registration' && formData.event_id) {
+      const { data: ev } = await supabase
+        .from('events')
+        .select('id, title, event_date, location, poster_url')
+        .eq('id', formData.event_id)
+        .single();
+      if (ev) {
+        let posterUrl = ev.poster_url;
+        if (posterUrl && !posterUrl.startsWith('http')) {
+          const { data } = supabase.storage.from('event-documents').getPublicUrl(posterUrl);
+          posterUrl = data.publicUrl;
+        }
+        setEventDetails({ ...ev, poster_url: posterUrl });
+      }
+    }
+    if (authUser && profileForPrefill) {
+      const emailField = (formData.fields || []).find((f: FormField) =>
+        f.field_type === 'email' || /email/i.test(f.label || '')
+      );
+      const nameField = (formData.fields || []).find((f: FormField) =>
+        /name/i.test(f.label || '')
+      );
+      if (emailField) setAnswers(prev => ({ ...prev, [emailField.id]: profileForPrefill?.email || '' }));
+      if (nameField) setAnswers(prev => ({ ...prev, [nameField.id]: profileForPrefill?.name || '' }));
     }
     setLoading(false);
   }
@@ -99,6 +128,11 @@ export default function FormSubmitPage() {
 
   function validate(): boolean {
     const newErrors: Record<string, string> = {};
+    if (!user) {
+      if (!externalName.trim()) newErrors.__external_name = 'Name is required';
+      if (!externalEmail.trim()) newErrors.__external_email = 'Email is required';
+      else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(externalEmail.trim())) newErrors.__external_email = 'Enter a valid email';
+    }
     for (const field of fields) {
       const val = answers[field.id];
       if (field.required && (!val || (Array.isArray(val) && val.length === 0))) { newErrors[field.id] = 'This field is required'; continue; }
@@ -113,10 +147,40 @@ export default function FormSubmitPage() {
     return Object.keys(newErrors).length === 0;
   }
 
+  async function hasExternalEmailAlreadySubmitted(email: string): Promise<boolean> {
+    const normalized = email.trim().toLowerCase();
+    if (!normalized) return false;
+    const { data, error } = await supabase
+      .from('form_responses')
+      .select('responses')
+      .eq('form_id', params.id)
+      .is('user_id', null);
+    if (error || !data) return false;
+    return data.some((row: any) => {
+      const responses = row?.responses || {};
+      if (typeof responses !== 'object' || responses === null) return false;
+      return Object.entries(responses).some(([k, v]) => /email/i.test(k) && String(v || '').trim().toLowerCase() === normalized);
+    });
+  }
+
   async function handleSubmit() {
     if (!validate()) { toast.error('Please fix the errors'); return; }
     setSubmitting(true);
+    const settings = form?.settings || {};
+    const allowMultiple = !!(settings.allow_multiple ?? settings.allowMultiple);
+    if (!user && !allowMultiple) {
+      const exists = await hasExternalEmailAlreadySubmitted(externalEmail);
+      if (exists) {
+        setSubmitting(false);
+        toast.error('This email has already submitted this form.');
+        return;
+      }
+    }
     const responses: Record<string, any> = {};
+    if (!user) {
+      responses.Name = externalName.trim();
+      responses.Email = externalEmail.trim();
+    }
     for (const field of fields) {
       const val = answers[field.id];
       if (field.field_type === 'file' && val instanceof File) {
@@ -127,10 +191,61 @@ export default function FormSubmitPage() {
         responses[field.label] = path;
       } else { responses[field.label] = val ?? null; }
     }
-    const { error } = await supabase.from('form_responses').insert({ form_id: params.id, user_id: user?.id || null, responses });
-    if (error) toast.error('Failed to submit');
-    else setSubmitted(true);
+    const { data: inserted, error } = await supabase
+      .from('form_responses')
+      .insert({ form_id: params.id, user_id: user?.id || null, responses })
+      .select('id')
+      .single();
+    if (error) {
+      toast.error('Failed to submit');
+    } else {
+      const emailVal =
+        Object.entries(responses).find(([k]) => /email/i.test(k))?.[1] ||
+        Object.values(answers).find((v: any) => typeof v === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v));
+      const nameVal =
+        Object.entries(responses).find(([k]) => /name/i.test(k))?.[1] ||
+        profile?.name ||
+        'Participant';
+      if (emailVal) {
+        const participantId = crypto.randomUUID();
+        const payload = {
+          participant_id: participantId,
+          event_id: form?.event_id || null,
+          response_id: inserted?.id,
+          form_id: params.id,
+          participant_name: nameVal,
+          participant_email: emailVal,
+          submitted_at: new Date().toISOString(),
+        };
+        if (form?.form_type === 'event_registration' && form?.event_id) {
+          const viaQr = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('source') === 'qr';
+          await supabase.from('event_participants').insert({
+            id: participantId,
+            event_id: form.event_id,
+            form_response_id: inserted?.id,
+            user_id: user?.id || null,
+            participant_name: String(nameVal || 'Participant'),
+            participant_email: String(emailVal),
+            form_data: responses,
+            qr_data: JSON.stringify(payload),
+            attendance_status: viaQr ? 'present' : 'registered',
+            attended_at: viaQr ? new Date().toISOString() : null,
+          });
+        }
+        setParticipantQrPayload(payload);
+        setParticipantQrImage(await QRCode.toDataURL(JSON.stringify(payload), { width: 260, margin: 1 }));
+      }
+      setSubmitted(true);
+    }
     setSubmitting(false);
+  }
+
+  function downloadQr() {
+    if (!participantQrImage) return;
+    const a = document.createElement('a');
+    a.href = participantQrImage;
+    a.download = `participant-qr-${(participantQrPayload?.participant_email || 'email').toString().replace(/[^a-z0-9]/gi, '_')}.png`;
+    a.click();
   }
 
   function copyLink() {
@@ -158,7 +273,7 @@ export default function FormSubmitPage() {
           initial={{ opacity: 0, scale: 0.8, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           transition={{ duration: 0.6, ease: [0.25, 0.46, 0.45, 0.94] }}
-          className="glass-strong rounded-3xl p-12 text-center max-w-md w-full shadow-2xl relative z-10"
+          className="premium-panel rounded-3xl p-12 text-center max-w-md w-full shadow-2xl relative z-10"
         >
           <motion.div
             initial={{ scale: 0 }}
@@ -170,6 +285,16 @@ export default function FormSubmitPage() {
           </motion.div>
           <h2 className="text-2xl font-extrabold text-gray-800 mb-2">Response Submitted</h2>
           <p className="text-gray-400 mb-8">Thank you for filling out this form.</p>
+          {participantQrImage && (
+            <div className="mb-8">
+              <p className="text-sm font-semibold text-gray-700 mb-2">Attendance QR (Email linked)</p>
+              <img src={participantQrImage} alt="Participant QR" className="w-48 h-48 mx-auto rounded-xl border border-gray-200 bg-white p-2" />
+              <button onClick={downloadQr} className="mt-3 text-xs font-semibold px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition">
+                Download QR
+              </button>
+              <p className="text-xs text-gray-500 mt-2">Please save this QR (download or screenshot) for attendance.</p>
+            </div>
+          )}
           <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.97 }}>
             <Link href="/dashboard/forms" className="btn-gradient-purple px-6 py-2.5 rounded-2xl text-sm font-semibold shadow-lg shadow-purple-500/20">
               Back to Forms
@@ -188,7 +313,7 @@ export default function FormSubmitPage() {
           initial={{ opacity: 0, scale: 0.8 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 0.5 }}
-          className="glass-strong rounded-3xl p-12 text-center max-w-md w-full shadow-2xl relative z-10"
+          className="premium-panel rounded-3xl p-12 text-center max-w-md w-full shadow-2xl relative z-10"
         >
           <motion.div animate={{ y: [0, -6, 0] }} transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}>
             <div className="w-20 h-20 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 mx-auto mb-6 flex items-center justify-center shadow-lg shadow-amber-500/30">
@@ -219,7 +344,7 @@ export default function FormSubmitPage() {
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
-          className="glass-strong rounded-t-3xl overflow-hidden mb-1 shadow-xl"
+          className="premium-panel rounded-t-3xl overflow-hidden mb-1 shadow-xl"
         >
           <div className="h-1.5 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500" />
           {(form?.banner_url || form?.settings?.banner_url) && <img src={form.banner_url || form.settings.banner_url} alt="" className="w-full h-48 object-cover" />}
@@ -241,16 +366,76 @@ export default function FormSubmitPage() {
             </div>
             <h1 className="text-3xl font-extrabold text-gradient tracking-tight mb-2">{form?.title}</h1>
             {form?.description && <p className="text-gray-400">{form.description}</p>}
+            {form?.form_type === 'event_registration' && eventDetails && (
+              <div className="mt-5 rounded-2xl border border-indigo-100 bg-indigo-50/70 p-4">
+                <p className="text-xs font-semibold text-indigo-600 mb-2">Event Registration</p>
+                <div className="flex gap-4 items-start">
+                  {eventDetails.poster_url && (
+                    <img src={eventDetails.poster_url} alt={eventDetails.title} className="w-20 h-24 object-cover rounded-lg border border-indigo-100" />
+                  )}
+                  <div className="text-sm text-indigo-900">
+                    <p className="font-bold">{eventDetails.title}</p>
+                    <p>{eventDetails.event_date ? new Date(eventDetails.event_date).toLocaleString('en-IN') : 'Date TBA'}</p>
+                    <p>{eventDetails.location || 'Venue TBA'}</p>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </motion.div>
 
         {/* Fields */}
         {fields.length === 0 ? (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="glass-strong rounded-3xl p-12 text-center">
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="premium-panel rounded-3xl p-12 text-center">
             <p className="text-gray-400">This form has no questions yet.</p>
           </motion.div>
         ) : (
           <div className="space-y-1">
+            {!user && (
+              <motion.div
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="premium-panel p-6 border border-amber-200/50"
+              >
+                <p className="text-sm font-semibold text-amber-700 mb-4">
+                  External User Details (Required)
+                </p>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div>
+                    <label className="block text-base font-semibold text-gray-800 mb-1">
+                      Name <span className="text-red-400 ml-1">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={externalName}
+                      onChange={(e) => {
+                        setExternalName(e.target.value);
+                        setErrors((prev) => { const n = { ...prev }; delete n.__external_name; return n; });
+                      }}
+                      placeholder="Your name"
+                      className="w-full border-b-2 border-gray-200 focus:border-indigo-500 outline-none py-2 text-gray-800 bg-transparent transition-colors placeholder-gray-300"
+                    />
+                    {errors.__external_name && <p className="text-red-400 text-sm mt-2 flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5" /> {errors.__external_name}</p>}
+                  </div>
+                  <div>
+                    <label className="block text-base font-semibold text-gray-800 mb-1">
+                      Email <span className="text-red-400 ml-1">*</span>
+                    </label>
+                    <input
+                      type="email"
+                      value={externalEmail}
+                      onChange={(e) => {
+                        setExternalEmail(e.target.value);
+                        setErrors((prev) => { const n = { ...prev }; delete n.__external_email; return n; });
+                      }}
+                      placeholder="email@example.com"
+                      className="w-full border-b-2 border-gray-200 focus:border-indigo-500 outline-none py-2 text-gray-800 bg-transparent transition-colors placeholder-gray-300"
+                    />
+                    {errors.__external_email && <p className="text-red-400 text-sm mt-2 flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5" /> {errors.__external_email}</p>}
+                  </div>
+                </div>
+              </motion.div>
+            )}
             {fields.map((field, i) => (
               <motion.div
                 key={field.id}
@@ -258,7 +443,7 @@ export default function FormSubmitPage() {
                 variants={fieldAnim}
                 initial="hidden"
                 animate="show"
-                className={`glass-strong p-6 transition-all duration-300 hover:shadow-lg ${errors[field.id] ? 'ring-2 ring-red-400/60' : ''}`}
+                className={`premium-panel p-6 transition-all duration-300 hover:shadow-lg ${errors[field.id] ? 'ring-2 ring-red-400/60' : ''}`}
               >
                 <label className="block text-base font-semibold text-gray-800 mb-1">
                   {field.label || 'Untitled Question'}
@@ -354,7 +539,7 @@ export default function FormSubmitPage() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: fields.length * 0.05 + 0.2 }}
-              className="glass-strong rounded-b-3xl p-6 flex items-center gap-4"
+              className="premium-panel rounded-b-3xl p-6 flex items-center gap-4"
             >
               <motion.button
                 whileHover={{ scale: 1.04 }}

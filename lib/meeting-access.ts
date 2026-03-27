@@ -22,8 +22,11 @@ export async function checkMeetingAccess(
     supabase: SupabaseClient,
     roomId: string,
 ): Promise<AccessCheckResult> {
-    // 1. Authenticate
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    // 1. Authenticate (session fallback helps avoid false guest prompt)
+    const { data: sessionData } = await supabase.auth.getSession();
+    const sessionUser = sessionData?.session?.user || null;
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    const user = authUser || sessionUser;
 
     // 2. Fetch meeting by matching room_id in meeting_link
     const { data: meetings } = await supabase
@@ -37,7 +40,7 @@ export async function checkMeetingAccess(
     }
 
     // 3. If not authenticated but meeting is general, allow as guest
-    if (authError || !user) {
+    if (!user) {
         if (meetingData.access_type === 'general') {
             return { granted: false, reason: 'guest_allowed', meeting: meetingData };
         }
@@ -56,8 +59,10 @@ export async function checkMeetingAccess(
     else if (profile?.is_admin) userRole = 'Admin';
     else if (profile?.executive_role) userRole = profile.executive_role.replace(/_/g, ' ');
 
-    // 5. General meetings — anyone authenticated can join
-    if (meetingData.access_type === 'general') {
+    const isPrivileged = !!(profile?.executive_role || profile?.is_faculty || profile?.is_admin);
+
+    // 5. General meetings — anyone authenticated can join unless approval is required
+    if (meetingData.access_type === 'general' && !meetingData.require_approval) {
         return { granted: true, reason: 'granted', meeting: meetingData, userId: user.id, userRole };
     }
 
@@ -76,22 +81,22 @@ export async function checkMeetingAccess(
     // 8. Check meeting_participants table
     const { data: participant } = await supabase
         .from('meeting_participants')
-        .select('id')
+        .select('id, rsvp_status')
         .eq('meeting_id', meetingData.id)
         .eq('user_id', user.id)
         .single();
 
-    if (participant) {
+    if (participant && (meetingData.access_type !== 'general' || !meetingData.require_approval || participant.rsvp_status === 'approved')) {
         return { granted: true, reason: 'granted', meeting: meetingData, userId: user.id, userRole };
     }
 
     // 9. EC members and faculty always have access
-    if (profile?.executive_role || profile?.is_faculty || profile?.is_admin) {
+    if (isPrivileged) {
         return { granted: true, reason: 'granted', meeting: meetingData, userId: user.id, userRole };
     }
 
-    // 10. If meeting requires approval, return pending
-    if (meetingData.require_approval) {
+    // 10. If general meeting requires approval, return pending for regular users
+    if (meetingData.access_type === 'general' && meetingData.require_approval) {
         return { granted: false, reason: 'pending_approval', meeting: meetingData, userId: user.id };
     }
 

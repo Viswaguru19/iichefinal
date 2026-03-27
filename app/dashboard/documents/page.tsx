@@ -115,7 +115,7 @@ export default function DocumentsPage() {
           <select
             value={selectedCommittee}
             onChange={(e) => setSelectedCommittee(e.target.value)}
-            className="flex-1 px-4 py-2 border border-white/30 rounded-xl glass focus:ring-2 focus:ring-indigo-500"
+            className="flex-1 px-4 py-2 rounded-xl premium-input focus:ring-2 focus:ring-indigo-500"
           >
             <option value="">Select Committee</option>
             {committees.map((c) => (
@@ -131,7 +131,7 @@ export default function DocumentsPage() {
         </div>
 
         {showUpload && (
-          <div className="glass rounded-2xl p-6 mb-6">
+          <div className="premium-panel rounded-2xl p-6 mb-6">
             <h2 className="text-xl font-bold text-gradient mb-4">Upload Document</h2>
             <form onSubmit={handleUpload} className="space-y-4">
               <div>
@@ -159,11 +159,11 @@ export default function DocumentsPage() {
         )}
 
         {selectedCommittee ? (
-          <div className="glass rounded-2xl p-6">
+          <div className="premium-panel rounded-2xl p-6">
             <h2 className="text-xl font-bold text-gradient mb-4">Documents</h2>
             <div className="space-y-4">
               {documents.map((doc) => (
-                <div key={doc.id} className="glass-strong rounded-xl p-4 hover:shadow-lg transition">
+                <div key={doc.id} className="premium-card rounded-xl p-4 hover:shadow-lg transition">
                   <div className="flex justify-between items-start">
                     <div className="flex-1">
                       <h3 className="font-bold flex items-center gap-2">
@@ -195,7 +195,7 @@ export default function DocumentsPage() {
             </div>
           </div>
         ) : (
-          <div className="glass rounded-2xl p-12 text-center">
+          <div className="premium-panel rounded-2xl p-12 text-center">
             <p className="text-gray-400">Select a committee to view documents</p>
           </div>
         )}

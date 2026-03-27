@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import Image from 'next/image';
 import { getCurrentLogoClient } from '@/lib/logo-utils-client';
 
 interface DynamicLogoProps {
@@ -17,7 +16,7 @@ export default function DynamicLogo({
     className = '',
     alt = 'IIChE AVVU SC Logo'
 }: DynamicLogoProps) {
-    const [logoUrl, setLogoUrl] = useState('/logo.svg');
+    const [logoUrl, setLogoUrl] = useState('/logo.png');
 
     useEffect(() => {
         loadLogo();
@@ -34,7 +33,10 @@ export default function DynamicLogo({
             alt={alt}
             width={width}
             height={height}
-            className={className}
+            className={`object-contain ${className}`}
+            onError={(e) => {
+                e.currentTarget.src = '/logo.png';
+            }}
         />
     );
 }

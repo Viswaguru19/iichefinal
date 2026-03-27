@@ -31,7 +31,7 @@ export default function AttendanceSection({
     // If submitted, show summary for everyone
     if (isSubmitted) {
         return (
-            <div className="glass-strong rounded-2xl p-6 shadow-md">
+            <div className="premium-panel rounded-2xl p-6 shadow-md">
                 <div className="flex items-center gap-2 mb-4">
                     <ClipboardList className="w-5 h-5 text-indigo-500" />
                     <h3 className="text-lg font-bold text-gray-800">Attendance</h3>
@@ -52,7 +52,7 @@ export default function AttendanceSection({
     // Manager view: show form/controls
     if (isManager) {
         return (
-            <div className="glass-strong rounded-2xl p-6 shadow-md">
+            <div className="premium-panel rounded-2xl p-6 shadow-md">
                 <div className="flex items-center gap-2 mb-4">
                     <ClipboardList className="w-5 h-5 text-indigo-500" />
                     <h3 className="text-lg font-bold text-gray-800">Manage Attendance</h3>
@@ -81,7 +81,7 @@ export default function AttendanceSection({
     const myRecord = attendance.find((r: any) => r.user_id === currentUser?.id);
 
     return (
-        <div className="glass-strong rounded-2xl p-6 shadow-md">
+        <div className="premium-panel rounded-2xl p-6 shadow-md">
             <div className="flex items-center gap-2 mb-4">
                 <ClipboardList className="w-5 h-5 text-indigo-500" />
                 <h3 className="text-lg font-bold text-gray-800">Your Attendance</h3>

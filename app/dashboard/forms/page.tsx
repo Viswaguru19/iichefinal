@@ -151,7 +151,7 @@ export default function FormsPage() {
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, delay: 0.1 }}
-          className="glass rounded-2xl p-1.5 flex gap-1 mb-8 w-fit"
+          className="premium-card rounded-2xl p-1.5 flex gap-1 mb-8 w-fit"
         >
           {(['all', 'active', 'draft', 'closed'] as const).map(tab => (
             <button
@@ -170,7 +170,7 @@ export default function FormsPage() {
         {/* Forms Grid */}
         <AnimatePresence mode="wait">
           {filtered.length === 0 ? (
-            <motion.div key="empty" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="glass-strong rounded-2xl p-16 text-center">
+            <motion.div key="empty" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="premium-panel rounded-2xl p-16 text-center">
               <motion.div animate={{ y: [0, -8, 0] }} transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}>
                 <FileText className="w-16 h-16 text-gray-300 mx-auto mb-4" />
               </motion.div>
@@ -190,7 +190,7 @@ export default function FormsPage() {
                 const isActive = form.computed_status === 'active';
                 return (
                   <motion.div key={form.id} variants={item} whileHover={{ y: -6, transition: { duration: 0.2 } }} className="group relative">
-                    <div className="glass-strong rounded-2xl overflow-hidden shadow-md hover:shadow-2xl transition-all duration-300 relative">
+                    <div className="premium-panel rounded-2xl overflow-hidden shadow-md hover:shadow-2xl transition-all duration-300 relative">
                       <div className="h-1.5 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500" />
                       <div className="absolute -top-10 -right-10 w-28 h-28 rounded-full bg-gradient-to-br from-indigo-400/10 to-purple-400/10 blur-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
 

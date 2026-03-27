@@ -172,6 +172,22 @@ export default function ProposalsPage() {
   };
   const canApproveAsEC = (p: any) => (isFaculty || isAdmin || isEC) && (p.status === 'pending_ec_approval' || p.status === 'rejected_by_head');
   const canApproveAsFaculty = (p: any) => (isFaculty || isAdmin) && p.status === 'pending_faculty_approval';
+  const canResubmitOwn = (p: any) => {
+    const mine = p.proposed_by === userProfile?.id || p.created_by === userProfile?.id;
+    return mine && ['rejected_by_head', 'review_by_cohead', 'cancelled'].includes(p.status);
+  };
+  const getResubmitStatus = () => {
+    const isFacultyOrAdmin = !!(userProfile?.is_faculty || userProfile?.is_admin);
+    const isExecutiveMember = !!(userProfile?.executive_role);
+    const hasHeadOrCoheadRole = !!userProfile?.committee_members?.some((m: any) => {
+      const pos = String(m?.position || '').toLowerCase();
+      return pos === 'head' || pos === 'co_head' || pos === 'cohead' || (pos.includes('co') && pos.includes('head'));
+    });
+    if (isFacultyOrAdmin) return 'active';
+    if (isExecutiveMember) return 'pending_faculty_approval'; // EC priority first
+    if (hasHeadOrCoheadRole) return 'pending_ec_approval';
+    return 'pending_head_approval';
+  };
   const canCancelEvent = (p: any) => p.status !== 'cancelled' && p.status !== 'completed' && (isFaculty || isAdmin || isEC);
   const canChangeDate = (p: any) => p.status !== 'cancelled' && p.status !== 'completed' && (isFaculty || isAdmin || isEC || userCommittees.includes(p.committee_id));
   const canSendForReview = (p: any) => {
@@ -210,7 +226,7 @@ export default function ProposalsPage() {
       <div className="max-w-7xl mx-auto px-4 py-8">
         {/* Filter bar */}
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
-          className="glass rounded-2xl p-4 mb-6 flex items-center gap-4 flex-wrap">
+          className="premium-card rounded-2xl p-4 mb-6 flex items-center gap-4 flex-wrap">
           <Filter className="w-5 h-5 text-indigo-400" />
           {['all', 'pending_head_approval', 'pending_ec_approval', 'pending_faculty_approval', 'active', 'cancelled'].map(s => (
             <motion.button key={s} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
@@ -237,7 +253,7 @@ export default function ProposalsPage() {
                 <motion.div key={proposal.id}
                   initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
                   transition={{ duration: 0.45, delay: idx * 0.05 }}
-                  className="glass rounded-2xl p-6 relative overflow-hidden group hover:shadow-xl transition-all duration-300"
+                  className="premium-panel rounded-2xl p-6 relative overflow-hidden group hover:shadow-xl transition-all duration-300"
                 >
                   {/* Top gradient accent */}
                   <div className={`absolute top-0 left-0 right-0 h-1 bg-gradient-to-r ${grad}`} />
@@ -256,6 +272,24 @@ export default function ProposalsPage() {
                   </div>
 
                   <p className="text-gray-600 text-sm mb-4 relative z-10">{proposal.description}</p>
+                  {Array.isArray(proposal.documents) && proposal.documents.length > 0 && (
+                    <div className="mb-4 p-3 rounded-xl bg-indigo-50/60 border border-indigo-100 relative z-10">
+                      <p className="text-xs font-semibold text-indigo-700 mb-1">Attachments</p>
+                      <div className="space-y-1">
+                        {proposal.documents.map((doc: any, i: number) => (
+                          <a
+                            key={`${proposal.id}-doc-${i}`}
+                            href={doc.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="block text-xs text-indigo-600 hover:text-indigo-800 truncate"
+                          >
+                            {doc.name || `Document ${i + 1}`}
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   <div className="grid grid-cols-2 gap-3 text-sm text-gray-500 mb-4 relative z-10">
                     <div><span className="font-medium text-gray-600">Date:</span> {proposal.date ? new Date(proposal.date).toLocaleString('en-IN') : 'TBA'}</div>
@@ -377,6 +411,17 @@ export default function ProposalsPage() {
                     {proposal.status === 'review_by_cohead' && (
                       <div className="flex items-center gap-2 text-violet-400 text-sm"><Clock className="w-4 h-4" /> Under Co-Head review</div>
                     )}
+                    {canResubmitOwn(proposal) && (
+                      <motion.button
+                        whileHover={{ scale: 1.04 }}
+                        whileTap={{ scale: 0.96 }}
+                        onClick={() => { setSelectedProposal(proposal); setShowEditModal(true); }}
+                        disabled={loading}
+                        className="btn-gradient-purple px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 disabled:opacity-50"
+                      >
+                        <RotateCcw className="w-4 h-4" /> Edit & Resubmit
+                      </motion.button>
+                    )}
                   </div>
                 </motion.div>
               );
@@ -384,7 +429,7 @@ export default function ProposalsPage() {
           </AnimatePresence>
 
           {filtered.length === 0 && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="glass rounded-2xl p-16 text-center">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="premium-panel rounded-2xl p-16 text-center">
               <motion.div animate={{ y: [0, -8, 0] }} transition={{ duration: 3, repeat: Infinity }}><Sparkles className="w-16 h-16 mx-auto mb-4 text-indigo-200" /></motion.div>
               <p className="text-gray-400 font-semibold">No proposals found</p>
             </motion.div>
@@ -453,7 +498,14 @@ export default function ProposalsPage() {
         )}
       </AnimatePresence>
 
-      {showEditModal && selectedProposal && <EditEventModal event={selectedProposal} onClose={() => { setShowEditModal(false); setSelectedProposal(null); }} onSuccess={loadProposals} />}
+      {showEditModal && selectedProposal && (
+        <EditEventModal
+          event={selectedProposal}
+          resubmitToStatus={canResubmitOwn(selectedProposal) ? getResubmitStatus() : null}
+          onClose={() => { setShowEditModal(false); setSelectedProposal(null); }}
+          onSuccess={loadProposals}
+        />
+      )}
       {showRevokeModal && selectedProposal && <RevokeModal event={selectedProposal} onClose={() => { setShowRevokeModal(false); setSelectedProposal(null); }} onSuccess={loadProposals} />}
     </div>
   );

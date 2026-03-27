@@ -3,13 +3,15 @@
 import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter, useParams } from 'next/navigation';
-import { Calendar, MapPin, CheckCircle, Clock, Edit, Check, X, Palette, ImageIcon, AlertCircle, Camera, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Calendar, MapPin, CheckCircle, Clock, Edit, Check, X, Palette, ImageIcon, AlertCircle, Camera, ChevronLeft, ChevronRight, Users, QrCode } from 'lucide-react';
 import toast from 'react-hot-toast';
 import PageHeader from '@/components/PageHeader';
 import ReminderButton from '@/components/ReminderButton';
 import ReminderLog from '@/components/ReminderLog';
 import StatusIndicator from '@/components/StatusIndicator';
 import EventReport from '@/components/EventReport';
+import QRCode from 'qrcode';
+import EventQrScanner from '@/components/events/EventQrScanner';
 
 export default function EventDetailPage() {
   const [event, setEvent] = useState<any>(null);
@@ -29,6 +31,14 @@ export default function EventDetailPage() {
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [viewingPhotos, setViewingPhotos] = useState(false);
   const [photoIndex, setPhotoIndex] = useState(0);
+  const [activeTab, setActiveTab] = useState<'info' | 'participants' | 'attendance'>('info');
+  const [participants, setParticipants] = useState<any[]>([]);
+  const [participantsLoading, setParticipantsLoading] = useState(false);
+  const [selectedParticipant, setSelectedParticipant] = useState<any>(null);
+  const [eventQrImage, setEventQrImage] = useState<string | null>(null);
+  const [scanInput, setScanInput] = useState('');
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [slideshowUrls, setSlideshowUrls] = useState<Set<string>>(new Set());
   const supabase = createClient();
   const router = useRouter();
   const params = useParams();
@@ -37,6 +47,121 @@ export default function EventDetailPage() {
     loadEventDetails();
     loadUserProfile();
   }, []);
+  useEffect(() => {
+    void loadSlideshowSelections();
+  }, []);
+  useEffect(() => {
+    if (event?.id) void loadParticipants();
+  }, [event?.id]);
+
+  async function loadParticipants() {
+    if (!event?.id) return;
+    setParticipantsLoading(true);
+    const { data, error } = await supabase
+      .from('event_participants')
+      .select('*')
+      .eq('event_id', event.id)
+      .order('created_at', { ascending: false });
+    if (error) toast.error('Failed to load participants');
+    setParticipants(data || []);
+    setParticipantsLoading(false);
+  }
+
+  async function loadSlideshowSelections() {
+    const { data } = await supabase
+      .from('homepage_slideshow')
+      .select('photo_url')
+      .eq('is_active', true)
+      .eq('approval_status', 'approved');
+    setSlideshowUrls(new Set((data || []).map((d: any) => d.photo_url)));
+  }
+
+  async function togglePhotoInSlideshow(photo: any) {
+    const photoUrl = photo.photo_url;
+    const alreadyIn = slideshowUrls.has(photoUrl);
+    try {
+      if (alreadyIn) {
+        const { error } = await supabase
+          .from('homepage_slideshow')
+          .delete()
+          .eq('photo_url', photoUrl);
+        if (error) throw error;
+        toast.success('Removed from slideshow');
+      } else {
+        const { data: maxRows } = await supabase
+          .from('homepage_slideshow')
+          .select('display_order')
+          .order('display_order', { ascending: false })
+          .limit(1);
+        const nextOrder = (maxRows?.[0]?.display_order || 0) + 1;
+        const { error } = await supabase
+          .from('homepage_slideshow')
+          .insert({
+            photo_url: photoUrl,
+            title: event?.title ? `${event.title} Photo` : 'Event Photo',
+            description: photo.caption || null,
+            link_url: null,
+            approval_status: 'approved',
+            is_active: true,
+            display_order: nextOrder,
+          });
+        if (error) throw error;
+        toast.success('Added to slideshow');
+      }
+      await loadSlideshowSelections();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to update slideshow');
+    }
+  }
+
+  async function createEventQr() {
+    if (!event?.id) return;
+    const { data: eventForm } = await supabase
+      .from('forms')
+      .select('id')
+      .eq('event_id', event.id)
+      .eq('form_type', 'event_registration')
+      .eq('is_active', true)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (!eventForm?.id) {
+      toast.error('No active event registration form found');
+      return;
+    }
+    const formUrl = `${window.location.origin}/dashboard/forms/${eventForm.id}?source=qr`;
+    const qr = await QRCode.toDataURL(formUrl, { width: 280, margin: 1 });
+    setEventQrImage(qr);
+    toast.success('Event QR created');
+  }
+
+  async function markAttendance(participantId: string, status: 'present' | 'absent' = 'present') {
+    const updateData: any = { attendance_status: status };
+    if (status === 'present') updateData.attended_at = new Date().toISOString();
+    const { error } = await supabase.from('event_participants').update(updateData).eq('id', participantId);
+    if (error) toast.error(error.message);
+    await loadParticipants();
+  }
+
+  async function processScanPayload(raw: string) {
+    if (!raw.trim()) return;
+    try {
+      const payload = JSON.parse(raw);
+      if (!payload?.participant_id || payload?.event_id !== event?.id) {
+        toast.error('Invalid participant QR for this event');
+        return;
+      }
+      await markAttendance(payload.participant_id, 'present');
+      toast.success('Attendance marked present');
+    } catch {
+      toast.error('Invalid QR payload');
+    }
+  }
+
+  async function handleScan() {
+    await processScanPayload(scanInput);
+    setScanInput('');
+  }
 
   async function loadUserProfile() {
     const { data: { user } } = await supabase.auth.getUser();
@@ -365,8 +490,15 @@ export default function EventDetailPage() {
       <PageHeader title="Event Details" />
 
       <div className="max-w-7xl mx-auto px-4 py-8">
+        <div className="premium-card rounded-2xl p-2 mb-6 flex gap-2 w-fit">
+          <button onClick={() => setActiveTab('info')} className={`px-4 py-2 rounded-xl text-sm font-semibold ${activeTab === 'info' ? 'bg-indigo-600 text-white' : 'text-gray-600 hover:bg-white/70'}`}>Event Info</button>
+          <button onClick={() => setActiveTab('participants')} className={`px-4 py-2 rounded-xl text-sm font-semibold ${activeTab === 'participants' ? 'bg-indigo-600 text-white' : 'text-gray-600 hover:bg-white/70'}`}>Participant Details</button>
+          <button onClick={() => setActiveTab('attendance')} className={`px-4 py-2 rounded-xl text-sm font-semibold ${activeTab === 'attendance' ? 'bg-indigo-600 text-white' : 'text-gray-600 hover:bg-white/70'}`}>Participation / Attendance</button>
+        </div>
+        {activeTab === 'info' && (
+          <>
         {/* Event Poster Section */}
-        <div className="glass rounded-2xl p-8 mb-6">
+        <div className="premium-panel rounded-2xl p-8 mb-6">
           <h3 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
             <ImageIcon className="w-6 h-6" />
             Event Poster
@@ -446,7 +578,7 @@ export default function EventDetailPage() {
         </div>
 
         {/* Event Photos Section */}
-        <div className="glass rounded-2xl p-8 mb-6">
+        <div className="premium-panel rounded-2xl p-8 mb-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
               <Camera className="w-6 h-6" /> Event Photos
@@ -461,6 +593,16 @@ export default function EventDetailPage() {
               {eventPhotos.map((photo: any, idx: number) => (
                 <div key={photo.id} className="relative group cursor-pointer" onClick={() => { setPhotoIndex(idx); setViewingPhotos(true); }}>
                   <img src={photo.photo_url} alt={photo.caption || 'Event photo'} className="w-full h-32 object-cover rounded-xl hover:opacity-90 transition" />
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void togglePhotoInSlideshow(photo);
+                    }}
+                    className={`absolute top-2 right-2 text-[10px] px-2 py-1 rounded-md text-white transition ${slideshowUrls.has(photo.photo_url) ? 'bg-rose-600/85 hover:bg-rose-700' : 'bg-black/60 hover:bg-black/75'}`}
+                    title={slideshowUrls.has(photo.photo_url) ? 'Remove from slideshow' : 'Add to slideshow'}
+                  >
+                    {slideshowUrls.has(photo.photo_url) ? 'Remove from slideshow' : 'Add to slideshow'}
+                  </button>
                   {photo.caption && <p className="text-[10px] text-gray-500 mt-1 truncate">{photo.caption}</p>}
                 </div>
               ))}
@@ -518,7 +660,7 @@ export default function EventDetailPage() {
         )}
 
         {/* Event Info */}
-        <div className="glass rounded-2xl p-8 mb-6">
+        <div className="premium-panel rounded-2xl p-8 mb-6">
           <div className="flex justify-between items-start mb-4">
             <div>
               <h2 className="text-3xl font-bold text-gray-900">{event.title}</h2>
@@ -541,6 +683,25 @@ export default function EventDetailPage() {
           </div>
 
           <p className="text-gray-700 mb-6">{event.description}</p>
+
+          {Array.isArray(event.documents) && event.documents.length > 0 && (
+            <div className="mb-6 p-4 bg-indigo-50/60 rounded-xl border border-indigo-100">
+              <h4 className="text-sm font-semibold text-indigo-700 mb-2">Proposal Attachments</h4>
+              <div className="space-y-1">
+                {event.documents.map((doc: any, idx: number) => (
+                  <a
+                    key={`event-doc-${idx}`}
+                    href={doc.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block text-sm text-indigo-600 hover:text-indigo-800 truncate"
+                  >
+                    {doc.name || `Attachment ${idx + 1}`}
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="grid md:grid-cols-2 gap-4 mb-6">
             {event.event_date && (
@@ -658,11 +819,12 @@ export default function EventDetailPage() {
         <EventReport
           event={event}
           tasks={tasks}
+          eventPhotos={eventPhotos}
           canEdit={isEC || isFaculty || isEditorial}
         />
 
         {/* Tasks */}
-        <div className="glass rounded-2xl p-8">
+        <div className="premium-panel rounded-2xl p-8">
           <div className="flex justify-between items-center mb-6">
             <div>
               <h3 className="text-2xl font-bold text-gray-900">Tasks</h3>
@@ -874,6 +1036,114 @@ export default function EventDetailPage() {
             ) : null
           )}
         </div>
+          </>
+        )}
+
+        {activeTab === 'participants' && (
+          <div className="premium-panel rounded-2xl p-8">
+            <h3 className="text-2xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+              <Users className="w-6 h-6" /> Participant Details
+            </h3>
+            {participantsLoading ? (
+              <p className="text-gray-500">Loading participants...</p>
+            ) : participants.length === 0 ? (
+              <p className="text-gray-500">No participants registered yet.</p>
+            ) : (
+              <div className="grid md:grid-cols-2 gap-4">
+                <div className="space-y-2 max-h-[540px] overflow-y-auto pr-2">
+                  {participants.map((p: any) => (
+                    <button
+                      key={p.id}
+                      onClick={() => setSelectedParticipant(p)}
+                      className={`w-full text-left rounded-xl border px-4 py-3 transition ${selectedParticipant?.id === p.id ? 'border-indigo-300 bg-indigo-50/80' : 'border-gray-200 bg-white/70 hover:bg-gray-50'}`}
+                    >
+                      <p className="font-semibold text-gray-900">{p.participant_name || 'Participant'}</p>
+                      <p className="text-xs text-gray-500">{p.participant_email || 'No email'}</p>
+                    </button>
+                  ))}
+                </div>
+                <div className="rounded-xl border border-gray-200 bg-white/70 p-4">
+                  {selectedParticipant ? (
+                    <>
+                      <h4 className="font-semibold text-gray-900 mb-2">Submitted Form Details</h4>
+                      <pre className="text-xs text-gray-700 whitespace-pre-wrap break-words">
+                        {JSON.stringify(selectedParticipant.form_data || {}, null, 2)}
+                      </pre>
+                    </>
+                  ) : (
+                    <p className="text-sm text-gray-500">Select a participant to view complete response details.</p>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'attendance' && (
+          <div className="premium-panel rounded-2xl p-8">
+            <div className="flex items-center justify-between gap-3 mb-5 flex-wrap">
+              <h3 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+                <QrCode className="w-6 h-6" /> Participation / Attendance
+              </h3>
+              <button onClick={createEventQr} className="btn-gradient-purple px-4 py-2 rounded-xl text-sm font-semibold">
+                Create Event QR
+              </button>
+            </div>
+            {eventQrImage && (
+              <div className="mb-6 rounded-xl border border-indigo-100 bg-indigo-50/60 p-4 max-w-xs">
+                <img src={eventQrImage} alt="Event QR" className="w-56 h-56 mx-auto rounded-lg bg-white p-2 border border-indigo-100" />
+                <p className="text-xs text-indigo-700 mt-2 text-center">Scan to open event registration form</p>
+              </div>
+            )}
+            <div className="mb-6 rounded-xl border border-gray-200 bg-white/70 p-4">
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <p className="text-sm font-medium text-gray-800">Scan participant QR</p>
+                <button onClick={() => setScannerOpen(true)} className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700">
+                  Scan QR (Camera)
+                </button>
+              </div>
+              <div className="flex gap-2">
+                <input
+                  value={scanInput}
+                  onChange={(e) => setScanInput(e.target.value)}
+                  placeholder='Paste scanned JSON payload here'
+                  className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                />
+                <button onClick={handleScan} className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700">
+                  Mark Present
+                </button>
+              </div>
+            </div>
+            {participants.length === 0 ? (
+              <p className="text-gray-500">No participants available for attendance.</p>
+            ) : (
+              <div className="space-y-2">
+                {participants.map((p: any) => (
+                  <div key={p.id} className="rounded-xl border border-gray-200 bg-white/70 p-3 flex items-center justify-between gap-3">
+                    <div>
+                      <p className="font-semibold text-gray-900">{p.participant_name || 'Participant'}</p>
+                      <p className="text-xs text-gray-500">{p.participant_email || 'No email'}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${p.attendance_status === 'present' ? 'bg-emerald-100 text-emerald-700' : p.attendance_status === 'absent' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700'}`}>
+                        {(p.attendance_status || 'registered').toUpperCase()}
+                      </span>
+                      <button onClick={() => markAttendance(p.id, 'present')} className="text-xs px-3 py-1.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700">Present</button>
+                      <button onClick={() => markAttendance(p.id, 'absent')} className="text-xs px-3 py-1.5 rounded-lg bg-gray-600 text-white hover:bg-gray-700">Absent</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <EventQrScanner
+              open={scannerOpen}
+              onClose={() => setScannerOpen(false)}
+              onScanned={(decodedText) => {
+                void processScanPayload(decodedText);
+              }}
+            />
+          </div>
+        )}
       </div>
     </div>
   );

@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
 import DynamicLogo from '@/components/DynamicLogo';
 import type { ChatItem, UserProfile } from '@/app/dashboard/chat/page';
+import { motionTokens } from '@/lib/ui/motion';
 
 interface Props {
     chat: ChatItem;
@@ -267,7 +268,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, onOpenProfi
                         {isOnline && <div className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 rounded-full border-2 border-[#202c33]" />}
                     </div>
                     <div className="flex-1">
-                        <h2 className="font-semibold text-white text-sm">{chat.name}</h2>
+                        <h2 className="font-semibold text-white text-base">{chat.name}</h2>
                         <p className="text-xs text-gray-400">
                             {typing ? <span className="text-emerald-400 italic">{typing} is typing...</span> : isOnline ? 'Online' : chat.type === 'group' ? 'Group chat' : 'Offline'}
                         </p>
@@ -295,7 +296,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, onOpenProfi
                         </div>
                     ) : messages.length === 0 ? (
                         <div className="flex items-center justify-center h-full">
-                            <p className="bg-[#202c33] px-4 py-2 rounded-lg text-sm text-gray-400 shadow-sm">No messages yet. Say hello! 👋</p>
+                            <p className="bg-[#202c33] px-4 py-2 rounded-lg text-base text-gray-400 shadow-sm">No messages yet. Say hello! 👋</p>
                         </div>
                     ) : (
                         messages.map((msg, idx) => {
@@ -314,7 +315,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, onOpenProfi
                                             </span>
                                         </div>
                                     )}
-                                    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.15 }}
+                                    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2, ease: motionTokens.easing }}
                                         className={`flex ${isSent ? 'justify-end' : 'justify-start'} mb-0.5 group/msg relative`}>
                                         <div className={`max-w-[65%] px-3 py-1.5 rounded-lg shadow-sm relative ${isSent ? 'bg-[#005c4b]' : 'bg-[#202c33]'}`}
                                             onClick={() => isSent && setMenuMsgId(menuMsgId === msg.id ? null : msg.id)}>
@@ -340,7 +341,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, onOpenProfi
 
                                             {/* Delete menu */}
                                             {isSent && menuMsgId === msg.id && (
-                                                <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
+                                                <motion.div initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.18, ease: motionTokens.easing }}
                                                     className="absolute -top-10 right-0 bg-[#233138] rounded-lg shadow-xl border border-[#2a3942] z-20 overflow-hidden">
                                                     <button onClick={(e) => { e.stopPropagation(); deleteMessage(msg.id); }}
                                                         className="flex items-center gap-2 px-4 py-2 text-red-400 hover:bg-[#2a3942] text-xs font-medium whitespace-nowrap">
@@ -366,7 +367,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, onOpenProfi
                     </button>
                     <AnimatePresence>
                         {showEmoji && (
-                            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }}
+                            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }} transition={{ duration: 0.2, ease: motionTokens.easing }}
                                 className="absolute bottom-14 left-0 bg-[#233138] rounded-2xl shadow-2xl p-4 grid grid-cols-6 gap-2 z-50 border border-[#2a3942] w-[280px]">
                                 {EMOJIS.map(e => (
                                     <button key={e} type="button" onClick={() => { setNewMessage(p => p + e); setShowEmoji(false); }}
@@ -384,8 +385,8 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, onOpenProfi
                 </button>
                 <input ref={fileRef} type="file" className="hidden" accept="image/*,.pdf,.doc,.docx" onChange={e => { const f = e.target.files?.[0]; if (f) sendFile(f); e.target.value = ''; }} />
                 <input type="text" value={newMessage} onChange={e => { setNewMessage(e.target.value); handleTyping(); }} placeholder="Type a message"
-                    className="flex-1 px-4 py-2.5 bg-[#2a3942] rounded-lg text-sm text-white placeholder-gray-500 outline-none focus:ring-1 focus:ring-emerald-500/30 transition-all" />
-                <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} type="submit" disabled={!newMessage.trim()}
+                    className="flex-1 px-4 py-2.5 bg-[#2a3942] rounded-lg text-base text-white placeholder-gray-500 outline-none focus:ring-1 focus:ring-emerald-500/30 transition-all" />
+                <motion.button whileHover={{ scale: 1.03 }} whileTap={motionTokens.tap} type="submit" disabled={!newMessage.trim()}
                     className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-white disabled:opacity-40 shadow-md">
                     <Send className="w-4 h-4" />
                 </motion.button>
@@ -394,8 +395,8 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, onOpenProfi
             {/* Poll Modal - WhatsApp Style */}
             <AnimatePresence>
                 {showPoll && (
-                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-                        <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9 }} className="bg-white rounded-2xl max-w-md w-full shadow-2xl overflow-hidden">
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: motionTokens.modal.duration }} className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                        <motion.div initial={{ scale: 0.96, y: 16 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.96, y: 16 }} transition={{ duration: motionTokens.modal.duration, ease: motionTokens.easing }} className="bg-white rounded-2xl max-w-md w-full shadow-2xl overflow-hidden">
                             <div className="bg-[#00a884] px-5 py-4">
                                 <h2 className="text-white font-bold text-lg">Create poll</h2>
                             </div>
@@ -515,10 +516,10 @@ function PollBubble({ poll, msgId, myId, onVote, allUsers }: { poll: any; msgId:
             {/* Vote Viewer Modal */}
             <AnimatePresence>
                 {showVoters && (
-                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: motionTokens.modal.duration }}
                         className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-[60] p-4"
                         onClick={() => setShowVoters(false)}>
-                        <motion.div initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9 }}
+                        <motion.div initial={{ scale: 0.96, y: 16 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.96, y: 16 }} transition={{ duration: motionTokens.modal.duration, ease: motionTokens.easing }}
                             className="bg-white rounded-2xl max-w-md w-full shadow-2xl overflow-hidden max-h-[70vh] flex flex-col"
                             onClick={e => e.stopPropagation()}>
                             <div className="bg-gradient-to-r from-indigo-500 to-purple-500 px-5 py-4 flex items-center justify-between">

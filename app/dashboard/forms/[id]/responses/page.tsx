@@ -161,7 +161,7 @@ export default function FormResponsesPage() {
   if (!canView) {
     return (
       <div className="min-h-screen bg-mesh flex items-center justify-center">
-        <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="glass-strong rounded-3xl p-12 text-center max-w-md shadow-2xl">
+        <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="premium-panel rounded-3xl p-12 text-center max-w-md shadow-2xl">
           <h2 className="text-2xl font-extrabold text-gray-800 mb-2">Access Denied</h2>
           <p className="text-gray-400">You don't have permission to view responses.</p>
         </motion.div>
@@ -218,7 +218,7 @@ export default function FormResponsesPage() {
               key={i}
               variants={item}
               whileHover={{ y: -4, transition: { duration: 0.2 } }}
-              className={`glass-strong rounded-2xl p-5 flex items-center gap-4 shadow-md ${stat.glow}`}
+              className={`premium-panel rounded-2xl p-5 flex items-center gap-4 shadow-md ${stat.glow}`}
             >
               <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${stat.gradient} flex items-center justify-center shadow-lg`}>
                 <stat.icon className="w-6 h-6 text-white" />
@@ -236,7 +236,7 @@ export default function FormResponsesPage() {
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2 }}
-          className="glass rounded-2xl p-1.5 flex gap-1 mb-8 w-fit"
+          className="premium-card rounded-2xl p-1.5 flex gap-1 mb-8 w-fit"
         >
           {(['summary', 'individual'] as const).map(tab => (
             <button
@@ -263,7 +263,7 @@ export default function FormResponsesPage() {
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="glass-strong rounded-3xl p-16 text-center"
+            className="premium-panel rounded-3xl p-16 text-center"
           >
             <motion.div animate={{ y: [0, -8, 0] }} transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}>
               <BarChart3 className="w-16 h-16 text-gray-300 mx-auto mb-4" />
@@ -277,7 +277,7 @@ export default function FormResponsesPage() {
             {fields.map(field => {
               const summary = getFieldSummary(field);
               return (
-                <motion.div key={field.id} variants={item} className="glass-strong rounded-2xl p-6 shadow-md hover:shadow-xl transition-shadow">
+                <motion.div key={field.id} variants={item} className="premium-panel rounded-2xl p-6 shadow-md hover:shadow-xl transition-shadow">
                   <h3 className="text-base font-bold text-gray-800 mb-4">{field.label}</h3>
 
                   {(summary.type === 'choice' || summary.type === 'multi') && (
@@ -350,7 +350,7 @@ export default function FormResponsesPage() {
                 <input
                   type="text" placeholder="Search by name or email..."
                   value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
-                  className="w-full pl-11 pr-4 py-3 glass-strong rounded-2xl text-sm outline-none focus:ring-2 focus:ring-indigo-300/50 transition-all"
+                  className="w-full pl-11 pr-4 py-3 premium-input rounded-2xl text-sm transition-all"
                 />
               </div>
             </motion.div>
@@ -358,7 +358,7 @@ export default function FormResponsesPage() {
               {filteredResponses.map((response) => {
                 const isExpanded = expandedResponse === response.id;
                 return (
-                  <motion.div key={response.id} variants={item} className="glass-strong rounded-2xl overflow-hidden shadow-md hover:shadow-xl transition-shadow">
+                  <motion.div key={response.id} variants={item} className="premium-panel rounded-2xl overflow-hidden shadow-md hover:shadow-xl transition-shadow">
                     <button
                       onClick={() => setExpandedResponse(isExpanded ? null : response.id)}
                       className="w-full flex items-center justify-between p-5 text-left hover:bg-white/40 transition-colors"

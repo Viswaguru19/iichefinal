@@ -9,9 +9,10 @@ interface EditEventModalProps {
     event: any;
     onClose: () => void;
     onSuccess: () => void;
+    resubmitToStatus?: string | null;
 }
 
-export default function EditEventModal({ event, onClose, onSuccess }: EditEventModalProps) {
+export default function EditEventModal({ event, onClose, onSuccess, resubmitToStatus = null }: EditEventModalProps) {
     const [formData, setFormData] = useState({
         title: event.title || '',
         description: event.description || '',
@@ -20,6 +21,7 @@ export default function EditEventModal({ event, onClose, onSuccess }: EditEventM
         budget: event.budget || '',
     });
     const [editNotes, setEditNotes] = useState('');
+    const [newDocuments, setNewDocuments] = useState<File[]>([]);
     const [loading, setLoading] = useState(false);
     const supabase = createClient();
 
@@ -58,6 +60,28 @@ export default function EditEventModal({ event, onClose, onSuccess }: EditEventM
             const existingHistory = currentEvent?.edit_history || [];
             const newHistory = [...existingHistory, historyEntry];
 
+            const uploadedDocs: any[] = [];
+            if (newDocuments.length > 0) {
+                for (const file of newDocuments) {
+                    const fileName = `${Date.now()}_${file.name}`;
+                    const { error: uploadError } = await supabase.storage
+                        .from('event-documents')
+                        .upload(fileName, file);
+                    if (uploadError) throw uploadError;
+                    const { data: { publicUrl } } = supabase.storage
+                        .from('event-documents')
+                        .getPublicUrl(fileName);
+                    uploadedDocs.push({
+                        name: file.name,
+                        url: publicUrl,
+                        uploaded_at: new Date().toISOString(),
+                        uploaded_by: user?.id,
+                    });
+                }
+            }
+            const existingDocs = Array.isArray(event.documents) ? event.documents : [];
+            const mergedDocs = [...existingDocs, ...uploadedDocs];
+
             // Update event
             const { error } = await supabase
                 .from('events')
@@ -65,7 +89,9 @@ export default function EditEventModal({ event, onClose, onSuccess }: EditEventM
                     ...formData,
                     edit_history: newHistory,
                     last_edited_by: user?.id,
-                    last_edited_at: new Date().toISOString()
+                    last_edited_at: new Date().toISOString(),
+                    documents: mergedDocs,
+                    ...(resubmitToStatus ? { status: resubmitToStatus } : {})
                 })
                 .eq('id', event.id);
 
@@ -154,6 +180,35 @@ export default function EditEventModal({ event, onClose, onSuccess }: EditEventM
                             placeholder="Explain what changes you made and why..."
                             className="w-full px-4 py-2 border border-gray-300 rounded-lg"
                         />
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Add Supporting Documents (Optional)
+                        </label>
+                        <input
+                            type="file"
+                            multiple
+                            accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.jpg,.jpeg,.png"
+                            onChange={(e) => {
+                                const picked = Array.from(e.target.files || []);
+                                if (picked.length === 0) return;
+                                setNewDocuments((prev) => {
+                                    const byKey = new Map<string, File>();
+                                    [...prev, ...picked].forEach((f) => byKey.set(`${f.name}-${f.size}-${f.lastModified}`, f));
+                                    return Array.from(byKey.values());
+                                });
+                                e.currentTarget.value = '';
+                            }}
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                        />
+                        {newDocuments.length > 0 && (
+                            <div className="mt-2 space-y-1">
+                                {newDocuments.map((f, i) => (
+                                    <div key={`${f.name}-${i}`} className="text-xs text-gray-600">+ {f.name}</div>
+                                ))}
+                            </div>
+                        )}
                     </div>
                 </div>
 

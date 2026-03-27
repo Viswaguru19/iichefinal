@@ -2,6 +2,7 @@
 
 import { motion } from 'framer-motion';
 import { ReactNode } from 'react';
+import { motionTokens } from '@/lib/ui/motion';
 
 interface AnimatedSectionProps {
     children: ReactNode;
@@ -14,9 +15,9 @@ export default function AnimatedSection({ children, delay = 0 }: AnimatedSection
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{
-                duration: 0.5,
+                duration: motionTokens.section.duration,
                 delay,
-                ease: [0.25, 0.1, 0.25, 1]
+                ease: motionTokens.easing
             }}
         >
             {children}

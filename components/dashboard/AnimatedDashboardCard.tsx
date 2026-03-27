@@ -5,6 +5,7 @@ import Link from 'next/link';
 import {
     Users, Calendar, Trophy, DollarSign, Crown, Send, MessageSquare, CheckCircle, FileText
 } from 'lucide-react';
+import { motionTokens } from '@/lib/ui/motion';
 
 const iconMap = {
     Users, Calendar, Trophy, DollarSign, Crown, Send, MessageSquare, CheckCircle, FileText
@@ -44,14 +45,14 @@ export default function AnimatedDashboardCard({
         <motion.div
             initial={{ opacity: 0, y: 24 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.45, delay: index * 0.06, ease: [0.25, 0.46, 0.45, 0.94] }}
-            whileHover={{ y: -6, transition: { duration: 0.2 } }}
+            transition={{ duration: 0.36, delay: index * 0.05, ease: motionTokens.easing }}
+            whileHover={{ y: motionTokens.hoverCard.y, transition: { duration: 0.2, ease: motionTokens.easing } }}
         >
             <Link
                 href={href}
                 className={`group block rounded-2xl p-6 transition-all duration-300 relative overflow-hidden ${gradient
                     ? `bg-gradient-to-br from-${gradientFrom} to-${gradientTo} text-white shadow-lg hover:shadow-2xl`
-                    : 'glass shadow-md hover:shadow-xl glow-blue hover:glow-purple'
+                    : 'premium-card shadow-md hover:shadow-xl'
                     }`}
             >
                 {/* Decorative orb */}
@@ -59,8 +60,8 @@ export default function AnimatedDashboardCard({
                     }`} />
 
                 <motion.div
-                    whileHover={{ scale: 1.15, rotate: 8 }}
-                    transition={{ type: 'spring', stiffness: 300 }}
+                    whileHover={motionTokens.hoverIcon}
+                    transition={{ duration: 0.2, ease: motionTokens.easing }}
                     className="relative z-10"
                 >
                     {gradient ? (
@@ -76,7 +77,7 @@ export default function AnimatedDashboardCard({
                 <h3 className={`text-lg font-bold relative z-10 ${gradient ? 'text-white' : 'text-gray-900'}`}>
                     {title}
                     {badge != null && badge > 0 && (
-                        <span className="ml-2 inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 text-xs font-bold rounded-full bg-red-500 text-white animate-pulse">
+                        <span className="ml-2 inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 text-xs font-bold rounded-full bg-red-500 text-white">
                             {badge > 99 ? '99+' : badge}
                         </span>
                     )}

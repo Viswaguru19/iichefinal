@@ -35,13 +35,54 @@ export default async function DashboardPage() {
   const isExecutive = (profile as any).executive_role !== null;
   const isFaculty = (profile as any).is_faculty === true;
 
-  // Get user's committee membership
-  const { data: userCommittee } = await supabase
-    .from('committee_members')
-    .select('committee_id, position, committees(name)')
-    .eq('user_id', user.id)
-    .neq('committee_id', '00000000-0000-0000-0000-000000000001')
-    .single();
+  const [
+    userCommitteeRes,
+    committeesRes,
+    executiveMembersRes,
+    eventProposalsRes,
+    pastEventsRes,
+    userMembershipsRes,
+    unreadDmCountRes,
+  ] = await Promise.all([
+    supabase
+      .from('committee_members')
+      .select('committee_id, position, committees(name)')
+      .eq('user_id', user.id)
+      .neq('committee_id', '00000000-0000-0000-0000-000000000001')
+      .single(),
+    supabase.from('committees').select('*').eq('type', 'regular').order('name'),
+    supabase
+      .from('committee_members')
+      .select('*, profile:profiles(name, email)')
+      .eq('committee_id', '00000000-0000-0000-0000-000000000001')
+      .order('position'),
+    supabase
+      .from('events')
+      .select('*, committees(name)')
+      .in('status', ['active', 'in_progress', 'faculty_approved'])
+      .order('created_at', { ascending: false })
+      .limit(10),
+    supabase
+      .from('events')
+      .select('*, committees(name)')
+      .eq('status', 'completed')
+      .order('event_date', { ascending: false })
+      .limit(20),
+    supabase.from('committee_members').select('committee_id').eq('user_id', user.id),
+    supabase
+      .from('direct_messages')
+      .select('id', { count: 'exact', head: true })
+      .eq('receiver_id', user.id)
+      .eq('read', false),
+  ]);
+
+  const userCommittee = userCommitteeRes.data;
+  const committees = committeesRes.data;
+  const executiveMembers = executiveMembersRes.data;
+  const eventProposals = eventProposalsRes.data;
+  const pastEvents = pastEventsRes.data;
+  const userMemberships = userMembershipsRes.data;
+  const unreadDmCount = unreadDmCountRes.count;
 
   const committeeRole = userCommittee ? `${(userCommittee as any).committees.name} ${(userCommittee as any).position === 'head' ? 'Head' : (userCommittee as any).position === 'co_head' ? 'Co-Head' : 'Member'}` : null;
 
@@ -52,53 +93,25 @@ export default async function DashboardPage() {
     ((userCommittee as any).position === 'head' || (userCommittee as any).position === 'co_head')
   );
 
-  // Get committees
-  const { data: committees } = await supabase
-    .from('committees')
-    .select('*')
-    .eq('type', 'regular')
-    .order('name');
+  const eventIds = (eventProposals || []).map((e: any) => e.id);
+  const { data: allTasksForEvents } = eventIds.length > 0
+    ? await supabase
+      .from('task_assignments')
+      .select('id, title, status, completed_at, assigned_to_committee, assigned_committee:assigned_to_committee(name), event_id')
+      .in('event_id', eventIds)
+      .not('status', 'in', '(pending_ec_approval,rejected)')
+    : { data: [] as any[] };
 
-  // Get executive committee members
-  const { data: executiveMembers } = await supabase
-    .from('committee_members')
-    .select('*, profile:profiles(name, email)')
-    .eq('committee_id', '00000000-0000-0000-0000-000000000001')
-    .order('position');
+  const tasksByEvent = (allTasksForEvents || []).reduce((acc: Record<string, any[]>, task: any) => {
+    if (!acc[task.event_id]) acc[task.event_id] = [];
+    acc[task.event_id].push(task);
+    return acc;
+  }, {});
 
-  // Get events that have been faculty-approved (active/in_progress) for progress display — exclude completed
-  const { data: eventProposals } = await supabase
-    .from('events')
-    .select('*, committees(name)')
-    .in('status', ['active', 'in_progress', 'faculty_approved'])
-    .order('created_at', { ascending: false })
-    .limit(10);
-
-  // Get completed (past) events
-  const { data: pastEvents } = await supabase
-    .from('events')
-    .select('*, committees(name)')
-    .eq('status', 'completed')
-    .order('event_date', { ascending: false })
-    .limit(20);
-
-  // Fetch tasks for each event
-  const eventsWithTasks = await Promise.all(
-    (eventProposals || []).map(async (event: any) => {
-      const { data: tasks } = await supabase
-        .from('task_assignments')
-        .select('id, title, status, completed_at, assigned_to_committee, assigned_committee:assigned_to_committee(name)')
-        .eq('event_id', event.id)
-        .not('status', 'in', '(pending_ec_approval,rejected)');
-      return { ...event, tasks: tasks || [] };
-    })
-  );
-
-  // Get pending tasks for the user's committees
-  const { data: userMemberships } = await supabase
-    .from('committee_members')
-    .select('committee_id')
-    .eq('user_id', user.id);
+  const eventsWithTasks = (eventProposals || []).map((event: any) => ({
+    ...event,
+    tasks: tasksByEvent[event.id] || [],
+  }));
 
   const userCommitteeIds = userMemberships?.map(m => m.committee_id) || [];
 
@@ -113,13 +126,6 @@ export default async function DashboardPage() {
       .limit(10);
     pendingTasks = pTasks || [];
   }
-
-  // Get unread DM count
-  const { count: unreadDmCount } = await supabase
-    .from('direct_messages')
-    .select('id', { count: 'exact', head: true })
-    .eq('receiver_id', user.id)
-    .eq('read', false);
 
   // Count pending approvals for the user (head approvals + EC approvals + faculty approvals)
   let pendingApprovalCount = 0;
@@ -164,35 +170,35 @@ export default async function DashboardPage() {
     <div className="min-h-screen bg-mesh">
       <DashboardNav userName={(profile as any).name} userRole={(profile as any).role} />
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-5 sm:py-8">
         <AnimatedSection delay={0.1}>
-          <div className="mb-8">
-            <h2 className="text-3xl font-bold text-gradient">
+          <div className="mb-6 sm:mb-8">
+            <h2 className="text-2xl sm:text-3xl font-bold dashboard-hero-name">
               Hi {(profile as any).name.split(' ')[0]}! 👋
             </h2>
             {committeeRole && (
-              <p className="mt-2 text-base font-medium text-gray-800">
+              <p className="mt-2 text-sm sm:text-base font-medium dashboard-hero-role">
                 {committeeRole}
               </p>
             )}
             {isExecutive && (
-              <div className="mt-3 inline-flex items-center gap-2 bg-gradient-to-r from-amber-400 to-orange-500 text-white px-4 py-2 rounded-full shadow-lg shadow-amber-500/20">
+              <div className="mt-3 inline-flex items-center gap-2 bg-gradient-to-r from-amber-400 to-orange-500 text-white px-3 sm:px-4 py-1.5 sm:py-2 rounded-full shadow-lg shadow-amber-500/20 text-xs sm:text-sm">
                 <Crown className="w-5 h-5" />
                 <span className="font-bold">
                   IIChE Executive Committee - {(profile as any).executive_role?.replace('_', ' ').toUpperCase()}
                 </span>
               </div>
             )}
-            <p className="text-gray-600 mt-3">Welcome to your dashboard</p>
+            <p className="dashboard-hero-welcome mt-3">Welcome to your dashboard</p>
           </div>
         </AnimatedSection>
 
         {/* Quick Access: Proposals & Tasks with badges */}
         <AnimatedSection delay={0.15}>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 mb-6 sm:mb-8">
             {/* Proposals Card */}
             <Link href="/dashboard/proposals">
-              <div className="glass-strong rounded-2xl p-5 hover:shadow-xl transition-all cursor-pointer group border border-transparent hover:border-indigo-200">
+              <div className="premium-panel rounded-2xl p-4 sm:p-5 hover:shadow-xl transition-all cursor-pointer group border border-transparent hover:border-indigo-200">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/20">
@@ -214,7 +220,7 @@ export default async function DashboardPage() {
 
             {/* Tasks Card */}
             <Link href="/dashboard/tasks">
-              <div className="glass-strong rounded-2xl p-5 hover:shadow-xl transition-all cursor-pointer group border border-transparent hover:border-orange-200">
+              <div className="premium-panel rounded-2xl p-4 sm:p-5 hover:shadow-xl transition-all cursor-pointer group border border-transparent hover:border-orange-200">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-orange-500 to-amber-600 flex items-center justify-center shadow-lg shadow-orange-500/20">
@@ -238,9 +244,9 @@ export default async function DashboardPage() {
 
         {/* Event Progress Section */}
         <AnimatedSection delay={0.3}>
-          <div className="mb-8">
-            <h3 className="text-2xl font-bold text-gray-900 mb-4">Event Progress</h3>
-            <div className="glass rounded-2xl shadow-lg p-6">
+          <div className="mb-6 sm:mb-8">
+            <h3 className="text-xl sm:text-2xl font-bold dashboard-section-title mb-3 sm:mb-4">Event Progress</h3>
+            <div className="premium-card rounded-2xl shadow-lg p-4 sm:p-6">
               <AnimatedEventProgress events={eventsWithTasks} />
             </div>
           </div>
@@ -286,7 +292,7 @@ export default async function DashboardPage() {
         )}
 
         <AnimatedSection delay={0.5}>
-          <div className="mt-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="mt-6 sm:mt-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
             <AnimatedDashboardCard
               href="/dashboard/chat"
               iconName="MessageSquare"
@@ -361,8 +367,8 @@ export default async function DashboardPage() {
 
         {/* Committees Section */}
         <AnimatedSection delay={0.6}>
-          <div className="mt-8">
-            <h3 className="text-2xl font-bold text-gray-900 mb-4">Our Committees</h3>
+          <div className="mt-6 sm:mt-8">
+            <h3 className="text-xl sm:text-2xl font-bold text-gray-900 mb-3 sm:mb-4">Our Committees</h3>
             <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
               {committees?.map((committee: any, index: number) => (
                 <AnimatedCommitteeCard key={committee.id} committee={committee} index={index} />
@@ -372,9 +378,9 @@ export default async function DashboardPage() {
         </AnimatedSection>
 
         <AnimatedSection delay={1.0}>
-          <div className="mt-8">
-            <h3 className="text-xl font-bold text-gray-900 mb-4">Committee Tools</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="mt-6 sm:mt-8">
+            <h3 className="text-lg sm:text-xl font-bold text-gray-900 mb-3 sm:mb-4">Committee Tools</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
               <AnimatedDashboardCard
                 href="/dashboard/forms"
                 iconName="Users"

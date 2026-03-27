@@ -66,6 +66,9 @@ export default function MeetingDetailPage() {
             }
             setMeeting(meetingData);
 
+            // Meeting creator can also manage attendance
+            setIsManager(manager || meetingData.created_by === user.id);
+
             // Fetch participants — try meeting_participants table first, fall back to participants UUID array
             let participantProfiles: any[] = [];
 
@@ -94,6 +97,34 @@ export default function MeetingDetailPage() {
                 participantProfiles = (cmMembers || []).map((m: any) => m.profiles).filter(Boolean);
             }
 
+            // For all-members/general meetings, ensure we still have people to mark attendance
+            if (participantProfiles.length === 0 && ['all_members', 'general'].includes(String(meetingData.audience_type || ''))) {
+                const { data: fallbackProfiles } = await (supabase as any)
+                    .from('profiles')
+                    .select('id, name, email, role, executive_role, is_faculty, is_admin')
+                    .order('name', { ascending: true })
+                    .limit(200);
+                participantProfiles = fallbackProfiles || [];
+            }
+
+            // Fetch attendance records
+            const { data: attendanceData } = await (supabase as any)
+                .from('meeting_attendance')
+                .select('*')
+                .eq('meeting_id', params.id);
+            setAttendance(attendanceData || []);
+
+            // Ensure all attendance users are represented in participants list
+            const existingIds = new Set((participantProfiles || []).map((p: any) => p?.id).filter(Boolean));
+            const attendanceIds = (attendanceData || []).map((a: any) => a.user_id).filter((id: any) => !!id && !existingIds.has(id));
+            if (attendanceIds.length > 0) {
+                const { data: attProfiles } = await (supabase as any)
+                    .from('profiles')
+                    .select('id, name, email, role, executive_role, is_faculty, is_admin')
+                    .in('id', attendanceIds);
+                participantProfiles = [...participantProfiles, ...(attProfiles || [])];
+            }
+
             // Enrich with committee names
             const enriched = await Promise.all(
                 participantProfiles.map(async (prof: any) => {
@@ -110,13 +141,6 @@ export default function MeetingDetailPage() {
                 })
             );
             setParticipants(enriched.filter(Boolean));
-
-            // Fetch attendance records
-            const { data: attendanceData } = await (supabase as any)
-                .from('meeting_attendance')
-                .select('*')
-                .eq('meeting_id', params.id);
-            setAttendance(attendanceData || []);
         } catch (err: any) {
             console.error('Error loading meeting detail:', err);
             toast.error('Failed to load meeting details');
@@ -172,7 +196,7 @@ export default function MeetingDetailPage() {
 
             <div className="max-w-4xl mx-auto px-4 py-8 relative z-10">
                 {/* Meeting Info Card */}
-                <div className="glass-strong rounded-2xl p-6 mb-6 shadow-md">
+                <div className="premium-panel rounded-2xl p-6 mb-6 shadow-md">
                     {/* Type Badge + Title */}
                     <div className="flex items-center gap-3 mb-4">
                         <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-sm ${isOnline

@@ -17,11 +17,14 @@ export async function getCurrentLogoClient(): Promise<string> {
                     .getPublicUrl(data.logo_url.replace('logos/', ''));
                 return urlData.publicUrl;
             }
+            if (data.logo_url === 'logo.svg') {
+                return '/logo.png';
+            }
             return `/${data.logo_url}`;
         }
     } catch (error) {
         console.error('Error fetching logo:', error);
     }
 
-    return '/logo.svg';
+    return '/logo.png';
 }

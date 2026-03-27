@@ -35,7 +35,7 @@ export default function PremiumProgressBar({ stages, currentStage }: PremiumProg
             case 'completed':
                 return <CheckCircle className="w-6 h-6 text-white" />;
             case 'current':
-                return <Clock className="w-6 h-6 text-white animate-pulse" />;
+                return <Clock className="w-6 h-6 text-white" />;
             case 'rejected':
                 return <XCircle className="w-6 h-6 text-white" />;
             default:
@@ -91,7 +91,7 @@ export default function PremiumProgressBar({ stages, currentStage }: PremiumProg
                                     stage.status === 'current'
                                         ? {
                                             duration: 1.5,
-                                            repeat: Infinity,
+                                            repeat: 2,
                                             repeatType: 'loop',
                                         }
                                         : {}
@@ -132,7 +132,7 @@ export default function PremiumProgressBar({ stages, currentStage }: PremiumProg
                                     <motion.span
                                         className="inline-block mt-2 px-2 py-1 bg-blue-100 text-blue-600 text-xs rounded-full font-medium"
                                         animate={{ opacity: [1, 0.5, 1] }}
-                                        transition={{ duration: 2, repeat: Infinity }}
+                                        transition={{ duration: 2, repeat: 2 }}
                                     >
                                         In Progress
                                     </motion.span>
@@ -157,7 +157,7 @@ export default function PremiumProgressBar({ stages, currentStage }: PremiumProg
                         >
                             <div className={`w-8 h-8 rounded-full flex items-center justify-center ${getStageColor(stage.status)} flex-shrink-0`}>
                                 {index === currentStage && stage.status === 'current' ? (
-                                    <Clock className="w-4 h-4 text-white animate-spin" />
+                                    <Clock className="w-4 h-4 text-white" />
                                 ) : stage.status === 'completed' ? (
                                     <CheckCircle className="w-4 h-4 text-white" />
                                 ) : stage.status === 'rejected' ? (

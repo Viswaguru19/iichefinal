@@ -28,7 +28,7 @@ export default async function AdminDashboard() {
 
   return (
     <div className="min-h-screen bg-mesh">
-      <nav className="glass-strong shadow-lg shadow-indigo-500/5">
+      <nav className="premium-panel shadow-lg shadow-indigo-500/5">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16 items-center">
             <h1 className="text-2xl font-bold text-gradient">Admin Panel</h1>
@@ -62,7 +62,7 @@ export default async function AdminDashboard() {
 
         <div className="grid md:grid-cols-2 gap-6">
           <TestEmailCard />
-          <div className="glass rounded-2xl p-6">
+          <div className="premium-panel rounded-2xl p-6">
             <h2 className="text-xl font-bold text-gradient mb-4">Recent Events</h2>
             <div className="space-y-2 max-h-96 overflow-y-auto">
               {(events as any)?.slice(0, 5).map((event: any) => (
@@ -77,7 +77,7 @@ export default async function AdminDashboard() {
             </div>
           </div>
 
-          <div className="glass rounded-2xl p-6">
+          <div className="premium-panel rounded-2xl p-6">
             <h2 className="text-xl font-bold text-gradient mb-4">Committees ({(committees as any)?.length})</h2>
             <div className="space-y-2 max-h-96 overflow-y-auto">
               {(committees as any)?.map((committee: any) => (
@@ -103,7 +103,7 @@ function StatCard({ icon, title, value, color }: any) {
   };
 
   return (
-    <div className="glass rounded-2xl p-6">
+    <div className="premium-panel rounded-2xl p-6">
       <div className={`bg-gradient-to-br ${colors[color]} w-12 h-12 rounded-xl flex items-center justify-center mb-4 text-white`}>{icon}</div>
       <h3 className="text-gray-500 text-sm mb-1">{title}</h3>
       <p className="text-3xl font-bold text-gray-900">{value}</p>

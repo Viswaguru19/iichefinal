@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { createClient } from '@/lib/supabase/client';
 import { ArrowLeft, Plus, X, GripVertical, Copy, Eye, Settings, ChevronDown, ChevronUp, Upload, Type, AlignLeft, List, CheckSquare, ChevronRight, Calendar, Hash, Mail, FileUp, Image as ImageIcon } from 'lucide-react';
@@ -60,10 +60,31 @@ export default function CreateFormPage() {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [accessType, setAccessType] = useState<'public' | 'internal'>('internal');
+  const [formType, setFormType] = useState<'normal' | 'event_registration'>('normal');
+  const [activeEvents, setActiveEvents] = useState<any[]>([]);
+  const [eventsLoading, setEventsLoading] = useState(false);
+  const [selectedEventId, setSelectedEventId] = useState('');
 
   const router = useRouter();
   const supabase = createClient();
   const bannerInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (formType !== 'event_registration') return;
+    void loadActiveEvents();
+  }, [formType]);
+
+  async function loadActiveEvents() {
+    setEventsLoading(true);
+    const { data, error } = await supabase
+      .from('events')
+      .select('id, title, event_date, location')
+      .eq('status', 'active')
+      .order('event_date', { ascending: true });
+    if (error) toast.error('Failed to load active events');
+    setActiveEvents(data || []);
+    setEventsLoading(false);
+  }
 
   function addField(type: string) {
     const newField: FormField = {
@@ -140,6 +161,10 @@ export default function CreateFormPage() {
   async function handleSubmit() {
     if (!title.trim()) { toast.error('Form title is required'); return; }
     if (fields.length === 0) { toast.error('Add at least one question'); return; }
+    if (formType === 'event_registration' && !selectedEventId) {
+      toast.error('Select an active event for event registration form');
+      return;
+    }
     const emptyLabels = fields.filter(f => !f.label.trim());
     if (emptyLabels.length > 0) { toast.error('All questions must have labels'); return; }
 
@@ -164,6 +189,8 @@ export default function CreateFormPage() {
           access_type: accessType,
           status,
         },
+        form_type: formType,
+        event_id: formType === 'event_registration' ? selectedEventId : null,
       })
       .select()
       .single();
@@ -189,7 +216,7 @@ export default function CreateFormPage() {
           >
             <ArrowLeft className="w-4 h-4" /> Back to Editor
           </motion.button>
-          <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="glass-strong rounded-t-3xl overflow-hidden mb-1 shadow-xl">
+          <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="premium-panel rounded-t-3xl overflow-hidden mb-1 shadow-xl">
             <div className="h-1.5 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500" />
             <div className="p-8">
               {bannerUrl && <img src={bannerUrl} alt="Banner" className="w-full h-40 object-cover rounded-xl mb-4" />}
@@ -224,7 +251,7 @@ export default function CreateFormPage() {
               )}
             </motion.div>
           ))}
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }} className="glass-strong rounded-b-3xl p-6 mt-1">
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }} className="premium-panel rounded-b-3xl p-6 mt-1">
             <button disabled className="btn-gradient-purple px-8 py-3 rounded-2xl font-semibold opacity-60 shadow-lg shadow-purple-500/10">Submit</button>
           </motion.div>
         </div>
@@ -272,7 +299,7 @@ export default function CreateFormPage() {
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ duration: 0.4, delay: 0.1 }}
-              className="glass rounded-2xl p-4 sticky top-8 shadow-md"
+              className="premium-card rounded-2xl p-4 sticky top-8 shadow-md"
             >
               <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">Question Types</h3>
               <div className="space-y-1">
@@ -301,7 +328,7 @@ export default function CreateFormPage() {
                   transition={{ duration: 0.3 }}
                   className="overflow-hidden"
                 >
-                  <div className="glass rounded-2xl p-6 space-y-4 shadow-md mb-4">
+                  <div className="premium-card rounded-2xl p-6 space-y-4 shadow-md mb-4">
                     <h3 className="text-lg font-extrabold text-gradient">Form Settings</h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
@@ -341,7 +368,7 @@ export default function CreateFormPage() {
               initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.4, delay: 0.15 }}
-              className="glass-strong rounded-2xl overflow-hidden shadow-md space-y-4"
+              className="premium-panel rounded-2xl overflow-hidden shadow-md space-y-4"
             >
               <div className="h-1.5 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500" />
               <div className="p-6 space-y-4">
@@ -358,6 +385,34 @@ export default function CreateFormPage() {
                 <input ref={bannerInputRef} type="file" accept="image/*" className="hidden" onChange={e => e.target.files?.[0] && handleBannerUpload(e.target.files[0])} />
                 <input type="text" value={title} onChange={e => setTitle(e.target.value)} placeholder="Form Title *" className="w-full text-2xl font-bold bg-transparent border-b-2 border-gray-200 focus:border-indigo-500 outline-none py-2 placeholder-gray-300" />
                 <input type="text" value={description} onChange={e => setDescription(e.target.value)} placeholder="Form description (optional)" className="w-full text-gray-500 bg-transparent border-b border-gray-100 focus:border-indigo-400 outline-none py-1 placeholder-gray-300" />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Form Type</label>
+                    <select value={formType} onChange={e => setFormType(e.target.value as any)} className="w-full border border-gray-200 rounded-xl px-3 py-2 bg-white/80">
+                      <option value="normal">Normal Form</option>
+                      <option value="event_registration">Event Registration Form</option>
+                    </select>
+                  </div>
+                  {formType === 'event_registration' && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Active Event</label>
+                      {eventsLoading ? (
+                        <div className="w-full border border-gray-200 rounded-xl px-3 py-2 bg-white/80 text-gray-500 text-sm">Loading active events...</div>
+                      ) : activeEvents.length === 0 ? (
+                        <div className="w-full border border-amber-200 rounded-xl px-3 py-2 bg-amber-50 text-amber-700 text-sm">No active events found</div>
+                      ) : (
+                        <select value={selectedEventId} onChange={e => setSelectedEventId(e.target.value)} className="w-full border border-gray-200 rounded-xl px-3 py-2 bg-white/80">
+                          <option value="">Select an event</option>
+                          {activeEvents.map((ev) => (
+                            <option key={ev.id} value={ev.id}>
+                              {ev.title} · {ev.event_date ? new Date(ev.event_date).toLocaleDateString('en-IN') : 'Date TBA'} · {ev.location || 'Venue TBA'}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
             </motion.div>
 
@@ -373,7 +428,7 @@ export default function CreateFormPage() {
                   transition={{ duration: 0.35, delay: index * 0.04 }}
                   whileHover={{ y: -2 }}
                   onClick={() => setActiveField(field.id)}
-                  className={`glass rounded-2xl p-6 transition-all cursor-pointer shadow-md ${isActive ? 'ring-2 ring-indigo-500 shadow-xl' : 'hover:shadow-lg'}`}
+                  className={`premium-card rounded-2xl p-6 transition-all cursor-pointer shadow-md ${isActive ? 'ring-2 ring-indigo-500 shadow-xl' : 'hover:shadow-lg'}`}
                 >
                   <div className="flex items-start gap-3">
                     <div className="pt-1 text-gray-300 cursor-grab"><GripVertical className="w-5 h-5" /></div>
@@ -480,7 +535,7 @@ export default function CreateFormPage() {
               <motion.div
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
-                className="glass rounded-2xl p-12 text-center shadow-md"
+                className="premium-card rounded-2xl p-12 text-center shadow-md"
               >
                 <motion.div animate={{ y: [0, -6, 0] }} transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}>
                   <Plus className="w-12 h-12 text-gray-300 mx-auto mb-3" />
@@ -491,7 +546,7 @@ export default function CreateFormPage() {
                 </motion.button>
               </motion.div>
             ) : (
-              <motion.button whileHover={{ scale: 1.02, y: -2 }} whileTap={{ scale: 0.98 }} onClick={() => addField('text')} className="w-full glass rounded-2xl p-4 text-indigo-500 hover:shadow-lg transition flex items-center justify-center gap-2 font-semibold shadow-md">
+              <motion.button whileHover={{ scale: 1.02, y: -2 }} whileTap={{ scale: 0.98 }} onClick={() => addField('text')} className="w-full premium-card rounded-2xl p-4 text-indigo-500 hover:shadow-lg transition flex items-center justify-center gap-2 font-semibold shadow-md">
                 <Plus className="w-5 h-5" /> Add Question
               </motion.button>
             )}

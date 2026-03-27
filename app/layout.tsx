@@ -18,6 +18,21 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={inter.className}>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function () {
+                try {
+                  var saved = localStorage.getItem('portal-theme');
+                  var theme = saved === 'light-gradient' ? 'light' : 'dark';
+                  document.documentElement.setAttribute('data-portal-theme', theme);
+                } catch (e) {
+                  document.documentElement.setAttribute('data-portal-theme', 'dark');
+                }
+              })();
+            `,
+          }}
+        />
         {children}
         <Toaster position="top-right" />
       </body>

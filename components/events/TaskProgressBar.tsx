@@ -43,7 +43,7 @@ export default function TaskProgressBar({ committeeTasks, eventDate }: TaskProgr
             case 'completed':
                 return <CheckCircle className="w-6 h-6 text-white" />;
             case 'in_progress':
-                return <Clock className="w-6 h-6 text-white animate-pulse" />;
+                return <Clock className="w-6 h-6 text-white" />;
             default:
                 return <Circle className="w-6 h-6 text-white opacity-50" />;
         }
@@ -90,7 +90,7 @@ export default function TaskProgressBar({ committeeTasks, eventDate }: TaskProgr
                         className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent"
                         initial={{ x: '-100%' }}
                         animate={{ x: '200%' }}
-                        transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
+                        transition={{ duration: 2, repeat: 1, ease: 'linear' }}
                     />
                 </div>
 
@@ -139,7 +139,7 @@ export default function TaskProgressBar({ committeeTasks, eventDate }: TaskProgr
                                 {/* Node Circle */}
                                 <motion.div
                                     className={`w-16 h-16 rounded-full flex items-center justify-center ${getStatusColor(status)} shadow-lg relative z-10 border-4 border-white`}
-                                    whileHover={{ scale: 1.15, rotate: 5 }}
+                                    whileHover={{ scale: 1.05, rotate: 2 }}
                                     animate={
                                         status === 'in_progress'
                                             ? {
@@ -154,7 +154,7 @@ export default function TaskProgressBar({ committeeTasks, eventDate }: TaskProgr
                                         status === 'in_progress'
                                             ? {
                                                 duration: 1.5,
-                                                repeat: Infinity,
+                                                repeat: 2,
                                                 repeatType: 'loop',
                                             }
                                             : {}
@@ -222,7 +222,7 @@ export default function TaskProgressBar({ committeeTasks, eventDate }: TaskProgr
                                         }
                                         transition={
                                             status === 'in_progress'
-                                                ? { duration: 2, repeat: Infinity }
+                                                ? { duration: 2, repeat: 2 }
                                                 : {}
                                         }
                                     >

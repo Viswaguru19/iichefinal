@@ -18,6 +18,9 @@ export async function getCurrentLogo(): Promise<string> {
                     .getPublicUrl(data.logo_url.replace('logos/', ''));
                 return urlData.publicUrl;
             }
+            if (data.logo_url === 'logo.svg') {
+                return '/logo.png';
+            }
             // Otherwise return as-is (for default logo.svg)
             return `/${data.logo_url}`;
         }
@@ -26,5 +29,5 @@ export async function getCurrentLogo(): Promise<string> {
     }
 
     // Fallback to default logo
-    return '/logo.svg';
+    return '/logo.png';
 }

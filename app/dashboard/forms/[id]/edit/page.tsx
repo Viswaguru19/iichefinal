@@ -216,7 +216,7 @@ export default function EditFormPage() {
                 <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
                     {/* Left: Question Types */}
                     <div className="lg:col-span-1">
-                        <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.4, delay: 0.1 }} className="glass rounded-2xl p-4 sticky top-8 shadow-md">
+                        <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.4, delay: 0.1 }} className="premium-card rounded-2xl p-4 sticky top-8 shadow-md">
                             <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">Question Types</h3>
                             <div className="space-y-1">
                                 {FIELD_TYPES.map(ft => {
@@ -238,7 +238,7 @@ export default function EditFormPage() {
                         <AnimatePresence>
                             {showSettings && (
                                 <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.3 }} className="overflow-hidden">
-                                    <div className="glass rounded-2xl p-6 space-y-4 shadow-md mb-4">
+                                    <div className="premium-card rounded-2xl p-6 space-y-4 shadow-md mb-4">
                                         <h3 className="text-lg font-extrabold text-gradient">Form Settings</h3>
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                             <div>
@@ -274,7 +274,7 @@ export default function EditFormPage() {
                         </AnimatePresence>
 
                         {/* Form Header Card */}
-                        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.15 }} className="glass-strong rounded-2xl overflow-hidden shadow-md space-y-4">
+                        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, delay: 0.15 }} className="premium-panel rounded-2xl overflow-hidden shadow-md space-y-4">
                             <div className="h-1.5 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500" />
                             <div className="p-6 space-y-4">
                                 {bannerUrl ? (
@@ -298,7 +298,7 @@ export default function EditFormPage() {
                             const isActive = activeField === field.id;
                             const TypeIcon = FIELD_TYPES.find(ft => ft.value === field.field_type)?.icon || Type;
                             return (
-                                <motion.div key={field.id} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, delay: index * 0.04 }} whileHover={{ y: -2 }} onClick={() => setActiveField(field.id)} className={`glass rounded-2xl p-6 transition-all cursor-pointer shadow-md ${isActive ? 'ring-2 ring-indigo-500 shadow-xl' : 'hover:shadow-lg'}`}>
+                                <motion.div key={field.id} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, delay: index * 0.04 }} whileHover={{ y: -2 }} onClick={() => setActiveField(field.id)} className={`premium-card rounded-2xl p-6 transition-all cursor-pointer shadow-md ${isActive ? 'ring-2 ring-indigo-500 shadow-xl' : 'hover:shadow-lg'}`}>
                                     <div className="flex items-start gap-3">
                                         <div className="pt-1 text-gray-300 cursor-grab"><GripVertical className="w-5 h-5" /></div>
                                         <div className="flex-1 space-y-3">
@@ -367,7 +367,7 @@ export default function EditFormPage() {
 
                         {/* Add question */}
                         {fields.length === 0 ? (
-                            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="glass rounded-2xl p-12 text-center shadow-md">
+                            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="premium-card rounded-2xl p-12 text-center shadow-md">
                                 <motion.div animate={{ y: [0, -6, 0] }} transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}>
                                     <Plus className="w-12 h-12 text-gray-300 mx-auto mb-3" />
                                 </motion.div>
@@ -377,7 +377,7 @@ export default function EditFormPage() {
                                 </motion.button>
                             </motion.div>
                         ) : (
-                            <motion.button whileHover={{ scale: 1.02, y: -2 }} whileTap={{ scale: 0.98 }} onClick={() => addField('text')} className="w-full glass rounded-2xl p-4 text-indigo-500 hover:shadow-lg transition flex items-center justify-center gap-2 font-semibold shadow-md">
+                            <motion.button whileHover={{ scale: 1.02, y: -2 }} whileTap={{ scale: 0.98 }} onClick={() => addField('text')} className="w-full premium-card rounded-2xl p-4 text-indigo-500 hover:shadow-lg transition flex items-center justify-center gap-2 font-semibold shadow-md">
                                 <Plus className="w-5 h-5" /> Add Question
                             </motion.button>
                         )}

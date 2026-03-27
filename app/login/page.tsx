@@ -157,7 +157,9 @@ export default function LoginPage() {
         <div className="absolute -bottom-16 -left-16 w-40 h-40 rounded-full bg-gradient-to-br from-blue-400/15 to-cyan-400/15 blur-3xl" />
         <div className="text-center mb-8">
           <div className="flex items-center justify-center gap-3 mb-4">
-            <DynamicLogo width={60} height={60} />
+            <div className="w-16 h-16 rounded-2xl bg-white/70 border border-white/60 shadow-sm flex items-center justify-center">
+              <DynamicLogo width={52} height={52} />
+            </div>
           </div>
           <Link href="/" className="text-3xl font-bold text-blue-600">IIChE AVVU SC</Link>
           <p className="text-gray-600 mt-2">Welcome back</p>

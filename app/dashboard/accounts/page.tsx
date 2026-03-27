@@ -220,7 +220,7 @@ export default function StatementOfAccountsPage() {
             { label: 'Total Expense', value: summary.total_expense, color: 'from-red-500 to-rose-500', glow: 'glow-rose', prefix: '₹' },
             { label: 'Balance Fund', value: summary.balance, color: 'from-indigo-500 to-purple-500', glow: 'glow-purple', prefix: '₹' },
           ].map((card, i) => (
-            <motion.div key={i} whileHover={{ y: -4 }} className={`glass-strong rounded-2xl p-6 shadow-md ${card.glow}`}>
+            <motion.div key={i} whileHover={{ y: -4 }} className={`premium-panel rounded-2xl p-6 shadow-md ${card.glow}`}>
               <h3 className="text-gray-400 text-sm font-medium mb-2">{card.label}</h3>
               <p className="text-3xl font-extrabold text-gradient">{card.prefix}{card.value.toLocaleString('en-IN')}</p>
             </motion.div>
@@ -228,7 +228,7 @@ export default function StatementOfAccountsPage() {
         </motion.div>
 
         {/* Filters */}
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }} className="glass rounded-2xl p-4 mb-6 flex gap-4 items-center">
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }} className="premium-card rounded-2xl p-4 mb-6 flex gap-4 items-center">
           <Filter className="w-5 h-5 text-gray-400" />
           <select value={filterYear} onChange={e => setFilterYear(e.target.value)} className="border border-gray-200 rounded-xl px-3 py-2 bg-white/80 text-sm">
             <option value="all">All Years</option>
@@ -241,7 +241,7 @@ export default function StatementOfAccountsPage() {
         </motion.div>
 
         {/* Table */}
-        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="glass-strong rounded-2xl overflow-hidden shadow-md">
+        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="premium-panel rounded-2xl overflow-hidden shadow-md">
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="bg-gradient-to-r from-indigo-50 to-purple-50">
@@ -321,7 +321,7 @@ export default function StatementOfAccountsPage() {
       <AnimatePresence>
         {showAddModal && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-            <motion.div initial={{ opacity: 0, scale: 0.9, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9 }} className="glass-strong rounded-2xl p-6 max-w-md w-full shadow-2xl">
+            <motion.div initial={{ opacity: 0, scale: 0.9, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9 }} className="premium-panel rounded-2xl p-6 max-w-md w-full shadow-2xl">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xl font-extrabold text-gradient">Add Transaction</h2>
                 <button onClick={() => setShowAddModal(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
@@ -372,7 +372,7 @@ export default function StatementOfAccountsPage() {
       <AnimatePresence>
         {editingTxn && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-            <motion.div initial={{ opacity: 0, scale: 0.9, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9 }} className="glass-strong rounded-2xl p-6 max-w-md w-full shadow-2xl">
+            <motion.div initial={{ opacity: 0, scale: 0.9, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9 }} className="premium-panel rounded-2xl p-6 max-w-md w-full shadow-2xl">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xl font-extrabold text-gradient">Edit Transaction</h2>
                 <button onClick={() => setEditingTxn(null)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
@@ -428,7 +428,7 @@ export default function StatementOfAccountsPage() {
       <AnimatePresence>
         {deletingTxn && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-            <motion.div initial={{ opacity: 0, scale: 0.9, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9 }} className="glass-strong rounded-2xl p-6 max-w-sm w-full shadow-2xl">
+            <motion.div initial={{ opacity: 0, scale: 0.9, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9 }} className="premium-panel rounded-2xl p-6 max-w-sm w-full shadow-2xl">
               <h2 className="text-xl font-extrabold text-red-600 mb-2">Delete Transaction</h2>
               <p className="text-gray-600 text-sm mb-1">Are you sure you want to delete this transaction?</p>
               <p className="text-gray-800 font-medium text-sm mb-4">Sr #{deletingTxn.sr_no} — {deletingTxn.event} / {deletingTxn.item}</p>

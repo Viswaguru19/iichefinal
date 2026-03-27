@@ -117,7 +117,7 @@ export default function PremiumInteractiveProgress({ committeeTasks, eventDate }
                         <div className="flex items-center gap-4">
                             <motion.div
                                 animate={{ rotate: [0, 10, -10, 0] }}
-                                transition={{ duration: 2, repeat: Infinity, repeatDelay: 3 }}
+                                transition={{ duration: 2, repeat: 1, repeatDelay: 3 }}
                                 className={`p-3 rounded-xl ${darkMode ? 'bg-blue-500/20' : 'bg-blue-100'}`}
                             >
                                 <Calendar className={`w-6 h-6 ${darkMode ? 'text-blue-400' : 'text-blue-600'}`} />
@@ -165,7 +165,7 @@ export default function PremiumInteractiveProgress({ committeeTasks, eventDate }
                             'linear-gradient(45deg, #ec4899 0%, #3b82f6 100%)',
                         ],
                     }}
-                    transition={{ duration: 10, repeat: Infinity }}
+                    transition={{ duration: 10, repeat: 1 }}
                 />
 
                 <div className="relative z-10">
@@ -176,7 +176,7 @@ export default function PremiumInteractiveProgress({ committeeTasks, eventDate }
                         </div>
                         <motion.div
                             animate={{ scale: [1, 1.1, 1] }}
-                            transition={{ duration: 2, repeat: Infinity }}
+                            transition={{ duration: 2, repeat: 2 }}
                             className="text-right"
                         >
                             <p className={`text-4xl font-black bg-gradient-to-r ${darkMode ? 'from-blue-400 to-purple-400' : 'from-blue-600 to-purple-600'} bg-clip-text text-transparent`}>
@@ -200,7 +200,7 @@ export default function PremiumInteractiveProgress({ committeeTasks, eventDate }
                             <motion.div
                                 className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent"
                                 animate={{ x: ['-100%', '200%'] }}
-                                transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
+                                transition={{ duration: 2, repeat: 1, ease: 'linear' }}
                             />
 
                             {/* Particles */}
@@ -215,7 +215,7 @@ export default function PremiumInteractiveProgress({ committeeTasks, eventDate }
                                     }}
                                     transition={{
                                         duration: 2,
-                                        repeat: Infinity,
+                                        repeat: 2,
                                         delay: i * 0.2,
                                     }}
                                 />
@@ -289,7 +289,7 @@ export default function PremiumInteractiveProgress({ committeeTasks, eventDate }
                                                 ) : status === 'in_progress' ? (
                                                     <motion.div
                                                         animate={{ rotate: 360 }}
-                                                        transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
+                                                        transition={{ duration: 2, repeat: 1, ease: 'linear' }}
                                                     >
                                                         <Clock className={`w-6 h-6 ${darkMode ? 'text-blue-400' : 'text-blue-600'}`} />
                                                     </motion.div>
@@ -357,7 +357,7 @@ export default function PremiumInteractiveProgress({ committeeTasks, eventDate }
                                                 <motion.div
                                                     className={`w-3 h-3 rounded-full ${darkMode ? 'bg-blue-400' : 'bg-blue-500'}`}
                                                     animate={{ scale: [1, 1.3, 1] }}
-                                                    transition={{ duration: 1.5, repeat: Infinity }}
+                                                    transition={{ duration: 1.5, repeat: 2 }}
                                                 />
                                                 <span className={theme.textSecondary}>{committee.in_progress_tasks} active</span>
                                             </motion.div>
@@ -439,14 +439,14 @@ export default function PremiumInteractiveProgress({ committeeTasks, eventDate }
                             <motion.div
                                 className={`absolute inset-0 bg-gradient-to-br ${stat.gradient} opacity-10`}
                                 animate={{ scale: [1, 1.2, 1] }}
-                                transition={{ duration: 3, repeat: Infinity }}
+                                transition={{ duration: 3, repeat: 1 }}
                             />
                             <div className="relative z-10">
                                 <stat.icon className={`w-6 h-6 mx-auto mb-2 ${darkMode ? `text-${stat.color}-400` : `text-${stat.color}-600`}`} />
                                 <motion.p
                                     className={`text-3xl font-black bg-gradient-to-r ${stat.gradient} bg-clip-text text-transparent`}
                                     animate={{ scale: [1, 1.1, 1] }}
-                                    transition={{ duration: 2, repeat: Infinity, delay: index * 0.2 }}
+                                    transition={{ duration: 2, repeat: 2, delay: index * 0.2 }}
                                 >
                                     {stat.value}
                                 </motion.p>
@@ -467,7 +467,7 @@ export default function PremiumInteractiveProgress({ committeeTasks, eventDate }
                 >
                     <motion.div
                         animate={{ y: [0, -10, 0] }}
-                        transition={{ duration: 2, repeat: Infinity }}
+                        transition={{ duration: 2, repeat: 2 }}
                     >
                         <Target className={`w-16 h-16 mx-auto mb-4 ${theme.textSecondary}`} />
                     </motion.div>

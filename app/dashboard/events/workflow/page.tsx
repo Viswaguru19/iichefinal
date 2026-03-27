@@ -81,7 +81,7 @@ export default function EventWorkflowPage() {
       <div className="max-w-7xl mx-auto px-4 py-8">
         {/* Info */}
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
-          className="glass rounded-2xl p-5 mb-6 border-l-4 border-indigo-400">
+          className="premium-card rounded-2xl p-5 mb-6 border-l-4 border-indigo-400">
           <h3 className="font-bold text-indigo-800 mb-1.5 text-sm">Approval Flow</h3>
           <div className="flex items-center gap-2 text-xs text-indigo-600 font-medium">
             <span className="px-2 py-1 rounded-full bg-amber-100 text-amber-700">Head</span> → <span className="px-2 py-1 rounded-full bg-blue-100 text-blue-700">EC (2)</span> → <span className="px-2 py-1 rounded-full bg-emerald-100 text-emerald-700">Faculty</span> → <span className="px-2 py-1 rounded-full bg-green-100 text-green-700">Active ✓</span>
@@ -94,7 +94,7 @@ export default function EventWorkflowPage() {
             const grad = STATUS_GRADIENTS[event.status] || 'from-gray-400 to-gray-500';
             return (
               <motion.div key={event.id} initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45, delay: idx * 0.06 }}
-                className="glass rounded-2xl p-6 relative overflow-hidden group hover:shadow-xl transition-all">
+                className="premium-panel rounded-2xl p-6 relative overflow-hidden group hover:shadow-xl transition-all">
                 <div className={`absolute top-0 left-0 right-0 h-1 bg-gradient-to-r ${grad}`} />
                 <div className={`absolute -top-12 -right-12 w-36 h-36 rounded-full bg-gradient-to-br ${grad} opacity-[0.06] blur-3xl group-hover:opacity-[0.12] transition-all duration-500`} />
 
@@ -165,7 +165,7 @@ export default function EventWorkflowPage() {
         </div>
 
         {events.length === 0 && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="glass rounded-2xl p-16 text-center">
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="premium-panel rounded-2xl p-16 text-center">
             <motion.div animate={{ y: [0, -8, 0] }} transition={{ duration: 3, repeat: Infinity }}><AlertCircle className="w-16 h-16 mx-auto mb-4 text-indigo-200" /></motion.div>
             <p className="text-gray-400 font-semibold">No events pending approval</p>
           </motion.div>

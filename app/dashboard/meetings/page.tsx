@@ -8,6 +8,7 @@ import { Plus, Calendar, MapPin, Video, Users, Clock, Search, Copy, ExternalLink
 import Link from 'next/link';
 import PageHeader from '@/components/PageHeader';
 import toast from 'react-hot-toast';
+import BrandingBadge from '@/components/BrandingBadge';
 
 const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.06 } } };
 const item = { hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0, transition: { duration: 0.4, ease: 'easeOut' as const } } };
@@ -44,15 +45,22 @@ export default function MeetingsPage() {
     const { data: profile } = await supabase.from('profiles').select('is_admin, is_faculty, executive_role').eq('id', user.id).single();
     if (profile?.is_admin || profile?.is_faculty || profile?.executive_role) setIsEditorial(true);
 
-    const now = new Date().toISOString();
-    const { data: up } = await supabase.from('meetings')
+    const now = new Date();
+    const { data: allMeetings } = await supabase.from('meetings')
       .select('*, creator:created_by(name, avatar_url), committee:committee_id(name)')
-      .gte('meeting_date', now).neq('status', 'completed').order('meeting_date', { ascending: true });
-    const { data: pa } = await supabase.from('meetings')
-      .select('*, creator:created_by(name, avatar_url), committee:committee_id(name)')
-      .or(`meeting_date.lt.${now},status.eq.completed`).order('meeting_date', { ascending: false }).limit(30);
-    setUpcoming(up || []);
-    setPast(pa || []);
+      .order('meeting_date', { ascending: true });
+    const meetings = allMeetings || [];
+    const upcomingMeetings = meetings.filter((meeting: any) => {
+      const status = String(meeting.status || '').toLowerCase();
+      const meetingTime = new Date(meeting.meeting_date);
+      return status === 'scheduled' || status === 'ongoing' || (status !== 'completed' && status !== 'cancelled' && meetingTime >= now);
+    });
+    const pastMeetings = meetings
+      .filter((meeting: any) => !upcomingMeetings.some((up: any) => up.id === meeting.id))
+      .sort((a: any, b: any) => new Date(b.meeting_date).getTime() - new Date(a.meeting_date).getTime())
+      .slice(0, 30);
+    setUpcoming(upcomingMeetings);
+    setPast(pastMeetings);
     setLoading(false);
   }
 
@@ -97,8 +105,10 @@ export default function MeetingsPage() {
   async function deleteMeeting(meetingId: string, e: React.MouseEvent) {
     e.stopPropagation();
     if (!confirm('Delete this meeting? This cannot be undone.')) return;
+    setUpcoming(prev => prev.filter(m => m.id !== meetingId));
+    setPast(prev => prev.filter(m => m.id !== meetingId));
     const { error } = await supabase.from('meetings').delete().eq('id', meetingId);
-    if (error) { toast.error('Failed to delete: ' + error.message); return; }
+    if (error) { toast.error('Failed to delete: ' + error.message); loadMeetings(); return; }
     toast.success('Meeting deleted');
     loadMeetings();
   }
@@ -177,6 +187,7 @@ export default function MeetingsPage() {
       />
 
       <div className="max-w-7xl mx-auto px-4 py-8 relative z-10">
+        <BrandingBadge className="mb-6" />
         {/* Join with Code + Search */}
         <motion.div initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col sm:flex-row gap-4 mb-8">
           <div className="flex-1 relative">
@@ -214,7 +225,7 @@ export default function MeetingsPage() {
         </motion.div>
 
         {/* Filter Tabs */}
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }} className="glass rounded-2xl p-1.5 flex gap-1 mb-8 w-fit">
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }} className="premium-card rounded-2xl p-1.5 flex gap-1 mb-8 w-fit">
           {(['upcoming', 'past', 'all'] as const).map(tab => (
             <button key={tab} onClick={() => setFilter(tab)}
               className={`relative px-5 py-2 rounded-xl text-sm font-medium transition-all duration-300 ${filter === tab ? 'text-white' : 'text-gray-500 hover:text-gray-800 hover:bg-white/40'}`}>
@@ -228,7 +239,7 @@ export default function MeetingsPage() {
 
         {/* Meetings Grid */}
         {displayed.length === 0 ? (
-          <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="glass-strong rounded-2xl p-16 text-center">
+          <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="premium-panel rounded-2xl p-16 text-center">
             <motion.div animate={{ y: [0, -8, 0] }} transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}>
               <Calendar className="w-16 h-16 text-gray-300 mx-auto mb-4" />
             </motion.div>

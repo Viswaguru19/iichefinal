@@ -36,8 +36,14 @@ export async function GET(request: Request) {
         }
 
         const manager = isAttendanceManager(profile);
+        const { data: meetingData } = await (supabase as any)
+            .from('meetings')
+            .select('id, created_by')
+            .eq('id', meetingId)
+            .single();
+        const isCreator = meetingData?.created_by === user.id;
 
-        if (manager) {
+        if (manager || isCreator) {
             // Managers see all records with participant profiles
             const { data: records, error } = await (supabase as any)
                 .from('meeting_attendance')
@@ -113,7 +119,14 @@ export async function POST(request: Request) {
             .eq('id', user.id)
             .single();
 
-        if (!profile || !isAttendanceManager(profile)) {
+        const { data: meetingData } = await (supabase as any)
+            .from('meetings')
+            .select('id, created_by')
+            .eq('id', meetingId)
+            .single();
+        const canManage = !!profile && (isAttendanceManager(profile) || meetingData?.created_by === user.id);
+
+        if (!canManage) {
             return NextResponse.json(
                 { error: 'Forbidden: only Attendance Managers can mark attendance' },
                 { status: 403 }
