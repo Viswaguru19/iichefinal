@@ -83,6 +83,8 @@ export default function MeetingRoomPage() {
     const [isScreenSharing, setIsScreenSharing] = useState(false);
     const [micLevel, setMicLevel] = useState(0);
     const [localPreviewStream, setLocalPreviewStream] = useState<MediaStream | null>(null);
+    /** Bumps when camera is turned back on so the preview element re-attaches (fixes black tile until pin/unpin). */
+    const [localVideoRenderKey, setLocalVideoRenderKey] = useState(0);
 
     // Panel state
     const [isChatOpen, setIsChatOpen] = useState(false);
@@ -96,7 +98,6 @@ export default function MeetingRoomPage() {
     // Pin state
     const [pinnedPeerId, setPinnedPeerId] = useState<string | null>(null);
 
-    const localVideoRef = useRef<HTMLVideoElement>(null);
     const preJoinVideoRef = useRef<HTMLVideoElement>(null);
 
     // Ref to store the original camera track for restoring after screen share
@@ -295,13 +296,6 @@ export default function MeetingRoomPage() {
             cancelled = true;
         };
     }, [roomId]);
-
-    // Attach local stream to video element
-    useEffect(() => {
-        if (localVideoRef.current && localStream) {
-            localVideoRef.current.srcObject = localStream;
-        }
-    }, [localStream]);
 
     useEffect(() => {
         if (preJoinVideoRef.current && localStream) {
@@ -541,9 +535,14 @@ export default function MeetingRoomPage() {
             stream.getVideoTracks().forEach((track) => {
                 track.enabled = !track.enabled;
             });
-            setIsCameraOff((prev) => !prev);
+            const v = stream.getVideoTracks()[0];
+            const cameraOn = !!(v && v.enabled);
+            setIsCameraOff(!cameraOn);
+            if (cameraOn) {
+                setLocalVideoRenderKey((k) => k + 1);
+            }
         };
-        run();
+        void run();
     }, [ensureLocalMedia]);
 
     const toggleScreenShare = useCallback(async () => {
@@ -569,10 +568,6 @@ export default function MeetingRoomPage() {
                 // Replace the video track in all peer connections
                 await replaceVideoTrack(screenTrack);
 
-                // Update local video element
-                if (localVideoRef.current) {
-                    localVideoRef.current.srcObject = new MediaStream([screenTrack]);
-                }
                 setLocalPreviewStream(new MediaStream([screenTrack]));
 
                 // Auto-revert when user stops sharing via browser UI
@@ -580,10 +575,8 @@ export default function MeetingRoomPage() {
                     const camTrack = cameraTrackRef.current;
                     if (camTrack) {
                         await replaceVideoTrack(camTrack);
-                        if (localVideoRef.current) {
-                            localVideoRef.current.srcObject = activeStream;
-                        }
                         setLocalPreviewStream(activeStream);
+                        setLocalVideoRenderKey((k) => k + 1);
                         cameraTrackRef.current = null;
                     }
                     screenTrackRef.current = null;
@@ -602,10 +595,8 @@ export default function MeetingRoomPage() {
 
             if (camTrack) {
                 await replaceVideoTrack(camTrack);
-                if (localVideoRef.current) {
-                    localVideoRef.current.srcObject = activeStream;
-                }
                 setLocalPreviewStream(activeStream);
+                setLocalVideoRenderKey((k) => k + 1);
                 cameraTrackRef.current = null;
             }
             screenTrack?.stop();
@@ -1011,7 +1002,7 @@ export default function MeetingRoomPage() {
                         )}
                         {pinnedPeerId === 'local' && (
                             <div className="flex-1 min-h-0 relative rounded-2xl overflow-hidden bg-slate-900/80 border border-white/5">
-                                <LocalVideoTile stream={localPreviewStream || localStream} isCameraOff={isCameraOff} isScreenSharing={isScreenSharing} />
+                                <LocalVideoTile key={`lv-${localVideoRenderKey}`} stream={localPreviewStream || localStream} isCameraOff={isCameraOff} isScreenSharing={isScreenSharing} />
                                 <div className="absolute bottom-3 left-3 glass-dark rounded-lg px-3 py-1.5"><p className="text-white text-xs font-medium">You (Pinned)</p></div>
                                 <button onClick={() => setPinnedPeerId(null)} className="absolute top-3 right-3 bg-indigo-500/80 rounded-full p-1.5 hover:bg-indigo-500"><PinOff className="w-3 h-3 text-white" /></button>
                                 {isMuted && <div className="absolute top-3 left-3 bg-red-500/80 rounded-full p-1.5"><MicOff className="w-3 h-3 text-white" /></div>}
@@ -1021,7 +1012,7 @@ export default function MeetingRoomPage() {
                             <div className="flex gap-2 overflow-x-auto pb-1">
                                 {pinnedPeerId !== 'local' && (
                                     <div className="relative rounded-xl overflow-hidden bg-slate-900/80 border border-white/5 w-40 h-24 flex-shrink-0 cursor-pointer" onClick={() => setPinnedPeerId('local')}>
-                                        <LocalVideoTile stream={localPreviewStream || localStream} isCameraOff={isCameraOff} isScreenSharing={isScreenSharing} compact />
+                                        <LocalVideoTile key={`lv-${localVideoRenderKey}`} stream={localPreviewStream || localStream} isCameraOff={isCameraOff} isScreenSharing={isScreenSharing} compact />
                                         <div className="absolute bottom-1 left-1 bg-black/60 rounded px-1.5 py-0.5"><p className="text-white text-[10px]">You</p></div>
                                     </div>
                                 )}
@@ -1032,7 +1023,7 @@ export default function MeetingRoomPage() {
                         )}
                         {!pinnedPeerId && (<>
                             <div className="relative rounded-2xl overflow-hidden bg-slate-900/80 border border-white/5 aspect-video group">
-                                <LocalVideoTile stream={localPreviewStream || localStream} isCameraOff={isCameraOff} isScreenSharing={isScreenSharing} />
+                                <LocalVideoTile key={`lv-${localVideoRenderKey}`} stream={localPreviewStream || localStream} isCameraOff={isCameraOff} isScreenSharing={isScreenSharing} />
                                 <div className="absolute bottom-3 left-3 glass-dark rounded-lg px-3 py-1.5"><p className="text-white text-xs font-medium">You</p></div>
                                 {isMuted && <div className="absolute top-3 right-3 bg-red-500/80 rounded-full p-1.5"><MicOff className="w-3 h-3 text-white" /></div>}
                                 <button onClick={() => setPinnedPeerId('local')} className="absolute top-3 left-3 bg-white/10 rounded-full p-1.5 opacity-0 group-hover:opacity-100 hover:bg-white/20 transition-opacity"><Pin className="w-3 h-3 text-white" /></button>
@@ -1206,11 +1197,24 @@ function RemoteVideo({ peer, isPinned, onPin, small }: { peer: PeerState; isPinn
     const [isRemoteScreenShare, setIsRemoteScreenShare] = useState(false);
 
     useEffect(() => {
-        if (!peer.remoteStream) return;
+        const stream = peer.remoteStream;
+        if (!stream) return;
+
+        let lastBlackRecovery = 0;
+
+        const doBumpPlayback = () => {
+            const el = videoRef.current;
+            if (!el) return;
+            el.srcObject = null;
+            el.srcObject = stream;
+            void el.play().catch(() => undefined);
+            check();
+        };
 
         const check = () => {
-            const tracks = peer.remoteStream?.getVideoTracks() || [];
-            setHasVideo(tracks.length > 0 && tracks.some(t => t.readyState === 'live'));
+            const tracks = stream.getVideoTracks() || [];
+            const live = tracks.some((t) => t.readyState === 'live');
+            setHasVideo(tracks.length > 0 && live);
             const sharing = tracks.some((track) => {
                 const settings = track.getSettings?.() as MediaTrackSettings | undefined;
                 const displaySurface = settings?.displaySurface;
@@ -1218,20 +1222,53 @@ function RemoteVideo({ peer, isPinned, onPin, small }: { peer: PeerState; isPinn
                 return displaySurface === 'monitor' || displaySurface === 'window' || displaySurface === 'browser' || label.includes('screen') || label.includes('window') || label.includes('tab');
             });
             setIsRemoteScreenShare(sharing);
-        };
-        check();
-        peer.remoteStream.onaddtrack = check;
-        peer.remoteStream.onremovetrack = check;
-        // Poll for track state changes (enabled/muted don't fire events)
-        const interval = setInterval(check, 1000);
-        return () => clearInterval(interval);
-    }, [peer.remoteStream]);
 
-    useEffect(() => {
-        const el = videoRef.current;
-        if (!el || !peer.remoteStream) return;
-        el.srcObject = peer.remoteStream;
-        void el.play().catch(() => undefined);
+            // Recover from stuck black frames: live track but decoder not painting.
+            const el = videoRef.current;
+            const now = Date.now();
+            if (el && live && el.videoWidth === 0 && now - lastBlackRecovery > 2500) {
+                lastBlackRecovery = now;
+                doBumpPlayback();
+            }
+        };
+
+        doBumpPlayback();
+
+        const trackCleanups: (() => void)[] = [];
+        const attachTrackListeners = (t: MediaStreamTrack) => {
+            const onSig = () => doBumpPlayback();
+            t.addEventListener('unmute', onSig);
+            t.addEventListener('mute', onSig);
+            t.addEventListener('ended', onSig);
+            trackCleanups.push(() => {
+                t.removeEventListener('unmute', onSig);
+                t.removeEventListener('mute', onSig);
+                t.removeEventListener('ended', onSig);
+            });
+        };
+        stream.getVideoTracks().forEach(attachTrackListeners);
+
+        const onStreamTrackAdded = (e: MediaStreamTrackEvent) => {
+            if (e.track?.kind === 'video') attachTrackListeners(e.track);
+            doBumpPlayback();
+            check();
+        };
+        const onStreamTrackRemoved = () => {
+            doBumpPlayback();
+            check();
+        };
+        stream.addEventListener('addtrack', onStreamTrackAdded);
+        stream.addEventListener('removetrack', onStreamTrackRemoved);
+
+        const interval = setInterval(check, 800);
+        check();
+
+        return () => {
+            clearInterval(interval);
+            stream.removeEventListener('addtrack', onStreamTrackAdded);
+            stream.removeEventListener('removetrack', onStreamTrackRemoved);
+            trackCleanups.forEach((fn) => fn());
+        };
     }, [peer.remoteStream]);
 
     if (small) {
@@ -1292,9 +1329,25 @@ function LocalVideoTile({
     useEffect(() => {
         const el = ref.current;
         if (!el || !stream) return;
-        el.srcObject = null;
-        el.srcObject = stream;
-        void el.play().catch(() => undefined);
+
+        const bind = () => {
+            el.srcObject = null;
+            el.srcObject = stream;
+            void el.play().catch(() => undefined);
+        };
+        bind();
+
+        const v = stream.getVideoTracks()[0];
+        if (!v) return;
+
+        const onLiveAgain = () => bind();
+        v.addEventListener('unmute', onLiveAgain);
+        v.addEventListener('ended', onLiveAgain);
+
+        return () => {
+            v.removeEventListener('unmute', onLiveAgain);
+            v.removeEventListener('ended', onLiveAgain);
+        };
     }, [stream, isCameraOff, isScreenSharing]);
     if (stream && (!isCameraOff || isScreenSharing)) {
         return <video ref={ref} autoPlay playsInline muted className="w-full h-full object-cover" />;
