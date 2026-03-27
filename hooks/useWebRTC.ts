@@ -204,6 +204,35 @@ export function useWebRTC({ supabase, roomId, userId, userName, userRole, localS
             const list: RoomParticipant[] = [];
             for (const key of Object.keys(state)) { for (const p of state[key] as any[]) { list.push({ userId: p.userId, userName: p.userName, userRole: p.userRole || null, joinedAt: p.online_at }); } }
             setParticipants(list);
+
+            // Self-heal race: if presence knows someone is here but no RTCPeerConnection exists,
+            // start initial SDP from the lexicographically smaller userId.
+            list.forEach((p) => {
+                const otherId = p.userId;
+                if (!otherId || otherId === userIdRef.current) return;
+                if (peersRef.current.has(otherId)) return;
+                if (userIdRef.current > otherId) return;
+
+                const pc = createPC(otherId, p.userName || 'Participant');
+                void (async () => {
+                    try {
+                        const offer = await pc.createOffer();
+                        await pc.setLocalDescription(offer);
+                        channel.send({
+                            type: 'broadcast',
+                            event: 'sdp-offer',
+                            payload: {
+                                senderId: userIdRef.current,
+                                senderName: userNameRef.current,
+                                targetId: otherId,
+                                sdp: pc.localDescription,
+                            },
+                        });
+                    } catch (err) {
+                        console.error('Presence sync offer error:', err);
+                    }
+                })();
+            });
         });
 
         channel.subscribe(async (status) => {

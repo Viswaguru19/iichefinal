@@ -179,13 +179,9 @@ export default function ProposalsPage() {
   const getResubmitStatus = () => {
     const isFacultyOrAdmin = !!(userProfile?.is_faculty || userProfile?.is_admin);
     const isExecutiveMember = !!(userProfile?.executive_role);
-    const hasHeadOrCoheadRole = !!userProfile?.committee_members?.some((m: any) => {
-      const pos = String(m?.position || '').toLowerCase();
-      return pos === 'head' || pos === 'co_head' || pos === 'cohead' || (pos.includes('co') && pos.includes('head'));
-    });
     if (isFacultyOrAdmin) return 'active';
-    if (isExecutiveMember) return 'pending_faculty_approval'; // EC priority first
-    if (hasHeadOrCoheadRole) return 'pending_ec_approval';
+    if (isExecutiveMember) return 'pending_faculty_approval';
+    // Same as new proposals: head review first, not EC.
     return 'pending_head_approval';
   };
   const canCancelEvent = (p: any) => p.status !== 'cancelled' && p.status !== 'completed' && (isFaculty || isAdmin || isEC);

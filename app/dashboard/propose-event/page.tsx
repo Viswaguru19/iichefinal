@@ -74,28 +74,23 @@ export default function ProposeEventPage() {
         .neq('committee_id', '00000000-0000-0000-0000-000000000001')
         .single();
 
-      // Role-based initial routing priority:
-      // Faculty/Admin -> active
-      // EC -> pending_faculty_approval
-      // Head/Co-head (non-EC) -> pending_ec_approval
-      // Others -> pending_head_approval
+      // Role-based initial routing:
+      // Faculty/Admin -> active (bypass pipeline)
+      // EC (executive_role) -> pending_faculty_approval
+      // All committee proposals (including head/co-head proposers) -> pending_head_approval
+      // so the committee head reviews first; EC comes only after head approval.
       const { data: profile } = await supabase
         .from('profiles')
-        .select('executive_role, is_faculty, is_admin, committee_members(position)')
+        .select('executive_role, is_faculty, is_admin')
         .eq('id', user.id)
         .single();
 
       const isExecutive = profile?.executive_role != null;
       const isFacultyOrAdmin = !!(profile?.is_faculty || profile?.is_admin);
-      const hasHeadOrCoheadRole = !!(profile as any)?.committee_members?.some((m: any) => {
-        const pos = String(m?.position || '').toLowerCase();
-        return pos === 'head' || pos === 'co_head' || pos === 'cohead' || (pos.includes('co') && pos.includes('head'));
-      });
       const initialStatus =
         isFacultyOrAdmin ? 'active' :
           isExecutive ? 'pending_faculty_approval' :
-            hasHeadOrCoheadRole ? 'pending_ec_approval' :
-              'pending_head_approval';
+            'pending_head_approval';
 
       // insert into the `events` table with the correct initial status. this
       // ensures the proposal appears in the proposals screen (which only

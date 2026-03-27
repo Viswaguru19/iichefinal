@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -1027,6 +1027,12 @@ export default function MeetingRoomPage() {
     const screenShareApiAvailable =
         typeof navigator !== 'undefined' && typeof navigator.mediaDevices?.getDisplayMedia === 'function';
 
+    const presenceRoleByUserId = useMemo(() => {
+        const m = new Map<string, string | null | undefined>();
+        for (const p of participants) m.set(p.userId, p.userRole);
+        return m;
+    }, [participants]);
+
     // Control bar buttons config (screen share always listed; unsupported browsers get a toast on tap)
     const controls = [
         {
@@ -1162,7 +1168,7 @@ export default function MeetingRoomPage() {
                 >
                     <div className={`w-full h-full ${pinnedPeerId ? 'flex flex-col gap-3' : `grid gap-3 ${peers.size === 0 ? 'grid-cols-1' : peers.size <= 1 ? 'grid-cols-1 md:grid-cols-2' : peers.size <= 3 ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3'}`}`}>
                         {pinnedPeerId && pinnedPeerId !== 'local' && peers.has(pinnedPeerId) && (
-                            <div className="flex-1 min-h-0"><RemoteVideo peer={peers.get(pinnedPeerId)!} isPinned={true} onPin={() => setPinnedPeerId(null)} /></div>
+                            <div className="flex-1 min-h-0"><RemoteVideo peer={peers.get(pinnedPeerId)!} peerId={pinnedPeerId} presenceRole={presenceRoleByUserId.get(pinnedPeerId)} isPinned={true} onPin={() => setPinnedPeerId(null)} /></div>
                         )}
                         {pinnedPeerId === 'local' && (
                             <div className="flex-1 min-h-0 relative rounded-2xl overflow-hidden bg-slate-900/80 border border-white/5">
@@ -1181,7 +1187,7 @@ export default function MeetingRoomPage() {
                                     </div>
                                 )}
                                 {Array.from(peers.entries()).filter(([pid]) => pid !== pinnedPeerId).map(([pid, peer]) => (
-                                    <RemoteVideo key={pid} peer={peer} isPinned={false} onPin={() => setPinnedPeerId(pid)} small />
+                                    <RemoteVideo key={pid} peer={peer} peerId={pid} presenceRole={presenceRoleByUserId.get(pid)} isPinned={false} onPin={() => setPinnedPeerId(pid)} small />
                                 ))}
                             </div>
                         )}
@@ -1192,7 +1198,7 @@ export default function MeetingRoomPage() {
                                 {isMuted && <div className="absolute top-3 right-3 bg-red-500/80 rounded-full p-1.5"><MicOff className="w-3 h-3 text-white" /></div>}
                                 <button onClick={() => setPinnedPeerId('local')} className="absolute top-3 left-3 bg-white/10 rounded-full p-1.5 opacity-0 group-hover:opacity-100 hover:bg-white/20 transition-opacity"><Pin className="w-3 h-3 text-white" /></button>
                             </div>
-                            {Array.from(peers.entries()).map(([pid, peer]) => (<RemoteVideo key={pid} peer={peer} isPinned={false} onPin={() => setPinnedPeerId(pid)} />))}
+                            {Array.from(peers.entries()).map(([pid, peer]) => (<RemoteVideo key={pid} peer={peer} peerId={pid} presenceRole={presenceRoleByUserId.get(pid)} isPinned={false} onPin={() => setPinnedPeerId(pid)} />))}
                         </>)}
                     </div>
                 </motion.div>
@@ -1354,8 +1360,32 @@ export default function MeetingRoomPage() {
     );
 }
 
+function isRemoteMeetingGuest(peerId: string, userRole: string | null | undefined) {
+    return peerId.startsWith('guest-') || userRole === 'Guest';
+}
+
+/** Role chip for camera-off tiles — portal users only; never for guests. */
+function RemoteVideoRoleBadge({ peerId, userRole, className = '' }: { peerId: string; userRole: string | null | undefined; className?: string }) {
+    if (!userRole || isRemoteMeetingGuest(peerId, userRole)) return null;
+    const spanCls =
+        userRole === 'Executive' ? 'bg-yellow-500/30 text-yellow-300' :
+            userRole === 'Faculty' ? 'bg-amber-500/30 text-amber-300' :
+                userRole === 'Head' ? 'bg-blue-500/30 text-blue-200' :
+                    userRole === 'Co-Head' ? 'bg-cyan-500/30 text-cyan-200' :
+                        userRole === 'Admin' ? 'bg-red-500/30 text-red-300' :
+                            'bg-amber-400/30 text-amber-200';
+    const label =
+        userRole === 'Executive' ? '👑 Executive' :
+            userRole === 'Faculty' ? '🎓 Faculty' :
+                userRole === 'Head' ? '🧭 Head' :
+                    userRole === 'Co-Head' ? '📍 Co-Head' :
+                        userRole === 'Admin' ? '🛡️ Admin' :
+                            `👑 ${userRole}`;
+    return <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-semibold ${spanCls} ${className}`.trim()}>{label}</span>;
+}
+
 // Separate component for remote video to manage its own ref
-function RemoteVideo({ peer, isPinned, onPin, small }: { peer: PeerState; isPinned: boolean; onPin: () => void; small?: boolean }) {
+function RemoteVideo({ peer, peerId, presenceRole, isPinned, onPin, small }: { peer: PeerState; peerId: string; presenceRole: string | null | undefined; isPinned: boolean; onPin: () => void; small?: boolean }) {
     const videoRef = useRef<HTMLVideoElement>(null);
     const [hasVideo, setHasVideo] = useState(false);
     const [isRemoteScreenShare, setIsRemoteScreenShare] = useState(false);
@@ -1441,7 +1471,12 @@ function RemoteVideo({ peer, isPinned, onPin, small }: { peer: PeerState; isPinn
         return (
             <div className="relative rounded-xl overflow-hidden bg-slate-900/80 border border-white/5 w-40 h-24 flex-shrink-0 cursor-pointer group" onClick={onPin}>
                 <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" style={{ display: hasVideo ? 'block' : 'none' }} />
-                {!hasVideo && <div className="w-full h-full flex items-center justify-center"><UserCircle className="w-6 h-6 text-white/40" /></div>}
+                {!hasVideo && (
+                    <div className="w-full h-full flex flex-col items-center justify-center relative">
+                        <UserCircle className="w-6 h-6 text-white/40" />
+                        <div className="absolute top-1 right-1"><RemoteVideoRoleBadge peerId={peerId} userRole={presenceRole} /></div>
+                    </div>
+                )}
                 {peer.remoteStream && <AudioPlayer stream={peer.remoteStream} />}
                 {isRemoteScreenShare && <div className="absolute top-1 left-1 rounded-md border border-emerald-400/40 bg-emerald-500/20 px-1.5 py-0.5"><p className="text-[9px] text-emerald-200 font-semibold">Sharing</p></div>}
                 <div className="absolute bottom-1 left-1 bg-black/60 rounded px-1.5 py-0.5"><p className="text-white text-[10px]">{peer.userName}</p></div>
@@ -1455,6 +1490,7 @@ function RemoteVideo({ peer, isPinned, onPin, small }: { peer: PeerState; isPinn
             {!hasVideo && (
                 <div className="w-full h-full flex flex-col items-center justify-center gap-3">
                     <div className="w-20 h-20 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center"><UserCircle className="w-8 h-8 text-white" /></div>
+                    <RemoteVideoRoleBadge peerId={peerId} userRole={presenceRole} className="text-[10px] px-2 py-0.5" />
                     <p className="text-white/50 text-sm">{peer.userName}</p>
                 </div>
             )}
