@@ -214,15 +214,21 @@ export default async function DashboardPage() {
     pendingApprovalCount += facultyCount || 0;
   }
 
+  const profileName = String((profile as any).name ?? '').trim();
+  const greetingFirst = profileName.split(/\s+/).filter(Boolean)[0] || 'there';
+
   return (
     <div className="min-h-screen bg-mesh">
-      <DashboardNav userName={(profile as any).name} userRole={(profile as any).role} />
+      <DashboardNav
+        userName={profileName || 'Member'}
+        userRole={String((profile as any).role ?? 'member')}
+      />
 
       <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-5 sm:py-8">
         <AnimatedSection delay={0.1}>
           <div className="mb-6 sm:mb-8">
             <h2 className="text-2xl sm:text-3xl font-bold dashboard-hero-name">
-              Hi {(profile as any).name.split(' ')[0]}! 👋
+              Hi {greetingFirst}! 👋
             </h2>
             {committeeRole && (
               <p className="mt-2 text-sm sm:text-base font-medium dashboard-hero-role">

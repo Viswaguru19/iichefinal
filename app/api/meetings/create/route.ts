@@ -35,8 +35,10 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'Title must be 200 characters or less' }, { status: 400 });
         }
         const meetingDate = new Date(body.meeting_date);
-        if (isNaN(meetingDate.getTime()) || meetingDate <= new Date()) {
-            return NextResponse.json({ error: 'Meeting date must be in the future' }, { status: 400 });
+        const now = Date.now();
+        // Small tolerance so a time chosen as "in a minute" is not rejected due to network delay.
+        if (isNaN(meetingDate.getTime()) || meetingDate.getTime() < now - 10_000) {
+            return NextResponse.json({ error: 'Meeting time must be in the future' }, { status: 400 });
         }
         if (!body.duration || body.duration <= 0) {
             return NextResponse.json({ error: 'Duration must be a positive number' }, { status: 400 });

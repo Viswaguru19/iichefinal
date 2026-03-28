@@ -27,25 +27,37 @@ export default function NotificationBell() {
     useEffect(() => {
         loadNotifications();
 
-        // Set up real-time subscription
-        const channel = supabase
-            .channel('notifications')
-            .on(
-                'postgres_changes',
-                {
-                    event: '*',
-                    schema: 'public',
-                    table: 'notifications',
-                    filter: `user_id=eq.${supabase.auth.getUser().then(u => u.data.user?.id)}`
-                },
-                () => {
-                    loadNotifications();
-                }
-            )
-            .subscribe();
+        let cancelled = false;
+        let channel: ReturnType<typeof supabase.channel> | null = null;
+
+        void (async () => {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user || cancelled) return;
+            const ch = supabase
+                .channel(`notifications-${user.id}`)
+                .on(
+                    'postgres_changes',
+                    {
+                        event: '*',
+                        schema: 'public',
+                        table: 'notifications',
+                        filter: `user_id=eq.${user.id}`,
+                    },
+                    () => {
+                        loadNotifications();
+                    },
+                )
+                .subscribe();
+            if (cancelled) {
+                supabase.removeChannel(ch);
+                return;
+            }
+            channel = ch;
+        })();
 
         return () => {
-            supabase.removeChannel(channel);
+            cancelled = true;
+            if (channel) supabase.removeChannel(channel);
         };
     }, []);
 

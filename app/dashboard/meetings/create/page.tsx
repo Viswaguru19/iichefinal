@@ -9,6 +9,12 @@ import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { nanoid } from 'nanoid';
 
+/** `datetime-local` value for min= (user's local clock, minute precision). */
+function toDatetimeLocalValue(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 export default function CreateMeetingPage() {
   const [committees, setCommittees] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -16,6 +22,7 @@ export default function CreateMeetingPage() {
   const [audienceType, setAudienceType] = useState<'all_members' | 'executive_committee' | 'specific_committee' | 'general'>('all_members');
   const [requireApproval, setRequireApproval] = useState(false);
   const [createdLink, setCreatedLink] = useState('');
+  const [minMeetingDateTime, setMinMeetingDateTime] = useState('');
   const router = useRouter();
 
   // Auto-generate room_id and meeting link for online meetings (always internal portal)
@@ -26,6 +33,9 @@ export default function CreateMeetingPage() {
   const supabase = createClient();
 
   useEffect(() => { fetchCommittees(); }, []);
+  useEffect(() => {
+    setMinMeetingDateTime(toDatetimeLocalValue(new Date()));
+  }, []);
 
   async function fetchCommittees() {
     const { data } = await supabase.from('committees').select('id, name').order('name');
@@ -37,12 +47,33 @@ export default function CreateMeetingPage() {
     setLoading(true);
     const formData = new FormData(e.currentTarget);
 
+    const meetingDateRaw = (formData.get('meeting_date') as string)?.trim();
+    const meetingInstant = meetingDateRaw ? new Date(meetingDateRaw) : null;
+    if (!meetingInstant || Number.isNaN(meetingInstant.getTime())) {
+      toast.error('Please choose a valid date and time');
+      setLoading(false);
+      return;
+    }
+    // Send UTC instant so server validation matches the user's local choice (fixes "today" when API runs in UTC).
+    if (meetingInstant.getTime() <= Date.now()) {
+      toast.error('Meeting time must be in the future');
+      setLoading(false);
+      return;
+    }
+
+    const duration = parseInt(String(formData.get('duration') ?? ''), 10);
+    if (!Number.isFinite(duration) || duration <= 0) {
+      toast.error('Enter a valid duration in minutes');
+      setLoading(false);
+      return;
+    }
+
     const requestBody: Record<string, any> = {
       title: formData.get('title') as string,
       description: (formData.get('description') as string) || undefined,
       meeting_type: meetingType as 'online' | 'offline',
-      meeting_date: formData.get('meeting_date') as string,
-      duration: parseInt(formData.get('duration') as string),
+      meeting_date: meetingInstant.toISOString(),
+      duration,
       agenda: (formData.get('agenda') as string) || undefined,
       audience_type: audienceType,
       access_type: audienceType === 'general' ? 'general' : 'invite_only',
@@ -197,7 +228,13 @@ export default function CreateMeetingPage() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className={labelClass}>Date & Time</label>
-                <input type="datetime-local" name="meeting_date" required className={inputClass} />
+                <input
+                  type="datetime-local"
+                  name="meeting_date"
+                  required
+                  min={minMeetingDateTime || undefined}
+                  className={inputClass}
+                />
               </div>
               <div>
                 <label className={labelClass}>Duration (min)</label>
