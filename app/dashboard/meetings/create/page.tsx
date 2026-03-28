@@ -25,11 +25,12 @@ export default function CreateMeetingPage() {
   const [minMeetingDateTime, setMinMeetingDateTime] = useState('');
   const router = useRouter();
 
-  // Auto-generate room_id and meeting link for online meetings (always internal portal)
-  const internalRoomId = useMemo(() => nanoid(), []);
-  const internalMeetingLink = typeof window !== 'undefined' && meetingType === 'online'
-    ? `${window.location.origin}/meet/${internalRoomId}`
-    : '';
+  // Stable room slug for this form — sent to API so this URL is exactly what gets saved and shared.
+  const portalRoomId = useMemo(() => nanoid(), []);
+  const portalMeetingLink =
+    typeof window !== 'undefined' && meetingType === 'online'
+      ? `${window.location.origin}/meet/${portalRoomId}`
+      : '';
   const supabase = createClient();
 
   useEffect(() => { fetchCommittees(); }, []);
@@ -90,6 +91,10 @@ export default function CreateMeetingPage() {
       requestBody.committee_id = formData.get('committee_id') as string;
     }
 
+    if (meetingType === 'online') {
+      requestBody.room_id = portalRoomId;
+    }
+
     try {
       const res = await fetch('/api/meetings/create', {
         method: 'POST',
@@ -105,9 +110,19 @@ export default function CreateMeetingPage() {
         return;
       }
 
-      if (data.meeting_link) {
-        setCreatedLink(data.meeting_link);
-        try { await navigator.clipboard.writeText(data.meeting_link); } catch { /* clipboard may not be available */ }
+      const finalLink =
+        typeof data.meeting_link === 'string' && data.meeting_link.length > 0
+          ? data.meeting_link
+          : meetingType === 'online' && typeof window !== 'undefined' && data.room_id
+            ? `${window.location.origin}/meet/${data.room_id}`
+            : '';
+      if (finalLink) {
+        setCreatedLink(finalLink);
+        try {
+          await navigator.clipboard.writeText(finalLink);
+        } catch {
+          /* clipboard may not be available */
+        }
         toast.success('Meeting scheduled! Link copied.');
       } else {
         toast.success('Meeting scheduled successfully!');
@@ -184,23 +199,30 @@ export default function CreateMeetingPage() {
                   className="space-y-5 overflow-hidden"
                 >
                   <div>
-                    <label className={labelClass}>Meeting Link (auto-generated)</label>
+                    <label className={labelClass}>Your meeting link (saved when you schedule)</label>
+                    <p className="text-xs text-gray-500 mb-1.5">
+                      Copy and share after scheduling, or use the success banner — this is the exact room URL stored for your meeting.
+                    </p>
                     <div className="flex items-center gap-2">
                       <div className="relative flex-1">
                         <LinkIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-indigo-400" />
                         <input
                           type="text"
-                          name="meeting_link"
                           readOnly
-                          value={internalMeetingLink}
+                          value={portalMeetingLink}
                           className={`${inputClass} pl-9 bg-indigo-50/60 text-indigo-700 cursor-default`}
+                          aria-label="Portal meeting URL"
                         />
                       </div>
                       <motion.button
                         type="button"
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.95 }}
-                        onClick={() => { navigator.clipboard.writeText(internalMeetingLink); toast.success('Link copied!'); }}
+                        onClick={() => {
+                          if (!portalMeetingLink) return;
+                          void navigator.clipboard.writeText(portalMeetingLink);
+                          toast.success('Link copied!');
+                        }}
                         className="px-3 py-2.5 rounded-xl bg-indigo-100 text-indigo-600 hover:bg-indigo-200 transition-colors"
                       >
                         <Copy className="w-4 h-4" />

@@ -257,5 +257,16 @@ describe('/api/meetings/create', () => {
                 ])
             );
         });
+
+        it('accepts valid optional room_id for online meetings', async () => {
+            setupMeetingInsertSuccess();
+            const res = await POST(
+                makeRequest(validBody({ room_id: 'abcdefghijklmnop12345' })),
+            );
+            expect(res.status).toBe(200);
+            const json = await res.json();
+            expect(json.room_id).toBe('abcdefghijklmnop12345');
+            expect(String(json.meeting_link || '')).toContain('/meet/abcdefghijklmnop12345');
+        });
     });
 });

@@ -2,6 +2,9 @@ import { createClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 import { nanoid } from 'nanoid';
 
+/** Client may supply the same id shown in the schedule form so preview URL === saved meeting link. */
+const ROOM_ID_PATTERN = /^[A-Za-z0-9_-]{10,64}$/;
+
 interface CreateMeetingRequest {
     title: string;
     description?: string;
@@ -14,6 +17,8 @@ interface CreateMeetingRequest {
     committee_id?: string;
     access_type?: 'invite_only' | 'general';
     require_approval?: boolean;
+    /** Optional portal room slug (nanoid). If missing or invalid, server generates one. */
+    room_id?: string;
 }
 
 export async function POST(request: Request) {
@@ -50,12 +55,14 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'Committee ID is required for specific committee audience' }, { status: 400 });
         }
 
-        // --- Auto-generate meeting_link for online meetings ---
+        // --- Portal room slug + meeting_link (online only) — prefer client id so UI preview matches DB ---
         let meeting_link: string | null = null;
-        const room_id = nanoid();
+        let roomSlug: string | null = null;
         if (body.meeting_type === 'online') {
+            const fromClient = typeof body.room_id === 'string' ? body.room_id.trim() : '';
+            roomSlug = ROOM_ID_PATTERN.test(fromClient) ? fromClient : nanoid();
             const origin = request.headers.get('origin') || request.headers.get('referer')?.replace(/\/[^/]*$/, '') || '';
-            meeting_link = `${origin}/meet/${room_id}`;
+            meeting_link = `${origin}/meet/${roomSlug}`;
         }
 
         // --- Resolve audience (skip for general meetings) ---
@@ -80,6 +87,7 @@ export async function POST(request: Request) {
             duration: body.duration,
             location: body.meeting_type === 'offline' ? body.location : null,
             meeting_link: meeting_link,
+            room_id: roomSlug,
             committee_id: body.audience_type === 'specific_committee' ? body.committee_id : null,
             created_by: user.id,
             agenda: body.agenda || null,
@@ -116,7 +124,12 @@ export async function POST(request: Request) {
             });
         } catch { /* Non-fatal */ }
 
-        return NextResponse.json({ meeting, meeting_link, participantCount: participantIds.length });
+        return NextResponse.json({
+            meeting,
+            meeting_link,
+            room_id: roomSlug,
+            participantCount: participantIds.length,
+        });
     } catch (error: any) {
         console.error('Error creating meeting:', error);
         return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 });
