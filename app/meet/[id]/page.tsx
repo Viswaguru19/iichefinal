@@ -62,8 +62,8 @@ function guestSessionStorageKey(roomId: string) {
     return `avvu_meet_guest_${roomId}`;
 }
 
-function initialsFromDisplayName(name: string) {
-    const parts = name.trim().split(/\s+/).filter(Boolean);
+function initialsFromDisplayName(name: string | null | undefined) {
+    const parts = String(name ?? '').trim().split(/\s+/).filter(Boolean);
     if (parts.length === 0) return '?';
     if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
     return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
@@ -158,7 +158,12 @@ function CameraOffAvatar({
 export default function MeetingRoomPage() {
     const params = useParams();
     const router = useRouter();
-    const roomId = params.id as string;
+    const roomId =
+        typeof params?.id === 'string'
+            ? params.id
+            : Array.isArray(params?.id)
+              ? params.id[0] ?? ''
+              : '';
     const supabase = createClient();
 
     // Core state
@@ -1194,7 +1199,7 @@ export default function MeetingRoomPage() {
                 >
                     <Loader2 className="w-12 h-12 text-amber-400 mx-auto mb-4 animate-spin" />
                     <h2 className="text-xl font-bold text-white mb-2">Waiting for approval</h2>
-                    <p className="text-white/60 text-sm mb-4">{meeting.title}</p>
+                    <p className="text-white/60 text-sm mb-4">{meeting.title ?? 'Meeting'}</p>
                     <p className="text-white/45 text-xs mb-4">
                         You joined as <span className="text-white/80 font-medium">{currentUserName}</span>. The organizer will use your <strong className="text-amber-200/90">guest ID</strong> to approve you.
                     </p>
@@ -1358,7 +1363,7 @@ export default function MeetingRoomPage() {
                     <div className="flex items-center justify-between gap-4 mb-4">
                         <div>
                             <p className="text-amber-200/80 text-xs uppercase tracking-wide">Preview before joining</p>
-                            <h2 className="text-amber-100 text-lg sm:text-xl font-bold">{meeting.title}</h2>
+                            <h2 className="text-amber-100 text-lg sm:text-xl font-bold">{meeting.title ?? 'Meeting'}</h2>
                         </div>
                         <button onClick={() => router.push('/dashboard/meetings')} className="text-amber-100/90 hover:text-amber-200 text-xs border border-amber-300/30 rounded-lg px-3 py-1.5">Back</button>
                     </div>
@@ -1530,7 +1535,7 @@ export default function MeetingRoomPage() {
                         <div className="rounded-xl bg-amber-400/10 border border-amber-300/30 p-3 mb-4"><p className="text-amber-100 text-sm font-semibold leading-5">Fueled by Passion,</p><p className="text-slate-200 text-sm font-semibold leading-5">Driven by Students</p></div>
                             <div className="rounded-xl border border-amber-300/25 bg-zinc-900/50 p-3 mb-4 space-y-2">
                             <p className="text-[10px] text-amber-100/70 uppercase tracking-wide mb-1">Meeting</p>
-                            <p className="text-amber-50 text-sm font-semibold">{meeting.title}</p>
+                            <p className="text-amber-50 text-sm font-semibold">{meeting.title ?? 'Meeting'}</p>
                             {meeting.description && (
                                     <p className="text-xs text-slate-200/80 leading-relaxed">{meeting.description}</p>
                             )}
@@ -1567,7 +1572,7 @@ export default function MeetingRoomPage() {
                     <div className="w-px h-5 bg-white/10 mx-1 hidden sm:block" />
                     <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
                     <h1 className="text-white font-semibold text-xs sm:text-sm truncate max-w-[145px] sm:max-w-xs">
-                        {meeting.title}
+                        {meeting.title ?? 'Meeting'}
                     </h1>
                     {isScreenSharing && (
                         <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/40 bg-emerald-500/15 px-2.5 py-1 text-[10px] font-semibold text-emerald-300">
@@ -1577,7 +1582,7 @@ export default function MeetingRoomPage() {
                     )}
                 </div>
                 <p className="text-white/40 text-xs hidden sm:block">
-                    Room: {roomId.slice(0, 8)}...
+                    Room: {roomId ? `${roomId.slice(0, 8)}…` : '—'}
                 </p>
             </motion.div>
             {/* Main content area */}
@@ -1986,6 +1991,7 @@ function RemoteVideo({
     small?: boolean;
 }) {
     const isGuestPeer = peerId.startsWith('guest-');
+    const remoteDisplayName = String(peer.userName ?? '').trim() || 'Participant';
     const videoRef = useRef<HTMLVideoElement>(null);
     /** Decoded frames visible in the &lt;video&gt; element (not only RTP flowing). */
     const [hasVideo, setHasVideo] = useState(false);
@@ -2100,14 +2106,14 @@ function RemoteVideo({
                 />
                 {showConnectingUi && (
                     <div className="absolute inset-0 z-[1] flex flex-col items-center justify-center bg-gradient-to-b from-slate-800/95 via-slate-900 to-black/90">
-                        <CameraOffAvatar name={peer.userName} profileImageUrl={profileAvatarUrl} compact isGuest={isGuestPeer} />
+                        <CameraOffAvatar name={remoteDisplayName} profileImageUrl={profileAvatarUrl} compact isGuest={isGuestPeer} />
                         <p className="text-[8px] text-white/55 uppercase tracking-wide mt-0.5">Connecting…</p>
                     </div>
                 )}
                 {showCameraOffChrome && (
                     <div className="absolute inset-0 z-[1] flex flex-col items-center justify-center bg-gradient-to-b from-slate-800/95 via-slate-900 to-black/90">
                         <CameraOffAvatar
-                            name={peer.userName}
+                            name={remoteDisplayName}
                             profileImageUrl={profileAvatarUrl}
                             compact
                             isGuest={isGuestPeer}
@@ -2119,7 +2125,7 @@ function RemoteVideo({
                 {isRemoteScreenShare && <div className="absolute top-1 left-1 rounded-md border border-emerald-400/40 bg-emerald-500/20 px-1.5 py-0.5"><p className="text-[9px] text-emerald-200 font-semibold">Sharing</p></div>}
                 {showLivePixels && <div className="absolute top-1 right-1 z-[1]"><RemoteVideoRoleBadge peerId={peerId} userRole={presenceRole} compact /></div>}
                 <div className="absolute bottom-1 left-1 right-8 bg-black/60 rounded px-1.5 py-0.5 flex items-center gap-1.5 flex-wrap min-w-0">
-                    <p className="text-white text-[10px] truncate">{peer.userName}</p>
+                    <p className="text-white text-[10px] truncate">{remoteDisplayName}</p>
                     {!showLivePixels ? <RemoteVideoRoleBadge peerId={peerId} userRole={presenceRole} compact /> : null}
                 </div>
             </div>
@@ -2138,25 +2144,25 @@ function RemoteVideo({
             />
             {showConnectingUi && (
                 <div className="absolute inset-0 z-[1] flex flex-col items-center justify-center gap-2 px-4 bg-gradient-to-b from-slate-800/95 via-slate-900 to-black/90">
-                    <CameraOffAvatar name={peer.userName} profileImageUrl={profileAvatarUrl} isGuest={isGuestPeer} />
+                    <CameraOffAvatar name={remoteDisplayName} profileImageUrl={profileAvatarUrl} isGuest={isGuestPeer} />
                     <RemoteVideoRoleBadge peerId={peerId} userRole={presenceRole} className="text-[10px] px-2.5 py-1" />
                     <p className="text-[10px] text-white/55 uppercase tracking-widest">Connecting video…</p>
-                    <p className="text-white/85 text-sm font-medium">{peer.userName}</p>
+                    <p className="text-white/85 text-sm font-medium">{remoteDisplayName}</p>
                 </div>
             )}
             {showCameraOffChrome && (
                 <div className="absolute inset-0 z-[1] flex flex-col items-center justify-center gap-2 px-4 bg-gradient-to-b from-slate-800/95 via-slate-900 to-black/90">
-                    <CameraOffAvatar name={peer.userName} profileImageUrl={profileAvatarUrl} isGuest={isGuestPeer} />
+                    <CameraOffAvatar name={remoteDisplayName} profileImageUrl={profileAvatarUrl} isGuest={isGuestPeer} />
                     <RemoteVideoRoleBadge peerId={peerId} userRole={presenceRole} className="text-[10px] px-2.5 py-1" />
                     <p className="text-[10px] text-white/45 uppercase tracking-widest">Camera off</p>
-                    <p className="text-white/85 text-sm font-medium">{peer.userName}</p>
+                    <p className="text-white/85 text-sm font-medium">{remoteDisplayName}</p>
                 </div>
             )}
             {peer.remoteStream && <AudioPlayer stream={peer.remoteStream} />}
             {isRemoteScreenShare && <div className="absolute top-3 left-3 rounded-full border border-emerald-400/40 bg-emerald-500/20 px-2 py-1 z-[1]"><p className="text-[10px] text-emerald-200 font-semibold">Sharing screen</p></div>}
             {showLivePixels && (
                 <div className="absolute bottom-3 left-3 right-14 glass-dark rounded-lg px-3 py-1.5 flex items-center gap-2 flex-wrap max-w-[min(100%,22rem)]">
-                    <p className="text-white text-xs font-medium truncate">{peer.userName}{isPinned ? ' (Pinned)' : ''}</p>
+                    <p className="text-white text-xs font-medium truncate">{remoteDisplayName}{isPinned ? ' (Pinned)' : ''}</p>
                     <RemoteVideoRoleBadge peerId={peerId} userRole={presenceRole} compact />
                 </div>
             )}
@@ -2366,7 +2372,7 @@ function ChatPanel({
                         >
                             {!isOwn && (
                                 <span className="text-[10px] text-white/40 mb-0.5 px-1">
-                                    {msg.senderName}
+                                    {msg.senderName || 'Participant'}
                                 </span>
                             )}
                             <div
@@ -2471,7 +2477,9 @@ function ParticipantsPanel({
     const sorted = [...participants].sort((a, b) => {
         if (a.userId === currentUserId) return -1;
         if (b.userId === currentUserId) return 1;
-        return a.userName.localeCompare(b.userName);
+        const an = String(a.userName ?? '').trim() || 'Participant';
+        const bn = String(b.userName ?? '').trim() || 'Participant';
+        return an.localeCompare(bn);
     });
 
     const now = Date.now();
@@ -2494,12 +2502,8 @@ function ParticipantsPanel({
                 {sorted.map((p) => {
                     const isYou = p.userId === currentUserId;
                     const peerIsMeetingCreator = Boolean(meetingCreatorId && p.userId === meetingCreatorId);
-                    const initials = p.userName
-                        .split(' ')
-                        .map((w) => w[0])
-                        .join('')
-                        .toUpperCase()
-                        .slice(0, 2);
+                    const displayName = String(p.userName ?? '').trim() || 'Participant';
+                    const initials = initialsFromDisplayName(displayName).slice(0, 2) || '?';
 
                     let dwellSec = 0;
                     if (isYou) {
@@ -2528,7 +2532,7 @@ function ParticipantsPanel({
                             <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-1.5 flex-wrap">
                                     <p className="text-white text-xs font-medium truncate">
-                                        {p.userName}
+                                        {displayName}
                                         {isYou && <span className="ml-1 text-[10px] text-indigo-400 font-normal">(You)</span>}
                                     </p>
                                     {p.userRole && (
@@ -2607,12 +2611,13 @@ function MeetingDetailsPanel({
     isMuted: boolean;
     expanded?: boolean;
 }) {
-    const when = new Date(meeting.meeting_date);
+    const when = new Date(meeting.meeting_date ?? '');
+    const scheduleOk = !Number.isNaN(when.getTime());
     return (
         <div className={`flex-1 overflow-y-auto p-3 space-y-3 ${expanded ? 'max-w-4xl mx-auto w-full' : ''}`}>
             <div className="rounded-xl border border-white/10 bg-white/5 p-3">
                 <p className="text-white/50 text-[11px] mb-1">Meeting Title</p>
-                <p className="text-white text-sm font-semibold">{meeting.title}</p>
+                <p className="text-white text-sm font-semibold">{meeting.title ?? 'Meeting'}</p>
                 {meeting.description && <p className="text-white/70 text-xs mt-2 leading-relaxed">{meeting.description}</p>}
             </div>
             <div className="rounded-xl border border-amber-400/30 bg-gradient-to-br from-amber-500/10 to-yellow-500/5 p-3">
@@ -2624,8 +2629,14 @@ function MeetingDetailsPanel({
             </div>
             <div className="rounded-xl border border-white/10 bg-white/5 p-3">
                 <p className="text-white/50 text-[11px] mb-2">Schedule</p>
-                <p className="text-white/90 text-xs">{when.toLocaleDateString('en-IN', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}</p>
-                <p className="text-white/70 text-xs mt-1">{when.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</p>
+                {scheduleOk ? (
+                    <>
+                        <p className="text-white/90 text-xs">{when.toLocaleDateString('en-IN', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}</p>
+                        <p className="text-white/70 text-xs mt-1">{when.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</p>
+                    </>
+                ) : (
+                    <p className="text-white/50 text-xs">Time not available</p>
+                )}
             </div>
             <div className="rounded-xl border border-white/10 bg-white/5 p-3">
                 <p className="text-white/50 text-[11px] mb-1">Your microphone</p>
@@ -2726,19 +2737,22 @@ function ParticipantCardsGrid({
     const sorted = [...participants].sort((a, b) => {
         if (a.userId === currentUserId) return -1;
         if (b.userId === currentUserId) return 1;
-        return a.userName.localeCompare(b.userName);
+        const an = String(a.userName ?? '').trim() || 'Participant';
+        const bn = String(b.userName ?? '').trim() || 'Participant';
+        return an.localeCompare(bn);
     });
     if (sorted.length === 0) return <p className="text-white/30 text-xs">No participants connected yet.</p>;
     return (
         <div className="grid grid-cols-1 gap-2">
             {sorted.map((p) => {
-                const initials = p.userName.split(' ').map((w) => w[0]).join('').toUpperCase().slice(0, 2);
+                const label = String(p.userName ?? '').trim() || 'Participant';
+                const initials = initialsFromDisplayName(label).slice(0, 2) || '?';
                 const isYou = p.userId === currentUserId;
                 return (
                     <div key={p.userId} className="rounded-lg border border-white/10 bg-white/5 p-2.5 flex items-center gap-2.5">
                         <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center"><span className="text-white text-[10px] font-bold">{initials}</span></div>
                         <div className="min-w-0 flex-1">
-                            <p className="text-white text-xs truncate">{p.userName}{isYou && <span className="ml-1 text-indigo-300">(You)</span>}</p>
+                            <p className="text-white text-xs truncate">{label}{isYou && <span className="ml-1 text-indigo-300">(You)</span>}</p>
                             {p.userRole && <p className="text-[10px] text-white/50 truncate">{p.userRole}</p>}
                         </div>
                         <div className="w-2 h-2 rounded-full bg-emerald-400" />

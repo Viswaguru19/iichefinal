@@ -96,6 +96,7 @@ export function useWebRTC({
 
     // These are NOT useCallbacks — they use refs so they never go stale
     function createPC(peerId: string, peerName: string): RTCPeerConnection {
+        const safeName = String(peerName ?? '').trim() || 'Participant';
         const pc = new RTCPeerConnection(ICE_SERVERS);
         // Add local tracks
         if (localStreamRef.current) {
@@ -145,7 +146,7 @@ export function useWebRTC({
             else if (pc.connectionState === 'closed') removePC(peerId);
         };
         pc.oniceconnectionstatechange = () => { if (pc.iceConnectionState === 'failed') pc.restartIce(); };
-        peersRef.current.set(peerId, { connection: pc, remoteStream, userName: peerName });
+        peersRef.current.set(peerId, { connection: pc, remoteStream, userName: safeName });
         syncPeers();
         return pc;
     }
@@ -190,11 +191,11 @@ export function useWebRTC({
         });
 
         channel.on('broadcast', { event: 'peer-joined' }, async (msg) => {
-            const { senderId, senderName } = msg.payload as { senderId: string; senderName: string };
+            const { senderId, senderName } = msg.payload as { senderId: string; senderName?: string };
             if (senderId === userIdRef.current || peersRef.current.has(senderId)) return;
             // Glare avoidance: only the lexicographically smaller userId sends the initial offer.
             if (userIdRef.current > senderId) return;
-            const pc = createPC(senderId, senderName);
+            const pc = createPC(senderId, String(senderName ?? '').trim() || 'Participant');
             try {
                 const offer = await pc.createOffer();
                 await pc.setLocalDescription(offer);
@@ -203,7 +204,7 @@ export function useWebRTC({
         });
 
         channel.on('broadcast', { event: 'sdp-offer' }, async (msg) => {
-            const { senderId, senderName, targetId, sdp } = msg.payload as { senderId: string; senderName: string; targetId: string; sdp: RTCSessionDescriptionInit };
+            const { senderId, senderName, targetId, sdp } = msg.payload as { senderId: string; senderName?: string; targetId: string; sdp: RTCSessionDescriptionInit };
             if (targetId !== userIdRef.current) return;
             const existing = peersRef.current.get(senderId);
             if (existing) {
@@ -220,7 +221,7 @@ export function useWebRTC({
                 }
                 return;
             }
-            const pc = createPC(senderId, senderName);
+            const pc = createPC(senderId, String(senderName ?? '').trim() || 'Participant');
             try {
                 await pc.setRemoteDescription(new RTCSessionDescription(sdp));
                 const answer = await pc.createAnswer();
@@ -261,7 +262,16 @@ export function useWebRTC({
         channel.on('presence', { event: 'sync' }, () => {
             const state = channel.presenceState();
             const list: RoomParticipant[] = [];
-            for (const key of Object.keys(state)) { for (const p of state[key] as any[]) { list.push({ userId: p.userId, userName: p.userName, userRole: p.userRole || null, joinedAt: p.online_at }); } }
+            for (const key of Object.keys(state)) {
+                for (const p of state[key] as any[]) {
+                    list.push({
+                        userId: p.userId,
+                        userName: String(p.userName ?? '').trim() || 'Participant',
+                        userRole: p.userRole || null,
+                        joinedAt: p.online_at,
+                    });
+                }
+            }
             setParticipants(list);
 
             // Self-heal race: if presence knows someone is here but no RTCPeerConnection exists,
@@ -296,9 +306,10 @@ export function useWebRTC({
 
         channel.subscribe(async (status) => {
             if (status === 'SUBSCRIBED') {
-                await channel.track({ userId, userName, userRole: userRole || null, online_at: new Date().toISOString() });
+                const trackName = String(userName ?? '').trim() || 'Participant';
+                await channel.track({ userId, userName: trackName, userRole: userRole || null, online_at: new Date().toISOString() });
                 await new Promise(r => setTimeout(r, 500));
-                channel.send({ type: 'broadcast', event: 'peer-joined', payload: { senderId: userId, senderName: userName } });
+                channel.send({ type: 'broadcast', event: 'peer-joined', payload: { senderId: userId, senderName: trackName } });
                 const snap = getCameraSendingSnapshotRef.current?.() ?? true;
                 channel.send({
                     type: 'broadcast',
