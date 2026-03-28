@@ -39,6 +39,7 @@ export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
 export type EventStatus =
   | 'draft'
   | 'pending_head_approval'
+  | 'pending_second_head_approval'
   | 'review_by_cohead'
   | 'pending_ec_approval'
   | 'rejected_by_head'
@@ -93,6 +94,8 @@ export interface Profile {
   executive_role?: ExecutiveRole | null;
   is_faculty: boolean;
   is_admin: boolean;
+  /** When true, user may only use the hiring applicant area until accepted as co-head */
+  hiring_portal_only?: boolean;
   is_active: boolean;
   avatar_url?: string | null;
   phone?: string | null;
@@ -129,6 +132,11 @@ export interface Event {
   event_date: string;
   location?: string | null;
   image_url?: string | null;
+  poster_url?: string | null;
+  poster_status?: string | null;
+  poster_faculty_notes?: string | null;
+  poster_faculty_reviewed_at?: string | null;
+  poster_faculty_reviewed_by?: string | null;
   status: EventStatus;
   proposed_by?: string | null;
   created_by?: string | null;

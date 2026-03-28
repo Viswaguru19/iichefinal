@@ -34,7 +34,11 @@ const APPROVAL_STEPS = [
 
 function getStepStatus(event: Event) {
     const s = event.status;
-    const headDone = s !== 'pending_head_approval' && s !== 'draft' && s !== 'review_by_cohead';
+    const headDone =
+        s !== 'pending_head_approval' &&
+        s !== 'draft' &&
+        s !== 'review_by_cohead' &&
+        s !== 'pending_second_head_approval';
     const ecDone = headDone && s !== 'pending_ec_approval' && s !== 'rejected_by_head';
     const facultyDone = ecDone && (s === 'active' || s === 'completed' || s === 'in_progress' || s === 'faculty_approved');
     return { headDone, ecDone, facultyDone };

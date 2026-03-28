@@ -69,7 +69,7 @@ export default function LoginPage() {
       // Check if profile exists
       let { data: profile, error: profileError } = await supabase
         .from('profiles')
-        .select('approved, role, is_faculty, name')
+        .select('approved, role, is_faculty, name, hiring_portal_only')
         .eq('email', email)
         .maybeSingle();
 
@@ -87,7 +87,7 @@ export default function LoginPage() {
               approved: false,
               is_faculty: false
             })
-            .select('approved, role, is_faculty, name')
+            .select('approved, role, is_faculty, name, hiring_portal_only')
             .single();
 
           if (createError) {
@@ -95,7 +95,7 @@ export default function LoginPage() {
             // If profile creation fails, try to fetch again (might already exist)
             const { data: existingProfile } = await supabase
               .from('profiles')
-              .select('approved, role, is_faculty, name')
+              .select('approved, role, is_faculty, name, hiring_portal_only')
               .eq('id', authData.user.id)
               .maybeSingle();
 
@@ -119,8 +119,10 @@ export default function LoginPage() {
         throw new Error('Profile not found. Please sign up first or contact admin.');
       }
 
-      // Super admin can always login, others need approval
-      if ((profile as any)?.role !== 'super_admin' && !(profile as any)?.approved) {
+      const p = profile as { role?: string; approved?: boolean; hiring_portal_only?: boolean };
+      const isSuper = p?.role === 'super_admin';
+      const okLogin = isSuper || p?.approved || p?.hiring_portal_only;
+      if (!okLogin) {
         await supabase.auth.signOut();
         throw new Error('Account pending approval. Contact admin.');
       }
@@ -129,7 +131,12 @@ export default function LoginPage() {
       const rawNext = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('next') : null;
       const nextPath =
         rawNext && rawNext.startsWith('/') && !rawNext.startsWith('//') ? rawNext : null;
-      window.location.href = nextPath || '/dashboard';
+      const defaultDest = p?.hiring_portal_only ? '/hiring/portal' : '/dashboard';
+      let dest = nextPath || defaultDest;
+      if (p?.hiring_portal_only && nextPath?.startsWith('/dashboard')) {
+        dest = '/hiring/portal';
+      }
+      window.location.href = dest;
     } catch (error: any) {
       console.error('Login error:', error);
       const errorMessage = error?.message || 'Login failed';

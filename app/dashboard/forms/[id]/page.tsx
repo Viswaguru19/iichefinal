@@ -8,6 +8,7 @@ import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import QRCode from 'qrcode';
+import { isEventOpenForRegistration } from '@/lib/event-registration';
 
 interface FormField {
   id: string;
@@ -36,6 +37,70 @@ const fieldAnim = {
   }),
 };
 
+const EMAIL_LIKE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** Personal attendance QR after submit (event registration only); default on if unset. */
+function isAttendanceQrAfterSubmitEnabled(settings: Record<string, unknown> | null | undefined, formType: string | undefined) {
+  if (formType !== 'event_registration') return false;
+  const s = settings || {};
+  if (s.show_attendance_qr_after_submit === false) return false;
+  if (s.showAttendanceQrAfterSubmit === false) return false;
+  return true;
+}
+
+function trimStr(v: unknown): string {
+  return typeof v === 'string' ? v.trim() : '';
+}
+
+/** Resolves email from field labels (including "E-mail"), values, profile, or auth user. */
+function extractResponderEmail(
+  responses: Record<string, unknown>,
+  answers: Record<string, unknown>,
+  profile: { email?: string | null } | null | undefined,
+  user: { email?: string | null } | null | undefined,
+  externalEmail: string,
+): string | null {
+  for (const [k, raw] of Object.entries(responses)) {
+    const v = trimStr(raw);
+    if (!v || !EMAIL_LIKE.test(v)) continue;
+    const kl = k.toLowerCase().replace(/\s+/g, ' ');
+    if (/\b(e-?mail|correo)\b/.test(kl) || kl.includes('email')) return v;
+  }
+  for (const [, raw] of Object.entries(responses)) {
+    const v = trimStr(raw);
+    if (v && EMAIL_LIKE.test(v)) return v;
+  }
+  for (const val of Object.values(answers)) {
+    const v = trimStr(val);
+    if (v && EMAIL_LIKE.test(v)) return v;
+  }
+  const ext = externalEmail.trim();
+  if (ext && EMAIL_LIKE.test(ext)) return ext;
+  const pe = trimStr(profile?.email);
+  if (pe && EMAIL_LIKE.test(pe)) return pe;
+  const ue = trimStr(user?.email);
+  if (ue && EMAIL_LIKE.test(ue)) return ue;
+  return null;
+}
+
+function extractResponderName(
+  responses: Record<string, unknown>,
+  profile: { name?: string | null } | null | undefined,
+  externalName: string,
+): string {
+  for (const [k, raw] of Object.entries(responses)) {
+    const v = trimStr(raw);
+    if (!v) continue;
+    const kl = k.toLowerCase();
+    if (/name/.test(kl) && !/user\s*name|username|company|team|branch|if\s*name|domain/.test(kl)) return v;
+  }
+  const ext = externalName.trim();
+  if (ext) return ext;
+  const pn = trimStr(profile?.name);
+  if (pn) return pn;
+  return 'Participant';
+}
+
 export default function FormSubmitPage() {
   const [form, setForm] = useState<any>(null);
   const [fields, setFields] = useState<FormField[]>([]);
@@ -55,6 +120,8 @@ export default function FormSubmitPage() {
   const [eventDetails, setEventDetails] = useState<any>(null);
   const [externalName, setExternalName] = useState('');
   const [externalEmail, setExternalEmail] = useState('');
+  /** Set after successful event registration submit (venue QR uses source=onsite). */
+  const [submittedWasOnSite, setSubmittedWasOnSite] = useState(false);
   const params = useParams();
   const router = useRouter();
   const supabase = createClient();
@@ -62,6 +129,7 @@ export default function FormSubmitPage() {
   useEffect(() => { fetchForm(); }, []);
 
   async function fetchForm() {
+    setSubmittedWasOnSite(false);
     const { data: { user: authUser } } = await supabase.auth.getUser();
     setUser(authUser);
     let profileForPrefill: any = null;
@@ -75,31 +143,72 @@ export default function FormSubmitPage() {
     const { data: formData, error } = await supabase.from('forms').select('*').eq('id', params.id).single();
     if (error || !formData) { toast.error('Form not found'); setLoading(false); return; }
     const settings = formData.settings || {};
-    if (settings.status === 'draft' || !formData.is_active) { setFormClosed(true); setClosedReason('This form is not accepting responses.'); }
-    else if (settings.end_date && new Date(settings.end_date) < new Date()) { setFormClosed(true); setClosedReason('This form has passed its deadline.'); }
-    else if (settings.start_date && new Date(settings.start_date) > new Date()) { setFormClosed(true); setClosedReason(`This form opens on ${new Date(settings.start_date).toLocaleDateString()}.`); }
-    if ((settings.require_login ?? settings.requireLogin) && !authUser) { setFormClosed(true); setClosedReason('You must be logged in to fill this form.'); }
-    if (!(settings.allow_multiple ?? settings.allowMultiple) && authUser) {
-      const { data: existing } = await supabase.from('form_responses').select('id').eq('form_id', params.id).eq('user_id', authUser.id).limit(1);
-      if (existing && existing.length > 0) { setFormClosed(true); setClosedReason('You have already submitted a response.'); }
+    let closed = false;
+    let closedReasonLocal = '';
+    if (settings.status === 'draft' || !formData.is_active) {
+      closed = true;
+      closedReasonLocal = 'This form is not accepting responses.';
+    } else if (settings.end_date && new Date(settings.end_date) < new Date()) {
+      closed = true;
+      closedReasonLocal = 'This form has passed its deadline.';
+    } else if (settings.start_date && new Date(settings.start_date) > new Date()) {
+      closed = true;
+      closedReasonLocal = `This form opens on ${new Date(settings.start_date).toLocaleDateString()}.`;
+    } else if ((settings.require_login ?? settings.requireLogin) && !authUser) {
+      closed = true;
+      closedReasonLocal = 'You must be logged in to fill this form.';
+    } else if ((settings.access_type ?? settings.accessType) === 'internal' && !authUser) {
+      closed = true;
+      closedReasonLocal = 'This form is only available to portal members.';
     }
-    if ((settings.access_type ?? settings.accessType) === 'internal' && !authUser) { setFormClosed(true); setClosedReason('This form is only available to portal members.'); }
+    if (!closed && !(settings.allow_multiple ?? settings.allowMultiple) && authUser) {
+      const { data: existing } = await supabase.from('form_responses').select('id').eq('form_id', params.id).eq('user_id', authUser.id).limit(1);
+      if (existing && existing.length > 0) {
+        closed = true;
+        closedReasonLocal = 'You have already submitted a response.';
+      }
+    }
+
     setForm(formData);
     setFields(formData.fields || []);
-    if (formData.form_type === 'event_registration' && formData.event_id) {
+
+    if (!closed && formData.form_type === 'event_registration' && formData.event_id) {
       const { data: ev } = await supabase
         .from('events')
-        .select('id, title, event_date, location, poster_url')
+        .select('id, title, event_date, date, location, poster_url, poster_status, status')
         .eq('id', formData.event_id)
         .single();
-      if (ev) {
-        let posterUrl = ev.poster_url;
-        if (posterUrl && !posterUrl.startsWith('http')) {
-          const { data } = supabase.storage.from('event-documents').getPublicUrl(posterUrl);
-          posterUrl = data.publicUrl;
+      if (!ev) {
+        closed = true;
+        closedReasonLocal = 'This registration form is not linked to a valid event.';
+      } else if (!isEventOpenForRegistration(ev.status)) {
+        closed = true;
+        closedReasonLocal =
+          'Registration is not open for this event. It may be completed, cancelled, or not yet published for sign-ups.';
+      } else {
+        const posterApproved =
+          ev.poster_status === 'approved' ||
+          (ev.poster_url && (ev.poster_status == null || ev.poster_status === ''));
+        let posterUrl: string | null = null;
+        if (posterApproved && ev.poster_url) {
+          posterUrl = ev.poster_url;
+          if (posterUrl && !posterUrl.startsWith('http')) {
+            const { data } = supabase.storage.from('event-documents').getPublicUrl(posterUrl);
+            posterUrl = data.publicUrl;
+          }
         }
         setEventDetails({ ...ev, poster_url: posterUrl });
       }
+    } else {
+      setEventDetails(null);
+    }
+
+    if (closed) {
+      setFormClosed(true);
+      setClosedReason(closedReasonLocal);
+    } else {
+      setFormClosed(false);
+      setClosedReason('');
     }
     if (authUser && profileForPrefill) {
       const emailField = (formData.fields || []).find((f: FormField) =>
@@ -166,6 +275,14 @@ export default function FormSubmitPage() {
   async function handleSubmit() {
     if (!validate()) { toast.error('Please fix the errors'); return; }
     setSubmitting(true);
+    if (form?.form_type === 'event_registration' && form?.event_id) {
+      const { data: evCheck } = await supabase.from('events').select('status').eq('id', form.event_id).maybeSingle();
+      if (!evCheck || !isEventOpenForRegistration(evCheck.status)) {
+        toast.error('Registration is closed for this event.');
+        setSubmitting(false);
+        return;
+      }
+    }
     const settings = form?.settings || {};
     const allowMultiple = !!(settings.allow_multiple ?? settings.allowMultiple);
     if (!user && !allowMultiple) {
@@ -191,6 +308,59 @@ export default function FormSubmitPage() {
         responses[field.label] = path;
       } else { responses[field.label] = val ?? null; }
     }
+
+    const emailVal = extractResponderEmail(responses, answers, profile, user, externalEmail);
+    const nameVal = extractResponderName(responses, profile, externalName);
+    /** Venue on-spot QR (?source=onsite) or legacy ?source=qr → on_site (present + labeled). Public link has no param → advance. */
+    const srcParam =
+      typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('source') : null;
+    const registrationSource =
+      srcParam === 'onsite' || srcParam === 'on_site' || srcParam === 'qr' ? 'on_site' : 'advance';
+
+    /** Event registration: use DB RPC so anon submissions still get event_participants (anon cannot SELECT form_responses RETURNING id). */
+    if (form?.form_type === 'event_registration' && form?.event_id) {
+      const { data: rpcData, error: rpcError } = await supabase.rpc('submit_event_registration_response', {
+        p_form_id: params.id,
+        p_responses: responses,
+        p_participant_name: String(nameVal || 'Participant'),
+        p_participant_email: emailVal ? String(emailVal) : '',
+        p_registration_source: registrationSource,
+      });
+      if (rpcError) {
+        console.error('submit_event_registration_response', rpcError);
+        toast.error(rpcError.message || 'Failed to submit registration');
+        setSubmitting(false);
+        return;
+      }
+      const row = rpcData as { response_id?: string; participant_id?: string } | null;
+      if (!row?.response_id || !row?.participant_id) {
+        toast.error('Registration failed. Apply Supabase migrations 083 and 084 (event registration + on-site source) if you have not already.');
+        setSubmitting(false);
+        return;
+      }
+      const payload = {
+        participant_id: row.participant_id,
+        event_id: form.event_id,
+        response_id: row.response_id,
+        form_id: params.id,
+        participant_name: nameVal,
+        participant_email: emailVal,
+        submitted_at: new Date().toISOString(),
+      };
+      const showPersonalQr = isAttendanceQrAfterSubmitEnabled(form?.settings, form?.form_type);
+      if (showPersonalQr) {
+        setParticipantQrPayload(payload);
+        setParticipantQrImage(await QRCode.toDataURL(JSON.stringify(payload), { width: 280, margin: 1 }));
+      } else {
+        setParticipantQrPayload(null);
+        setParticipantQrImage(null);
+      }
+      setSubmittedWasOnSite(registrationSource === 'on_site');
+      setSubmitted(true);
+      setSubmitting(false);
+      return;
+    }
+
     const { data: inserted, error } = await supabase
       .from('form_responses')
       .insert({ form_id: params.id, user_id: user?.id || null, responses })
@@ -199,13 +369,7 @@ export default function FormSubmitPage() {
     if (error) {
       toast.error('Failed to submit');
     } else {
-      const emailVal =
-        Object.entries(responses).find(([k]) => /email/i.test(k))?.[1] ||
-        Object.values(answers).find((v: any) => typeof v === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v));
-      const nameVal =
-        Object.entries(responses).find(([k]) => /name/i.test(k))?.[1] ||
-        profile?.name ||
-        'Participant';
+      setSubmittedWasOnSite(false);
       if (emailVal) {
         const participantId = crypto.randomUUID();
         const payload = {
@@ -217,23 +381,11 @@ export default function FormSubmitPage() {
           participant_email: emailVal,
           submitted_at: new Date().toISOString(),
         };
-        if (form?.form_type === 'event_registration' && form?.event_id) {
-          const viaQr = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('source') === 'qr';
-          await supabase.from('event_participants').insert({
-            id: participantId,
-            event_id: form.event_id,
-            form_response_id: inserted?.id,
-            user_id: user?.id || null,
-            participant_name: String(nameVal || 'Participant'),
-            participant_email: String(emailVal),
-            form_data: responses,
-            qr_data: JSON.stringify(payload),
-            attendance_status: viaQr ? 'present' : 'registered',
-            attended_at: viaQr ? new Date().toISOString() : null,
-          });
-        }
         setParticipantQrPayload(payload);
         setParticipantQrImage(await QRCode.toDataURL(JSON.stringify(payload), { width: 260, margin: 1 }));
+      } else {
+        setParticipantQrPayload(null);
+        setParticipantQrImage(null);
       }
       setSubmitted(true);
     }
@@ -249,8 +401,13 @@ export default function FormSubmitPage() {
   }
 
   function copyLink() {
-    navigator.clipboard.writeText(window.location.href);
-    setCopied(true); toast.success('Link copied');
+    const href =
+      form?.form_type === 'event_registration'
+        ? `${typeof window !== 'undefined' ? window.location.origin : ''}/forms/${params.id}`
+        : window.location.href;
+    navigator.clipboard.writeText(href);
+    setCopied(true);
+    toast.success(form?.form_type === 'event_registration' ? 'Public registration link copied' : 'Link copied');
     setTimeout(() => setCopied(false), 2000);
   }
 
@@ -284,20 +441,37 @@ export default function FormSubmitPage() {
             <Check className="w-10 h-10 text-white" />
           </motion.div>
           <h2 className="text-2xl font-extrabold text-gray-800 mb-2">Response Submitted</h2>
-          <p className="text-gray-400 mb-8">Thank you for filling out this form.</p>
-          {participantQrImage && (
-            <div className="mb-8">
-              <p className="text-sm font-semibold text-gray-700 mb-2">Attendance QR (Email linked)</p>
-              <img src={participantQrImage} alt="Participant QR" className="w-48 h-48 mx-auto rounded-xl border border-gray-200 bg-white p-2" />
-              <button onClick={downloadQr} className="mt-3 text-xs font-semibold px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition">
-                Download QR
-              </button>
-              <p className="text-xs text-gray-500 mt-2">Please save this QR (download or screenshot) for attendance.</p>
+          <p className="text-gray-400 mb-4">Thank you for filling out this form.</p>
+          {submittedWasOnSite && form?.form_type === 'event_registration' && (
+            <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 text-left max-w-md mx-auto">
+              <p className="font-semibold">On-spot registration complete</p>
+              <p className="text-emerald-800/90 mt-1">
+                You are on the participant list as <strong>on-site registration</strong> and marked <strong>present</strong> for this event.
+              </p>
             </div>
           )}
+          {participantQrImage && (
+            <div className="mb-8 rounded-2xl border border-emerald-100 bg-emerald-50/60 p-5">
+              <p className="text-sm font-semibold text-emerald-900 mb-1">Your check-in QR</p>
+              <p className="text-xs text-emerald-800/90 mb-3">Show this at the event — organizers will scan it on the attendance page to mark you present.</p>
+              <img src={participantQrImage} alt="Your attendance QR" className="w-52 h-52 mx-auto rounded-xl border border-white bg-white p-2 shadow-sm" />
+              <button type="button" onClick={downloadQr} className="mt-3 text-xs font-semibold px-3 py-1.5 rounded-lg bg-white text-emerald-700 border border-emerald-200 hover:bg-emerald-50 transition">
+                Download QR
+              </button>
+              <p className="text-[11px] text-emerald-800/80 mt-2">Save a screenshot or download — you may need it at the venue.</p>
+            </div>
+          )}
+          {form?.form_type === 'event_registration' && !participantQrImage && (
+            <p className="text-sm text-gray-500 mb-8 max-w-sm mx-auto">
+              You are registered for this event. This form does not issue a personal check-in QR — organizers will mark attendance another way.
+            </p>
+          )}
           <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.97 }}>
-            <Link href="/dashboard/forms" className="btn-gradient-purple px-6 py-2.5 rounded-2xl text-sm font-semibold shadow-lg shadow-purple-500/20">
-              Back to Forms
+            <Link
+              href={user ? '/dashboard/forms' : '/'}
+              className="btn-gradient-purple px-6 py-2.5 rounded-2xl text-sm font-semibold shadow-lg shadow-purple-500/20"
+            >
+              {user ? 'Back to Forms' : 'Home'}
             </Link>
           </motion.div>
         </motion.div>
@@ -323,8 +497,11 @@ export default function FormSubmitPage() {
           <h2 className="text-2xl font-extrabold text-gray-800 mb-2">{form?.title || 'Form Closed'}</h2>
           <p className="text-gray-400 mb-8">{closedReason}</p>
           <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.97 }}>
-            <Link href="/dashboard/forms" className="btn-gradient-blue px-6 py-2.5 rounded-2xl text-sm font-semibold shadow-lg shadow-blue-500/20">
-              Back to Forms
+            <Link
+              href={user ? '/dashboard/forms' : '/'}
+              className="btn-gradient-blue px-6 py-2.5 rounded-2xl text-sm font-semibold shadow-lg shadow-blue-500/20"
+            >
+              {user ? 'Back to Forms' : 'Home'}
             </Link>
           </motion.div>
         </motion.div>
@@ -375,7 +552,11 @@ export default function FormSubmitPage() {
                   )}
                   <div className="text-sm text-indigo-900">
                     <p className="font-bold">{eventDetails.title}</p>
-                    <p>{eventDetails.event_date ? new Date(eventDetails.event_date).toLocaleString('en-IN') : 'Date TBA'}</p>
+                    <p>
+                      {eventDetails.event_date || eventDetails.date
+                        ? new Date(eventDetails.event_date || eventDetails.date).toLocaleString('en-IN')
+                        : 'Date TBA'}
+                    </p>
                     <p>{eventDetails.location || 'Venue TBA'}</p>
                   </div>
                 </div>

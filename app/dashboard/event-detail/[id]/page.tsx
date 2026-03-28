@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter, useParams } from 'next/navigation';
-import { Calendar, MapPin, CheckCircle, Clock, Edit, Check, X, Palette, ImageIcon, AlertCircle, Camera, ChevronLeft, ChevronRight, Users, QrCode } from 'lucide-react';
+import { Calendar, MapPin, CheckCircle, Clock, Edit, Check, X, Palette, ImageIcon, AlertCircle, Camera, ChevronLeft, ChevronRight, Users, QrCode, FileText } from 'lucide-react';
 import toast from 'react-hot-toast';
 import PageHeader from '@/components/PageHeader';
 import ReminderButton from '@/components/ReminderButton';
@@ -12,6 +12,35 @@ import StatusIndicator from '@/components/StatusIndicator';
 import EventReport from '@/components/EventReport';
 import QRCode from 'qrcode';
 import EventQrScanner from '@/components/events/EventQrScanner';
+
+function taskSupportingDocHref(fileUrl: string) {
+  const base = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+  return `${base}/storage/v1/object/public/event-documents/${fileUrl}`;
+}
+
+function TaskSupportingDocuments({ docs }: { docs: any[] | null | undefined }) {
+  if (!docs || docs.length === 0) return null;
+  return (
+    <div className="mb-3 rounded-lg border border-indigo-100 bg-indigo-50/50 px-3 py-2">
+      <p className="text-xs font-semibold text-indigo-800 mb-1.5">Supporting documents</p>
+      <ul className="space-y-1">
+        {docs.map((doc: any) => (
+          <li key={doc.id}>
+            <a
+              href={taskSupportingDocHref(doc.file_url)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-sm text-indigo-600 hover:text-indigo-800 hover:underline"
+            >
+              <FileText className="w-3.5 h-3.5 shrink-0" />
+              {doc.file_name || 'Document'}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
 
 export default function EventDetailPage() {
   const [event, setEvent] = useState<any>(null);
@@ -39,6 +68,11 @@ export default function EventDetailPage() {
   const [scanInput, setScanInput] = useState('');
   const [scannerOpen, setScannerOpen] = useState(false);
   const [slideshowUrls, setSlideshowUrls] = useState<Set<string>>(new Set());
+  /** Faculty poster review: reject or request changes (with notes). */
+  const [posterReviewOpen, setPosterReviewOpen] = useState(false);
+  const [posterReviewKind, setPosterReviewKind] = useState<'reject' | 'alteration' | null>(null);
+  const [posterReviewNotes, setPosterReviewNotes] = useState('');
+  const [posterReviewSaving, setPosterReviewSaving] = useState(false);
   const supabase = createClient();
   const router = useRouter();
   const params = useParams();
@@ -51,8 +85,11 @@ export default function EventDetailPage() {
     void loadSlideshowSelections();
   }, []);
   useEffect(() => {
-    if (event?.id) void loadParticipants();
-  }, [event?.id]);
+    if (!event?.id) return;
+    if (activeTab === 'participants' || activeTab === 'attendance') {
+      void loadParticipants();
+    }
+  }, [event?.id, activeTab]);
 
   async function loadParticipants() {
     if (!event?.id) return;
@@ -129,10 +166,10 @@ export default function EventDetailPage() {
       toast.error('No active event registration form found');
       return;
     }
-    const formUrl = `${window.location.origin}/dashboard/forms/${eventForm.id}?source=qr`;
+    const formUrl = `${window.location.origin}/forms/${eventForm.id}?source=onsite`;
     const qr = await QRCode.toDataURL(formUrl, { width: 280, margin: 1 });
     setEventQrImage(qr);
-    toast.success('Event QR created');
+    toast.success('On-spot registration QR ready — scan to open the event form; submitters are added as participants and marked present.');
   }
 
   async function markAttendance(participantId: string, status: 'present' | 'absent' = 'present') {
@@ -144,18 +181,37 @@ export default function EventDetailPage() {
   }
 
   async function processScanPayload(raw: string) {
-    if (!raw.trim()) return;
+    const trimmed = raw.trim();
+    if (!trimmed) return;
+    let payload: Record<string, unknown>;
     try {
-      const payload = JSON.parse(raw);
-      if (!payload?.participant_id || payload?.event_id !== event?.id) {
-        toast.error('Invalid participant QR for this event');
+      payload = JSON.parse(trimmed) as Record<string, unknown>;
+    } catch {
+      const start = trimmed.indexOf('{');
+      const end = trimmed.lastIndexOf('}');
+      if (start < 0 || end <= start) {
+        toast.error('Invalid QR — expected registration check-in code');
         return;
       }
-      await markAttendance(payload.participant_id, 'present');
-      toast.success('Attendance marked present');
-    } catch {
-      toast.error('Invalid QR payload');
+      try {
+        payload = JSON.parse(trimmed.slice(start, end + 1)) as Record<string, unknown>;
+      } catch {
+        toast.error('Invalid QR payload');
+        return;
+      }
     }
+    const pid = payload?.participant_id;
+    const eid = payload?.event_id;
+    if (pid == null || pid === '') {
+      toast.error('Invalid participant QR');
+      return;
+    }
+    if (String(eid) !== String(event?.id)) {
+      toast.error('This QR is for a different event');
+      return;
+    }
+    await markAttendance(String(pid), 'present');
+    toast.success('Attendance marked present');
   }
 
   async function handleScan() {
@@ -235,7 +291,8 @@ export default function EventDetailPage() {
             assigned_to:assigned_to_committee(name),
             assigned_by:assigned_by_committee(name),
             assigner:assigned_by_user(name),
-            approver:ec_approved_by(name)
+            approver:ec_approved_by(name),
+            task_documents(id, file_name, file_url, file_type, created_at)
           `)
           .eq('event_id', params.id)
           .order('created_at', { ascending: true });
@@ -403,17 +460,18 @@ export default function EventDetailPage() {
       return;
     }
 
-    // Set poster as pending faculty approval instead of directly updating
     const { error: updateError } = await supabase
       .from('events')
       .update({
         poster_url: filePath,
-        poster_status: 'pending_faculty_approval'
+        poster_status: 'pending_faculty_approval',
+        poster_faculty_notes: null,
+        poster_faculty_reviewed_at: null,
+        poster_faculty_reviewed_by: null,
       })
       .eq('id', event.id);
 
     if (updateError) {
-      // Fallback: poster_status column might not exist yet, just update poster_url
       await supabase.from('events').update({ poster_url: filePath }).eq('id', event.id);
     }
 
@@ -439,6 +497,103 @@ export default function EventDetailPage() {
     loadEventDetails();
   }
 
+  async function notifyGraphicsCommittee(eventId: string, title: string, body: string) {
+    const { data: comm } = await supabase.from('committees').select('id').ilike('name', '%graphics%').limit(1).maybeSingle();
+    if (!comm?.id) return;
+    const { data: members } = await supabase.from('committee_members').select('user_id').eq('committee_id', comm.id);
+    if (!members?.length) return;
+    await supabase.from('notifications').insert(
+      members.map((m: any) => ({
+        user_id: m.user_id,
+        type: 'poster_feedback',
+        title,
+        message: body,
+        link: `/dashboard/event-detail/${eventId}`,
+        metadata: { event_id: eventId },
+      })),
+    );
+  }
+
+  async function approvePosterAsFaculty() {
+    if (!event) return;
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { error } = await supabase
+      .from('events')
+      .update({
+        poster_status: 'approved',
+        poster_faculty_notes: null,
+        poster_faculty_reviewed_at: new Date().toISOString(),
+        poster_faculty_reviewed_by: user.id,
+      })
+      .eq('id', event.id);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success('Poster approved — visible to everyone now.');
+    loadEventDetails();
+  }
+
+  async function submitPosterFacultyReview() {
+    if (!event || !posterReviewKind) return;
+    const notes = posterReviewNotes.trim();
+    if (!notes) {
+      toast.error('Please add notes for the graphics team.');
+      return;
+    }
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    setPosterReviewSaving(true);
+    try {
+      const reviewedAt = new Date().toISOString();
+      if (posterReviewKind === 'alteration') {
+        const { error } = await supabase
+          .from('events')
+          .update({
+            poster_status: 'needs_alteration',
+            poster_faculty_notes: notes,
+            poster_faculty_reviewed_at: reviewedAt,
+            poster_faculty_reviewed_by: user.id,
+          })
+          .eq('id', event.id);
+        if (error) throw error;
+        await notifyGraphicsCommittee(
+          event.id,
+          'Poster: changes requested',
+          `Faculty feedback for "${event.title}": ${notes}`,
+        );
+        toast.success('Sent back to Graphics with your notes.');
+      } else {
+        const { error } = await supabase
+          .from('events')
+          .update({
+            poster_status: 'rejected',
+            poster_url: null,
+            poster_faculty_notes: notes,
+            poster_faculty_reviewed_at: reviewedAt,
+            poster_faculty_reviewed_by: user.id,
+          })
+          .eq('id', event.id);
+        if (error) throw error;
+        await notifyGraphicsCommittee(
+          event.id,
+          'Poster rejected',
+          `Faculty rejected the poster for "${event.title}". Reason: ${notes}`,
+        );
+        toast.success('Poster rejected. Graphics has been notified.');
+      }
+      setPosterReviewOpen(false);
+      setPosterReviewKind(null);
+      setPosterReviewNotes('');
+      loadEventDetails();
+    } catch (e: any) {
+      toast.error(e.message || 'Update failed');
+    } finally {
+      setPosterReviewSaving(false);
+    }
+  }
+
   if (loading) {
     return <div className="min-h-screen bg-mesh flex items-center justify-center">
       <div className="text-center">
@@ -461,7 +616,11 @@ export default function EventDetailPage() {
 
   // Approval progress (30% total)
   const headApproved = !!event.head_approved_by;
-  const ecApproved = event.status !== 'pending_head_approval' && event.status !== 'pending_ec_approval' && event.status !== 'review_by_cohead';
+  const ecApproved =
+    event.status !== 'pending_head_approval' &&
+    event.status !== 'pending_second_head_approval' &&
+    event.status !== 'pending_ec_approval' &&
+    event.status !== 'review_by_cohead';
   const facultyApproved = event.status === 'active' || event.status === 'in_progress' || event.status === 'completed';
   const approvalProgress = (headApproved ? 10 : 0) + (ecApproved ? 10 : 0) + (facultyApproved ? 10 : 0);
 
@@ -485,6 +644,18 @@ export default function EventDetailPage() {
     posterUrl = data.publicUrl;
   }
 
+  const isAdminUser = userProfile?.is_admin === true;
+  const posterPublished =
+    !!event.poster_url &&
+    (event.poster_status === 'approved' ||
+      event.poster_status == null ||
+      event.poster_status === '');
+  const canPreviewPosterDraft =
+    posterPublished ||
+    !!(event.poster_url && (isFaculty || isGraphics || isAdminUser));
+  const facultyPosterActions =
+    isFaculty && event.poster_status === 'pending_faculty_approval' && !!event.poster_url;
+
   return (
     <div className="min-h-screen bg-mesh">
       <PageHeader title="Event Details" />
@@ -497,43 +668,67 @@ export default function EventDetailPage() {
         </div>
         {activeTab === 'info' && (
           <>
-        {/* Event Poster Section */}
+        {/* Event Poster — faculty approves before public visibility */}
         <div className="premium-panel rounded-2xl p-8 mb-6">
-          <h3 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+          <h3 className="text-xl font-bold text-gray-900 mb-4 flex flex-wrap items-center gap-2">
             <ImageIcon className="w-6 h-6" />
             Event Poster
             {event.poster_status === 'pending_faculty_approval' && (
-              <span className="text-xs bg-amber-100 text-amber-800 px-2 py-1 rounded-full font-semibold">Pending Faculty Approval</span>
+              <span className="text-xs bg-amber-100 text-amber-800 px-2 py-1 rounded-full font-semibold">Pending faculty approval</span>
+            )}
+            {event.poster_status === 'needs_alteration' && (
+              <span className="text-xs bg-orange-100 text-orange-900 px-2 py-1 rounded-full font-semibold">Changes requested</span>
+            )}
+            {event.poster_status === 'approved' && event.poster_url && (
+              <span className="text-xs bg-emerald-100 text-emerald-800 px-2 py-1 rounded-full font-semibold">Published</span>
+            )}
+            {event.poster_status === 'rejected' && !event.poster_url && (
+              <span className="text-xs bg-red-100 text-red-800 px-2 py-1 rounded-full font-semibold">Rejected</span>
             )}
           </h3>
 
-          {posterUrl ? (
+          {event.poster_status === 'needs_alteration' && event.poster_faculty_notes && (isGraphics || isFaculty || isAdminUser) && (
+            <div className="mb-4 p-4 rounded-xl bg-orange-50 border border-orange-200 text-sm text-orange-900">
+              <p className="font-semibold text-orange-800 mb-1">Faculty feedback</p>
+              <p className="whitespace-pre-wrap">{event.poster_faculty_notes}</p>
+            </div>
+          )}
+
+          {posterUrl && canPreviewPosterDraft ? (
             <div className="relative">
               <img
                 src={posterUrl}
                 alt={event.title}
                 className="w-full max-w-2xl mx-auto rounded-xl shadow-lg"
               />
-              {/* Faculty approval buttons */}
-              {isFaculty && event.poster_status === 'pending_faculty_approval' && (
-                <div className="mt-4 flex justify-center gap-3">
+              {facultyPosterActions && (
+                <div className="mt-4 flex flex-wrap justify-center gap-2">
                   <button
-                    onClick={async () => {
-                      await supabase.from('events').update({ poster_status: 'approved' }).eq('id', event.id);
-                      toast.success('Poster approved!');
-                      loadEventDetails();
-                    }}
-                    className="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 flex items-center gap-2"
+                    type="button"
+                    onClick={() => void approvePosterAsFaculty()}
+                    className="bg-green-600 text-white px-5 py-2 rounded-lg hover:bg-green-700 flex items-center gap-2 text-sm font-semibold"
                   >
-                    <Check className="w-4 h-4" /> Approve Poster
+                    <Check className="w-4 h-4" /> Approve
                   </button>
                   <button
-                    onClick={async () => {
-                      await supabase.from('events').update({ poster_status: 'rejected', poster_url: null }).eq('id', event.id);
-                      toast.success('Poster rejected');
-                      loadEventDetails();
+                    type="button"
+                    onClick={() => {
+                      setPosterReviewKind('alteration');
+                      setPosterReviewNotes('');
+                      setPosterReviewOpen(true);
                     }}
-                    className="bg-red-600 text-white px-6 py-2 rounded-lg hover:bg-red-700 flex items-center gap-2"
+                    className="bg-amber-600 text-white px-5 py-2 rounded-lg hover:bg-amber-700 flex items-center gap-2 text-sm font-semibold"
+                  >
+                    Request changes
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPosterReviewKind('reject');
+                      setPosterReviewNotes('');
+                      setPosterReviewOpen(true);
+                    }}
+                    className="bg-red-600 text-white px-5 py-2 rounded-lg hover:bg-red-700 flex items-center gap-2 text-sm font-semibold"
                   >
                     <X className="w-4 h-4" /> Reject
                   </button>
@@ -541,9 +736,9 @@ export default function EventDetailPage() {
               )}
               {isGraphics && (
                 <div className="mt-4 text-center">
-                  <label className="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 cursor-pointer">
+                  <label className="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 cursor-pointer text-sm font-semibold">
                     <Palette className="w-4 h-4" />
-                    Update Poster
+                    {event.poster_status === 'needs_alteration' ? 'Upload revised poster' : 'Update poster'}
                     <input
                       type="file"
                       accept="image/*"
@@ -554,17 +749,27 @@ export default function EventDetailPage() {
                 </div>
               )}
             </div>
+          ) : posterUrl && !canPreviewPosterDraft ? (
+            <div className="rounded-xl border border-amber-200 bg-amber-50/80 p-8 text-center text-amber-900 text-sm max-w-xl mx-auto">
+              A poster is being reviewed by faculty. It will appear here for everyone after approval.
+            </div>
           ) : (
             <div className="bg-gradient-to-br from-purple-50 to-blue-50 border-2 border-dashed border-purple-300 rounded-xl p-12 text-center">
               <Palette className="w-16 h-16 text-purple-400 mx-auto mb-4" />
-              <h4 className="text-lg font-bold text-purple-900 mb-2">Design in Process</h4>
+              <h4 className="text-lg font-bold text-purple-900 mb-2">Design in process</h4>
               <p className="text-purple-700 mb-4">
-                The graphics team is working on creating an amazing poster for this event
+                The graphics team can upload a poster; it is sent to faculty for approval before it is shown to everyone.
               </p>
+              {event.poster_status === 'rejected' && event.poster_faculty_notes && (isGraphics || isFaculty || isAdminUser) && (
+                <div className="mb-4 text-left max-w-lg mx-auto p-3 rounded-lg bg-white/80 border border-red-100 text-sm text-gray-700 whitespace-pre-wrap">
+                  <span className="font-semibold text-red-800">Last rejection reason: </span>
+                  {event.poster_faculty_notes}
+                </div>
+              )}
               {isGraphics && (
-                <label className="inline-flex items-center gap-2 bg-purple-600 text-white px-6 py-3 rounded-lg hover:bg-purple-700 cursor-pointer">
+                <label className="inline-flex items-center gap-2 bg-purple-600 text-white px-6 py-3 rounded-lg hover:bg-purple-700 cursor-pointer font-semibold">
                   <ImageIcon className="w-5 h-5" />
-                  Upload Poster
+                  Upload poster
                   <input
                     type="file"
                     accept="image/*"
@@ -576,6 +781,50 @@ export default function EventDetailPage() {
             </div>
           )}
         </div>
+
+        {posterReviewOpen && posterReviewKind && (
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-xl">
+              <h2 className="text-lg font-bold text-gray-900 mb-1">
+                {posterReviewKind === 'alteration' ? 'Request changes' : 'Reject poster'}
+              </h2>
+              <p className="text-sm text-gray-500 mb-3">
+                {posterReviewKind === 'alteration'
+                  ? 'Graphics will see these notes and can upload a revised poster.'
+                  : 'The poster file will be removed. Graphics will be notified with your reason.'}
+              </p>
+              <textarea
+                value={posterReviewNotes}
+                onChange={(e) => setPosterReviewNotes(e.target.value)}
+                rows={4}
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                placeholder="Notes for the graphics team…"
+              />
+              <div className="flex gap-2 mt-4">
+                <button
+                  type="button"
+                  disabled={posterReviewSaving}
+                  onClick={() => void submitPosterFacultyReview()}
+                  className="flex-1 bg-indigo-600 text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50"
+                >
+                  {posterReviewSaving ? 'Saving…' : 'Submit'}
+                </button>
+                <button
+                  type="button"
+                  disabled={posterReviewSaving}
+                  onClick={() => {
+                    setPosterReviewOpen(false);
+                    setPosterReviewKind(null);
+                    setPosterReviewNotes('');
+                  }}
+                  className="flex-1 bg-gray-100 text-gray-700 py-2.5 rounded-xl text-sm font-semibold hover:bg-gray-200"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Event Photos Section */}
         <div className="premium-panel rounded-2xl p-8 mb-6">
@@ -891,6 +1140,8 @@ export default function EventDetailPage() {
                         )
                       )}
 
+                      <TaskSupportingDocuments docs={task.task_documents} />
+
                       {/* Deadline picker - shown for EC during approval */}
                       <div className="mb-3">
                         <label className="block text-xs font-medium text-gray-600 mb-1">Set Deadline</label>
@@ -1003,6 +1254,8 @@ export default function EventDetailPage() {
                       <p className="text-gray-700 text-sm mb-3">{task.description}</p>
                     )}
 
+                    <TaskSupportingDocuments docs={task.task_documents} />
+
                     {/* Progress Bar */}
                     {task.progress !== undefined && task.progress !== null && (
                       <div className="mt-3">
@@ -1059,12 +1312,23 @@ export default function EventDetailPage() {
                     >
                       <p className="font-semibold text-gray-900">{p.participant_name || 'Participant'}</p>
                       <p className="text-xs text-gray-500">{p.participant_email || 'No email'}</p>
+                      <div className="flex flex-wrap gap-1 mt-1.5">
+                        {p.registration_source === 'on_site' && (
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-violet-100 text-violet-800">On-site registration</span>
+                        )}
+                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${p.attendance_status === 'present' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-50 text-amber-800'}`}>
+                          {(p.attendance_status || 'registered').replace('_', ' ')}
+                        </span>
+                      </div>
                     </button>
                   ))}
                 </div>
                 <div className="rounded-xl border border-gray-200 bg-white/70 p-4">
                   {selectedParticipant ? (
                     <>
+                      {selectedParticipant.registration_source === 'on_site' && (
+                        <p className="text-xs font-medium text-violet-800 mb-2">Registered on-site at the event (marked present on submit).</p>
+                      )}
                       <h4 className="font-semibold text-gray-900 mb-2">Submitted Form Details</h4>
                       <pre className="text-xs text-gray-700 whitespace-pre-wrap break-words">
                         {JSON.stringify(selectedParticipant.form_data || {}, null, 2)}
@@ -1085,32 +1349,38 @@ export default function EventDetailPage() {
               <h3 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
                 <QrCode className="w-6 h-6" /> Participation / Attendance
               </h3>
-              <button onClick={createEventQr} className="btn-gradient-purple px-4 py-2 rounded-xl text-sm font-semibold">
-                Create Event QR
+              <button type="button" onClick={createEventQr} className="btn-gradient-purple px-4 py-2 rounded-xl text-sm font-semibold">
+                Generate on-spot registration QR
               </button>
             </div>
             {eventQrImage && (
-              <div className="mb-6 rounded-xl border border-indigo-100 bg-indigo-50/60 p-4 max-w-xs">
-                <img src={eventQrImage} alt="Event QR" className="w-56 h-56 mx-auto rounded-lg bg-white p-2 border border-indigo-100" />
-                <p className="text-xs text-indigo-700 mt-2 text-center">Scan to open event registration form</p>
+              <div className="mb-6 rounded-xl border border-violet-200 bg-violet-50/70 p-4 max-w-md">
+                <p className="text-xs font-semibold text-violet-900 mb-2">On-spot registration (at the venue)</p>
+                <img src={eventQrImage} alt="On-spot registration QR" className="w-56 h-56 mx-auto rounded-lg bg-white p-2 border border-violet-100" />
+                <p className="text-xs text-violet-800 mt-2 text-center">
+                  Scanning opens your <strong>event registration form</strong>. After they submit, they appear under participants as <strong>on-site registration</strong> and are marked <strong>present</strong>. No sign-in required for guests.
+                </p>
               </div>
             )}
             <div className="mb-6 rounded-xl border border-gray-200 bg-white/70 p-4">
+              <p className="text-xs text-gray-600 mb-3">
+                <strong>Already registered online?</strong> They can show their <strong>personal check-in QR</strong> from their confirmation screen. Scan below or paste the QR JSON.
+              </p>
               <div className="flex items-center justify-between gap-2 mb-2">
-                <p className="text-sm font-medium text-gray-800">Scan participant QR</p>
-                <button onClick={() => setScannerOpen(true)} className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700">
+                <p className="text-sm font-medium text-gray-800">Scan participant check-in QR</p>
+                <button type="button" onClick={() => setScannerOpen(true)} className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700">
                   Scan QR (Camera)
                 </button>
               </div>
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
                 <input
                   value={scanInput}
                   onChange={(e) => setScanInput(e.target.value)}
-                  placeholder='Paste scanned JSON payload here'
-                  className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                  placeholder="Paste QR contents (JSON) if not using camera"
+                  className="flex-1 min-w-[200px] border border-gray-300 rounded-lg px-3 py-2 text-sm"
                 />
-                <button onClick={handleScan} className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700">
-                  Mark Present
+                <button type="button" onClick={handleScan} className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700">
+                  Mark present
                 </button>
               </div>
             </div>
@@ -1123,6 +1393,9 @@ export default function EventDetailPage() {
                     <div>
                       <p className="font-semibold text-gray-900">{p.participant_name || 'Participant'}</p>
                       <p className="text-xs text-gray-500">{p.participant_email || 'No email'}</p>
+                      {p.registration_source === 'on_site' && (
+                        <span className="inline-block mt-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-violet-100 text-violet-800">On-site registration</span>
+                      )}
                     </div>
                     <div className="flex items-center gap-2">
                       <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${p.attendance_status === 'present' ? 'bg-emerald-100 text-emerald-700' : p.attendance_status === 'absent' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700'}`}>

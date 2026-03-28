@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { Calendar, CheckCircle, AlertCircle, TrendingUp, ImageIcon, Check, X } from 'lucide-react';
+import { Calendar, CheckCircle, AlertCircle, TrendingUp, ImageIcon, Check, X, Pencil } from 'lucide-react';
 import { motion } from 'framer-motion';
 import toast from 'react-hot-toast';
 
@@ -12,6 +12,10 @@ export default function FacultyApprovals() {
     const [stats, setStats] = useState({ pendingEvents: 0, pendingEmails: 0, pendingPosters: 0, pendingFinance: 0 });
     const [taskProgress, setTaskProgress] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+    const [posterModalEvent, setPosterModalEvent] = useState<any>(null);
+    const [posterModalKind, setPosterModalKind] = useState<'reject' | 'alteration' | null>(null);
+    const [posterModalNotes, setPosterModalNotes] = useState('');
+    const [posterModalSaving, setPosterModalSaving] = useState(false);
     const supabase = createClient();
 
     useEffect(() => { loadData(); }, []);
@@ -30,18 +34,87 @@ export default function FacultyApprovals() {
         setPendingPosters(events || []);
     }
 
+    async function notifyGraphicsCommittee(eventId: string, title: string, body: string) {
+        const { data: comm } = await supabase.from('committees').select('id').ilike('name', '%graphics%').limit(1).maybeSingle();
+        if (!comm?.id) return;
+        const { data: members } = await supabase.from('committee_members').select('user_id').eq('committee_id', comm.id);
+        if (!members?.length) return;
+        await supabase.from('notifications').insert(
+            members.map((m: any) => ({
+                user_id: m.user_id,
+                type: 'poster_feedback',
+                title,
+                message: body,
+                link: `/dashboard/event-detail/${eventId}`,
+                metadata: { event_id: eventId },
+            })),
+        );
+    }
+
     async function approvePoster(eventId: string) {
-        const { error } = await supabase.from('events').update({ poster_status: 'approved' }).eq('id', eventId);
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+        const { error } = await supabase
+            .from('events')
+            .update({
+                poster_status: 'approved',
+                poster_faculty_notes: null,
+                poster_faculty_reviewed_at: new Date().toISOString(),
+                poster_faculty_reviewed_by: user.id,
+            })
+            .eq('id', eventId);
         if (error) { toast.error('Failed to approve poster'); return; }
-        toast.success('Poster approved!');
+        toast.success('Poster approved — visible to everyone.');
         loadData();
     }
 
-    async function rejectPoster(eventId: string) {
-        const { error } = await supabase.from('events').update({ poster_status: 'rejected', poster_url: null }).eq('id', eventId);
-        if (error) { toast.error('Failed to reject poster'); return; }
-        toast.success('Poster rejected');
-        loadData();
+    async function submitPosterModal() {
+        if (!posterModalEvent || !posterModalKind) return;
+        const notes = posterModalNotes.trim();
+        if (!notes) { toast.error('Please add notes for the graphics team.'); return; }
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+        setPosterModalSaving(true);
+        try {
+            const reviewedAt = new Date().toISOString();
+            const ev = posterModalEvent;
+            if (posterModalKind === 'alteration') {
+                const { error } = await supabase
+                    .from('events')
+                    .update({
+                        poster_status: 'needs_alteration',
+                        poster_faculty_notes: notes,
+                        poster_faculty_reviewed_at: reviewedAt,
+                        poster_faculty_reviewed_by: user.id,
+                    })
+                    .eq('id', ev.id);
+                if (error) throw error;
+                await notifyGraphicsCommittee(ev.id, 'Poster: changes requested', `Faculty feedback for "${ev.title}": ${notes}`);
+                toast.success('Sent back to Graphics with your notes.');
+            } else {
+                const { error } = await supabase
+                    .from('events')
+                    .update({
+                        poster_status: 'rejected',
+                        poster_url: null,
+                        poster_faculty_notes: notes,
+                        poster_faculty_reviewed_at: reviewedAt,
+                        poster_faculty_reviewed_by: user.id,
+                    })
+                    .eq('id', ev.id);
+                if (error) throw error;
+                await notifyGraphicsCommittee(ev.id, 'Poster rejected', `Faculty rejected the poster for "${ev.title}". Reason: ${notes}`);
+                toast.success('Poster rejected. Graphics notified.');
+            }
+            setPosterModalEvent(null);
+            setPosterModalKind(null);
+            setPosterModalNotes('');
+            loadData();
+        } catch (e: any) {
+            toast.error(e.message || 'Failed to update');
+        } finally {
+            setPosterModalSaving(false);
+        }
     }
 
     async function loadApprovals() {
@@ -199,13 +272,19 @@ export default function FacultyApprovals() {
                                     <p className="font-bold text-gray-900 mb-1">{event.title}</p>
                                     <p className="text-xs text-gray-500 mb-3">{event.committees?.name}</p>
                                     <img src={urlData.publicUrl} alt="Poster" className="w-full max-w-xs rounded-lg mb-3 shadow" />
-                                    <div className="flex gap-2">
+                                    <div className="flex flex-wrap gap-2">
                                         <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => approvePoster(event.id)}
-                                            className="flex-1 flex items-center justify-center gap-1 bg-green-600 text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-green-700">
+                                            className="flex-1 min-w-[100px] flex items-center justify-center gap-1 bg-green-600 text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-green-700">
                                             <Check className="w-4 h-4" /> Approve
                                         </motion.button>
-                                        <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => rejectPoster(event.id)}
-                                            className="flex-1 flex items-center justify-center gap-1 bg-red-600 text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-red-700">
+                                        <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+                                            onClick={() => { setPosterModalEvent(event); setPosterModalKind('alteration'); setPosterModalNotes(''); }}
+                                            className="flex-1 min-w-[100px] flex items-center justify-center gap-1 bg-amber-600 text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-amber-700">
+                                            <Pencil className="w-4 h-4" /> Changes
+                                        </motion.button>
+                                        <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+                                            onClick={() => { setPosterModalEvent(event); setPosterModalKind('reject'); setPosterModalNotes(''); }}
+                                            className="flex-1 min-w-[100px] flex items-center justify-center gap-1 bg-red-600 text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-red-700">
                                             <X className="w-4 h-4" /> Reject
                                         </motion.button>
                                     </div>
@@ -213,6 +292,40 @@ export default function FacultyApprovals() {
                             );
                         })}
                     </div>
+                </div>
+            )}
+
+            {posterModalEvent && posterModalKind && (
+                <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                    <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
+                        className="bg-white rounded-2xl p-6 max-w-md w-full shadow-xl">
+                        <h2 className="text-lg font-bold text-gray-900 mb-1">
+                            {posterModalKind === 'alteration' ? 'Request changes' : 'Reject poster'}
+                        </h2>
+                        <p className="text-sm text-gray-500 mb-3">
+                            {posterModalKind === 'alteration'
+                                ? 'Graphics will see these notes and can upload a revised poster.'
+                                : 'The poster file will be removed. Graphics will be notified.'}
+                        </p>
+                        <textarea
+                            value={posterModalNotes}
+                            onChange={(e) => setPosterModalNotes(e.target.value)}
+                            rows={4}
+                            className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500"
+                            placeholder="Notes for the graphics team…"
+                        />
+                        <div className="flex gap-2 mt-4">
+                            <button type="button" disabled={posterModalSaving} onClick={() => void submitPosterModal()}
+                                className="flex-1 bg-indigo-600 text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50">
+                                {posterModalSaving ? 'Saving…' : 'Submit'}
+                            </button>
+                            <button type="button" disabled={posterModalSaving}
+                                onClick={() => { setPosterModalEvent(null); setPosterModalKind(null); setPosterModalNotes(''); }}
+                                className="flex-1 bg-gray-100 text-gray-700 py-2.5 rounded-xl text-sm font-semibold">
+                                Cancel
+                            </button>
+                        </div>
+                    </motion.div>
                 </div>
             )}
 

@@ -2,8 +2,9 @@ import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { hasAdminAccess } from '@/lib/permissions';
-import { Users, Calendar, Trophy, DollarSign, UserCheck, MessageSquare, FileText, Power, Settings, Image as ImageIcon } from 'lucide-react';
+import { Users, Calendar, Trophy, DollarSign, UserCheck, MessageSquare, FileText, Power, Settings, Image as ImageIcon, ArrowUpCircle } from 'lucide-react';
 import TestEmailCard from '@/components/TestEmailCard';
+import { adminEventWorkflowLabel, adminEventStatusBadgeClass } from '@/lib/admin-event-status';
 
 export default async function AdminDashboard() {
   const supabase = await createClient();
@@ -40,7 +41,7 @@ export default async function AdminDashboard() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="grid md:grid-cols-4 gap-6 mb-8">
           <StatCard icon={<Users />} title="Total Users" value={(users as any)?.length || 0} color="blue" />
-          <StatCard icon={<UserCheck />} title="Pending Approvals" value={(pendingUsers as any)?.length || 0} color="yellow" />
+          <StatCard icon={<UserCheck />} title="Pending user sign-ups" value={(pendingUsers as any)?.length || 0} color="yellow" />
           <StatCard icon={<FileText />} title="Total Events" value={(events as any)?.length || 0} color="green" />
           <StatCard icon={<Users />} title="Committees" value={(committees as any)?.length || 0} color="purple" />
         </div>
@@ -51,7 +52,8 @@ export default async function AdminDashboard() {
           <AdminCard href="/dashboard/admin/approvals" icon={<UserCheck />} title="User Approvals" desc="Approve & assign users" color="blue" />
           <AdminCard href="/dashboard/admin/committees" icon={<Users />} title="Edit Committees" desc="Edit committee details" color="purple" />
           <AdminCard href="/dashboard/admin/bulk-import" icon={<Users />} title="Bulk Import" desc="Import multiple users" color="indigo" />
-          <AdminCard href="/dashboard/admin/hiring" icon={<Users />} title="Hiring Management" desc="Manage job positions" color="yellow" />
+          <AdminCard href="/dashboard/hiring" icon={<Users />} title="Hiring Management" desc="Co-head recruitment & applications" color="yellow" />
+          <AdminCard href="/dashboard/admin/cohead-year-transition" icon={<ArrowUpCircle />} title="Co-head → Head (yearly)" desc="Promote co-heads; reverse for tests" color="emerald" />
           <AdminCard href="/dashboard/admin/logo" icon={<ImageIcon />} title="Logo Management" desc="Upload and manage portal logo" color="pink" />
           <AdminCard href="/dashboard/admin/slideshow" icon={<ImageIcon />} title="Slideshow" desc="Manage homepage slideshow" color="teal" />
           <AdminCard href="/dashboard/admin/events" icon={<Calendar />} title="All Events" desc="View, edit, and delete all events" color="orange" />
@@ -69,8 +71,8 @@ export default async function AdminDashboard() {
                 <div key={event.id} className="border-l-4 border-green-500 pl-4 py-2">
                   <h3 className="font-bold text-gray-900">{event.title}</h3>
                   <p className="text-sm text-gray-500">{event.committee?.name}</p>
-                  <span className={`text-xs px-2 py-1 rounded-full ${event.approved ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
-                    {event.approved ? 'Approved' : 'Pending'}
+                  <span className={`text-xs px-2 py-1 rounded-full ${adminEventStatusBadgeClass(event)}`}>
+                    {adminEventWorkflowLabel(event)}
                   </span>
                 </div>
               ))}
@@ -123,6 +125,7 @@ function AdminCard({ href, icon, title, desc, color }: any) {
     teal: 'from-teal-600 to-teal-700',
     orange: 'from-orange-600 to-orange-700',
     cyan: 'from-cyan-600 to-cyan-700',
+    emerald: 'from-emerald-600 to-teal-700',
   };
 
   return (

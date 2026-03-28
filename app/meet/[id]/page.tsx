@@ -242,8 +242,20 @@ export default function MeetingRoomPage() {
         if (currentUserId.startsWith('guest-')) setLocalProfileAvatarUrl(null);
     }, [currentUserId]);
 
+    const meetMediaRef = useRef({ isScreenSharing: false, localStream: null as MediaStream | null });
+    meetMediaRef.current = { isScreenSharing, localStream };
+
     // WebRTC peer connections
-    const { peers, participants, chatMessages, sendChatMessage, replaceVideoTrack, sendRoomControl } = useWebRTC({
+    const {
+        peers,
+        participants,
+        chatMessages,
+        sendChatMessage,
+        replaceVideoTrack,
+        sendRoomControl,
+        sendCameraState,
+        peerCameraSendingVideo,
+    } = useWebRTC({
         supabase,
         roomId,
         userId: currentUserId,
@@ -251,6 +263,12 @@ export default function MeetingRoomPage() {
         userRole: currentUserRole,
         localStream,
         enabled: !!meeting && !!currentUserId && !!currentUserName && hasJoinedMeeting,
+        getCameraSendingSnapshot: () => {
+            const { isScreenSharing: sharing, localStream: stream } = meetMediaRef.current;
+            if (sharing) return true;
+            const vt = stream?.getVideoTracks()[0];
+            return Boolean(vt && vt.readyState === 'live' && vt.enabled);
+        },
         onRoomControl: (payload: RoomControlPayload) => {
             // Ignore your own control broadcast; sender already knows what they did.
             if (payload.senderId === currentUserId) return;
@@ -837,6 +855,7 @@ export default function MeetingRoomPage() {
                         setLocalVideoRenderKey((k) => k + 1);
                     }
                     setIsCameraOff(false);
+                    sendCameraState(true);
                 } catch {
                     toast.error('Could not turn on camera. Check browser camera permissions.');
                 }
@@ -845,9 +864,10 @@ export default function MeetingRoomPage() {
 
             currentTrack.enabled = false;
             setIsCameraOff(true);
+            sendCameraState(false);
         };
         void run();
-    }, [ensureLocalMedia, reacquireAndBindCameraTrack, replaceVideoTrack]);
+    }, [ensureLocalMedia, reacquireAndBindCameraTrack, replaceVideoTrack, sendCameraState]);
 
     const toggleScreenShare = useCallback(async () => {
         const activeStream = localStream || await ensureLocalMedia();
@@ -885,9 +905,11 @@ export default function MeetingRoomPage() {
                     }
                     screenTrackRef.current = null;
                     setIsScreenSharing(false);
+                    sendCameraState(Boolean(camTrack?.enabled));
                 };
 
                 setIsScreenSharing(true);
+                sendCameraState(true);
             } catch {
                 // User cancelled the screen share picker
                 console.warn('Screen sharing cancelled or failed');
@@ -906,8 +928,9 @@ export default function MeetingRoomPage() {
             screenTrack?.stop();
             screenTrackRef.current = null;
             setIsScreenSharing(false);
+            sendCameraState(Boolean(camTrack?.enabled));
         }
-    }, [localStream, ensureLocalMedia, isScreenSharing, replaceVideoTrack]);
+    }, [localStream, ensureLocalMedia, isScreenSharing, replaceVideoTrack, sendCameraState]);
 
     const leaveMeeting = useCallback(() => {
         localStream?.getTracks().forEach((track) => track.stop());
@@ -1347,6 +1370,7 @@ export default function MeetingRoomPage() {
                                     peerId={pinnedPeerId}
                                     presenceRole={peerRawRoleByUserId.get(pinnedPeerId)}
                                     profileAvatarUrl={peerAvatarUrls[pinnedPeerId] ?? null}
+                                    peerSignalsCameraOff={peerCameraSendingVideo[pinnedPeerId] === false}
                                     isPinned={true}
                                     onPin={() => setPinnedPeerId(null)}
                                 />
@@ -1398,6 +1422,7 @@ export default function MeetingRoomPage() {
                                         peerId={pid}
                                         presenceRole={peerRawRoleByUserId.get(pid)}
                                         profileAvatarUrl={peerAvatarUrls[pid] ?? null}
+                                        peerSignalsCameraOff={peerCameraSendingVideo[pid] === false}
                                         isPinned={false}
                                         onPin={() => setPinnedPeerId(pid)}
                                         small
@@ -1430,6 +1455,7 @@ export default function MeetingRoomPage() {
                                     peerId={pid}
                                     presenceRole={peerRawRoleByUserId.get(pid)}
                                     profileAvatarUrl={peerAvatarUrls[pid] ?? null}
+                                    peerSignalsCameraOff={peerCameraSendingVideo[pid] === false}
                                     isPinned={false}
                                     onPin={() => setPinnedPeerId(pid)}
                                 />
@@ -1643,6 +1669,7 @@ function RemoteVideo({
     peerId,
     presenceRole,
     profileAvatarUrl,
+    peerSignalsCameraOff = false,
     isPinned,
     onPin,
     small,
@@ -1651,22 +1678,34 @@ function RemoteVideo({
     peerId: string;
     presenceRole: string | null | undefined;
     profileAvatarUrl: string | null;
+    /** Room broadcast says this peer turned camera off — show avatar for everyone (WebRTC often keeps a live unmuted-looking track). */
+    peerSignalsCameraOff?: boolean;
     isPinned: boolean;
     onPin: () => void;
     small?: boolean;
 }) {
     const isGuestPeer = peerId.startsWith('guest-');
     const videoRef = useRef<HTMLVideoElement>(null);
+    /** Decoded frames visible in the &lt;video&gt; element (not only RTP flowing). */
     const [hasVideo, setHasVideo] = useState(false);
+    /** Track is unmuted but no frames yet — show avatar + “Connecting…” instead of a black tile. */
+    const [isConnectingVideo, setIsConnectingVideo] = useState(false);
     const [isRemoteScreenShare, setIsRemoteScreenShare] = useState(false);
+
+    // `remoteStream` is a stable MediaStream instance; tracks are added later in ontrack.
+    // Depending only on peer.remoteStream skips re-binding the <video> when tracks appear.
+    // Track ids only — mute/readyState changes are handled inside the effect (avoid tearing down on every mute).
+    const remoteStreamTrackKey = peer.remoteStream?.getVideoTracks().map((t) => t.id).join('|') ?? '';
 
     useEffect(() => {
         const stream = peer.remoteStream;
         if (!stream) return;
 
         let lastBlackRecovery = 0;
+        const lastBumpRef = { current: Date.now() };
 
         const doBumpPlayback = () => {
+            lastBumpRef.current = Date.now();
             const el = videoRef.current;
             if (!el) return;
             el.srcObject = null;
@@ -1680,7 +1719,11 @@ function RemoteVideo({
             const live = tracks.some((t) => t.readyState === 'live');
             // When remote camera is turned off, many browsers keep the track "live" but muted.
             const hasRenderableFrames = tracks.some((t) => t.readyState === 'live' && !t.muted);
-            setHasVideo(tracks.length > 0 && hasRenderableFrames);
+            const el = videoRef.current;
+            const hasDims = Boolean(el && el.videoWidth > 0 && el.videoHeight > 0);
+            const withinGrace = Date.now() - lastBumpRef.current < 8000;
+            setHasVideo(hasDims && hasRenderableFrames);
+            setIsConnectingVideo(hasRenderableFrames && !hasDims && withinGrace);
             const sharing = tracks.some((track) => {
                 const settings = track.getSettings?.() as MediaTrackSettings | undefined;
                 const displaySurface = settings?.displaySurface;
@@ -1690,7 +1733,6 @@ function RemoteVideo({
             setIsRemoteScreenShare(sharing);
 
             // Recover from stuck black frames: live track but decoder not painting.
-            const el = videoRef.current;
             const now = Date.now();
             if (el && live && el.videoWidth === 0 && now - lastBlackRecovery > 2500) {
                 lastBlackRecovery = now;
@@ -1734,15 +1776,35 @@ function RemoteVideo({
             stream.removeEventListener('addtrack', onStreamTrackAdded);
             stream.removeEventListener('removetrack', onStreamTrackRemoved);
             trackCleanups.forEach((fn) => fn());
+            const el = videoRef.current;
+            if (el) el.srcObject = null;
         };
-    }, [peer.remoteStream]);
+    }, [peer.remoteStream, remoteStreamTrackKey]);
+
+    const forceAvatarUi = peerSignalsCameraOff && !isRemoteScreenShare;
+    const showLivePixels = hasVideo && !forceAvatarUi;
+    const showConnectingUi = isConnectingVideo && !forceAvatarUi;
+    const showCameraOffChrome = forceAvatarUi || (!hasVideo && !isConnectingVideo);
 
     if (small) {
         return (
             <div className="relative rounded-xl overflow-hidden bg-slate-900/80 border border-white/5 w-40 h-24 flex-shrink-0 cursor-pointer group" onClick={onPin}>
-                <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" style={{ display: hasVideo ? 'block' : 'none' }} />
-                {!hasVideo && (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-b from-slate-800/95 via-slate-900 to-black/90">
+                <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="absolute inset-0 w-full h-full object-cover min-h-0"
+                    style={{ display: showLivePixels || showConnectingUi ? 'block' : 'none', opacity: showLivePixels ? 1 : 0 }}
+                />
+                {showConnectingUi && (
+                    <div className="absolute inset-0 z-[1] flex flex-col items-center justify-center bg-gradient-to-b from-slate-800/95 via-slate-900 to-black/90">
+                        <CameraOffAvatar name={peer.userName} profileImageUrl={profileAvatarUrl} compact isGuest={isGuestPeer} />
+                        <p className="text-[8px] text-white/55 uppercase tracking-wide mt-0.5">Connecting…</p>
+                    </div>
+                )}
+                {showCameraOffChrome && (
+                    <div className="absolute inset-0 z-[1] flex flex-col items-center justify-center bg-gradient-to-b from-slate-800/95 via-slate-900 to-black/90">
                         <CameraOffAvatar
                             name={peer.userName}
                             profileImageUrl={profileAvatarUrl}
@@ -1754,10 +1816,10 @@ function RemoteVideo({
                 )}
                 {peer.remoteStream && <AudioPlayer stream={peer.remoteStream} />}
                 {isRemoteScreenShare && <div className="absolute top-1 left-1 rounded-md border border-emerald-400/40 bg-emerald-500/20 px-1.5 py-0.5"><p className="text-[9px] text-emerald-200 font-semibold">Sharing</p></div>}
-                {hasVideo && <div className="absolute top-1 right-1 z-[1]"><RemoteVideoRoleBadge peerId={peerId} userRole={presenceRole} compact /></div>}
+                {showLivePixels && <div className="absolute top-1 right-1 z-[1]"><RemoteVideoRoleBadge peerId={peerId} userRole={presenceRole} compact /></div>}
                 <div className="absolute bottom-1 left-1 right-8 bg-black/60 rounded px-1.5 py-0.5 flex items-center gap-1.5 flex-wrap min-w-0">
                     <p className="text-white text-[10px] truncate">{peer.userName}</p>
-                    {!hasVideo ? <RemoteVideoRoleBadge peerId={peerId} userRole={presenceRole} compact /> : null}
+                    {!showLivePixels ? <RemoteVideoRoleBadge peerId={peerId} userRole={presenceRole} compact /> : null}
                 </div>
             </div>
         );
@@ -1765,9 +1827,24 @@ function RemoteVideo({
 
     return (
         <div className={`relative rounded-2xl overflow-hidden bg-slate-900/80 border border-white/5 ${isPinned ? 'w-full h-full' : 'aspect-video'} group`}>
-            <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" style={{ display: hasVideo ? 'block' : 'none' }} />
-            {!hasVideo && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-4 bg-gradient-to-b from-slate-800/95 via-slate-900 to-black/90">
+            <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                className="absolute inset-0 w-full h-full object-cover min-h-0"
+                style={{ display: showLivePixels || showConnectingUi ? 'block' : 'none', opacity: showLivePixels ? 1 : 0 }}
+            />
+            {showConnectingUi && (
+                <div className="absolute inset-0 z-[1] flex flex-col items-center justify-center gap-2 px-4 bg-gradient-to-b from-slate-800/95 via-slate-900 to-black/90">
+                    <CameraOffAvatar name={peer.userName} profileImageUrl={profileAvatarUrl} isGuest={isGuestPeer} />
+                    <RemoteVideoRoleBadge peerId={peerId} userRole={presenceRole} className="text-[10px] px-2.5 py-1" />
+                    <p className="text-[10px] text-white/55 uppercase tracking-widest">Connecting video…</p>
+                    <p className="text-white/85 text-sm font-medium">{peer.userName}</p>
+                </div>
+            )}
+            {showCameraOffChrome && (
+                <div className="absolute inset-0 z-[1] flex flex-col items-center justify-center gap-2 px-4 bg-gradient-to-b from-slate-800/95 via-slate-900 to-black/90">
                     <CameraOffAvatar name={peer.userName} profileImageUrl={profileAvatarUrl} isGuest={isGuestPeer} />
                     <RemoteVideoRoleBadge peerId={peerId} userRole={presenceRole} className="text-[10px] px-2.5 py-1" />
                     <p className="text-[10px] text-white/45 uppercase tracking-widest">Camera off</p>
@@ -1776,7 +1853,7 @@ function RemoteVideo({
             )}
             {peer.remoteStream && <AudioPlayer stream={peer.remoteStream} />}
             {isRemoteScreenShare && <div className="absolute top-3 left-3 rounded-full border border-emerald-400/40 bg-emerald-500/20 px-2 py-1 z-[1]"><p className="text-[10px] text-emerald-200 font-semibold">Sharing screen</p></div>}
-            {hasVideo && (
+            {showLivePixels && (
                 <div className="absolute bottom-3 left-3 right-14 glass-dark rounded-lg px-3 py-1.5 flex items-center gap-2 flex-wrap max-w-[min(100%,22rem)]">
                     <p className="text-white text-xs font-medium truncate">{peer.userName}{isPinned ? ' (Pinned)' : ''}</p>
                     <RemoteVideoRoleBadge peerId={peerId} userRole={presenceRole} compact />

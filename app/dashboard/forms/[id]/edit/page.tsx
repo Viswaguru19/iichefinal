@@ -59,6 +59,8 @@ export default function EditFormPage() {
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
     const [accessType, setAccessType] = useState<'public' | 'internal'>('internal');
+    const [formType, setFormType] = useState<'normal' | 'event_registration'>('normal');
+    const [showAttendanceQrAfterSubmit, setShowAttendanceQrAfterSubmit] = useState(true);
 
     const params = useParams();
     const router = useRouter();
@@ -81,6 +83,9 @@ export default function EditFormPage() {
         setStartDate(s.start_date || '');
         setEndDate(s.end_date || '');
         setAccessType(s.access_type || 'internal');
+        setFormType((form.form_type as 'normal' | 'event_registration') || 'normal');
+        const qrOn = s.show_attendance_qr_after_submit !== false && s.showAttendanceQrAfterSubmit !== false;
+        setShowAttendanceQrAfterSubmit(form.form_type === 'event_registration' ? qrOn : true);
         setLoading(false);
     }
 
@@ -169,6 +174,7 @@ export default function EditFormPage() {
                 settings: {
                     banner_url: bannerUrl, allow_multiple: allowMultiple, require_login: requireLogin,
                     start_date: startDate || null, end_date: endDate || null, access_type: accessType, status,
+                    ...(formType === 'event_registration' ? { show_attendance_qr_after_submit: showAttendanceQrAfterSubmit } : {}),
                 },
             })
             .eq('id', params.id);
@@ -267,6 +273,12 @@ export default function EditFormPage() {
                                         <div className="flex flex-wrap gap-6">
                                             <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={allowMultiple} onChange={e => setAllowMultiple(e.target.checked)} className="rounded text-indigo-600" /> Allow multiple responses</label>
                                             <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={requireLogin} onChange={e => setRequireLogin(e.target.checked)} className="rounded text-indigo-600" /> Require login</label>
+                                            {formType === 'event_registration' && (
+                                                <label className="flex items-center gap-2 text-sm max-w-md">
+                                                    <input type="checkbox" checked={showAttendanceQrAfterSubmit} onChange={e => setShowAttendanceQrAfterSubmit(e.target.checked)} className="rounded text-indigo-600" />
+                                                    <span>Show personal check-in QR after registration (for attendance scanning)</span>
+                                                </label>
+                                            )}
                                         </div>
                                     </div>
                                 </motion.div>

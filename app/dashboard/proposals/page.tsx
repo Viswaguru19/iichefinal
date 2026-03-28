@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import PageHeader from '@/components/PageHeader';
 import { motion, AnimatePresence } from 'framer-motion';
 import { CheckCircle, XCircle, Clock, Users, Crown, Edit, AlertTriangle, Ban, CalendarDays, Send, RotateCcw, Sparkles, ArrowLeft, Filter, Bell } from 'lucide-react';
@@ -11,23 +11,53 @@ import EditEventModal from '@/components/proposals/EditEventModal';
 import RevokeModal from '@/components/proposals/RevokeModal';
 import EditHistoryView from '@/components/proposals/EditHistoryView';
 import ReminderButton from '@/components/ReminderButton';
+import {
+  normalizeProposalThresholds,
+  executiveRoleCountsForProposalEc,
+  proposalEcSatisfied,
+  proposalEcProgress,
+} from '@/lib/proposal-workflow-rules';
 
 const STATUS_LABELS: Record<string, string> = {
-  draft: 'Draft', pending_head_approval: 'Under Head Review', review_by_cohead: 'Sent for Review (Co-Head)',
-  pending_ec_approval: 'Under EC Review', rejected_by_head: 'Head Rejected',
+  draft: 'Draft',
+  pending_head_approval: 'Under Head Review',
+  pending_second_head_approval: 'Second Head Review',
+  review_by_cohead: 'Sent for Review (Co-Head)',
+  pending_ec_approval: 'Under EC Review',
+  rejected_by_head: 'Head Rejected',
   pending_faculty_approval: 'Under Faculty Review', faculty_approved: 'Faculty Approved (Active)',
   active: 'Active', in_progress: 'In Progress', completed: 'Completed', cancelled: 'Cancelled',
 };
 const STATUS_GRADIENTS: Record<string, string> = {
-  draft: 'from-gray-400 to-gray-500', pending_head_approval: 'from-amber-400 to-orange-500',
-  review_by_cohead: 'from-violet-400 to-purple-600', pending_ec_approval: 'from-blue-400 to-indigo-600',
+  draft: 'from-gray-400 to-gray-500',
+  pending_head_approval: 'from-amber-400 to-orange-500',
+  pending_second_head_approval: 'from-orange-400 to-rose-500',
+  review_by_cohead: 'from-violet-400 to-purple-600',
+  pending_ec_approval: 'from-blue-400 to-indigo-600',
   rejected_by_head: 'from-red-400 to-rose-600', pending_faculty_approval: 'from-indigo-400 to-purple-600',
   faculty_approved: 'from-emerald-400 to-green-600', active: 'from-emerald-400 to-teal-600',
   in_progress: 'from-cyan-400 to-blue-600', completed: 'from-green-400 to-emerald-600',
   cancelled: 'from-red-500 to-rose-700',
 };
 
-export default function ProposalsPage() {
+const FILTERABLE_STATUSES = new Set([
+  'all',
+  'pending_head_approval',
+  'pending_second_head_approval',
+  'review_by_cohead',
+  'pending_ec_approval',
+  'pending_faculty_approval',
+  'active',
+  'cancelled',
+]);
+
+/** DB may store co_head / co-head / Co-Head — normalize for comparisons. */
+function normalizeCommitteePosition(pos: string | null | undefined): string {
+  if (pos == null || !String(pos).trim()) return '';
+  return String(pos).trim().toLowerCase().replace(/[\s-]+/g, '_');
+}
+
+function ProposalsPageClient() {
   const [proposals, setProposals] = useState<any[]>([]);
   const [userProfile, setUserProfile] = useState<any>(null);
   const [userCommittees, setUserCommittees] = useState<string[]>([]);
@@ -39,6 +69,8 @@ export default function ProposalsPage() {
   const [rejectionReason, setRejectionReason] = useState('');
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  /** On save, set event status to this value; null = leave status unchanged (Review & Edit only). */
+  const [editResubmitTarget, setEditResubmitTarget] = useState<string | null>(null);
   const [showRevokeModal, setShowRevokeModal] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
@@ -52,6 +84,12 @@ export default function ProposalsPage() {
   const [statusFilter, setStatusFilter] = useState('all');
   const supabase = createClient();
   const router = useRouter();
+  const searchParams = useSearchParams();
+
+  useEffect(() => {
+    const s = searchParams.get('status');
+    if (s && FILTERABLE_STATUSES.has(s)) setStatusFilter(s);
+  }, [searchParams]);
 
   useEffect(() => { loadProposals(); }, []);
 
@@ -59,13 +97,18 @@ export default function ProposalsPage() {
     setPageLoading(true);
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return router.push('/login');
-    const { data: configData } = await supabase.from('workflow_config').select('*').eq('workflow_type', 'approval_thresholds').single();
-    setWorkflowConfig(configData?.config || { ec_approvals_required: 2 });
+    const { data: configData } = await supabase.from('workflow_config').select('*').eq('workflow_type', 'approval_thresholds').maybeSingle();
+    setWorkflowConfig(normalizeProposalThresholds((configData as any)?.config));
     const { data: profile } = await supabase.from('profiles').select('*, committee_members(position, committee_id)').eq('id', user.id).single();
     if (!profile) { toast.error('Failed to load profile'); return; }
     setUserProfile(profile);
     setUserCommittees((profile as any)?.committee_members?.map((m: any) => m.committee_id) || []);
-    const { data } = await supabase.from('events').select(`*, committee:committees(name), proposer:profiles!events_proposed_by_fkey(name), head_approver:profiles!events_head_approved_by_fkey(name)`).order('created_at', { ascending: false });
+    const { data } = await supabase
+      .from('events')
+      .select(
+        `*, committee:committees(name), proposer:profiles!events_proposed_by_fkey(name), head_approver:profiles!events_head_approved_by_fkey(name), second_head_approver:profiles!events_second_head_approved_by_fkey(name), faculty_approver:profiles!events_faculty_approved_by_fkey(name)`,
+      )
+      .order('created_at', { ascending: false });
     setProposals(data || []);
     if (data && data.length > 0) {
       const eventIds = data.map(e => e.id);
@@ -81,26 +124,102 @@ export default function ProposalsPage() {
     setPageLoading(false);
   }
 
+  async function fetchProposalThresholds() {
+    const { data } = await supabase.from('workflow_config').select('config').eq('workflow_type', 'approval_thresholds').maybeSingle();
+    return normalizeProposalThresholds((data as any)?.config);
+  }
+
   async function handleHeadApprove(proposalId: string) {
     setLoading(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      const { error } = await supabase.from('events').update({ status: 'pending_ec_approval', head_approved_by: user?.id, head_approved_at: new Date().toISOString() }).eq('id', proposalId);
+      const t = await fetchProposalThresholds();
+      const nextStatus = t.proposal_head_approval === 'two_heads' ? 'pending_second_head_approval' : 'pending_ec_approval';
+      const { error } = await supabase
+        .from('events')
+        .update({
+          status: nextStatus,
+          head_approved_by: user?.id,
+          head_approved_at: new Date().toISOString(),
+        })
+        .eq('id', proposalId);
       if (error) throw error;
-      toast.success('Approved! Sent to EC'); loadProposals();
+      toast.success(
+        nextStatus === 'pending_second_head_approval'
+          ? 'First head recorded — waiting for second head'
+          : 'Approved! Sent to EC',
+      );
+      loadProposals();
     } catch (e: any) { toast.error(e.message); } finally { setLoading(false); }
   }
+
+  async function handleSecondHeadApproveToEC(proposalId: string) {
+    setLoading(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const { data: ev, error: fetchErr } = await supabase
+        .from('events')
+        .select('head_approved_by, status')
+        .eq('id', proposalId)
+        .single();
+      if (fetchErr) throw fetchErr;
+      if (!ev || ev.status !== 'pending_second_head_approval') {
+        toast.error('This proposal is not waiting for a second head.');
+        return;
+      }
+      if (ev.head_approved_by && user?.id === ev.head_approved_by) {
+        toast.error('The second approval must be from a different head than the first.');
+        return;
+      }
+      const { error } = await supabase
+        .from('events')
+        .update({
+          status: 'pending_ec_approval',
+          second_head_approved_by: user?.id,
+          second_head_approved_at: new Date().toISOString(),
+        })
+        .eq('id', proposalId);
+      if (error) throw error;
+      toast.success('Second head approved — sent to EC');
+      loadProposals();
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function handleECApprove(proposalId: string) {
     setLoading(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      await supabase.from('ec_approvals').upsert({ event_id: proposalId, user_id: user?.id, approved: true, approved_at: new Date().toISOString() });
-      const { data: allApprovals } = await supabase.from('ec_approvals').select('*').eq('event_id', proposalId).eq('approved', true);
-      const req = workflowConfig?.ec_approvals_required || 2;
-      if (allApprovals && allApprovals.length >= req) {
+      const t = await fetchProposalThresholds();
+      const er = userProfile?.executive_role;
+      if (!isFaculty && !isAdmin) {
+        if (!executiveRoleCountsForProposalEc(er, t.proposal_ec_approval)) {
+          toast.error('Only Secretary / Associate Secretary / Joint Secretary / Associate Joint Secretary can approve at this step.');
+          setLoading(false);
+          return;
+        }
+      }
+      await supabase.from('ec_approvals').upsert({
+        event_id: proposalId,
+        user_id: user?.id,
+        approved: true,
+        approved_at: new Date().toISOString(),
+      });
+      const { data: allApprovals } = await supabase
+        .from('ec_approvals')
+        .select('*, profiles(executive_role)')
+        .eq('event_id', proposalId)
+        .eq('approved', true);
+      if (proposalEcSatisfied(t.proposal_ec_approval, allApprovals || [])) {
         await supabase.from('events').update({ status: 'pending_faculty_approval' }).eq('id', proposalId);
         toast.success('EC complete! Sent to Faculty.');
-      } else { toast.success(`Recorded (${allApprovals?.length || 0}/${req})`); }
+      } else {
+        const prog = proposalEcProgress(t.proposal_ec_approval, allApprovals || []);
+        toast.success(`Recorded (${prog.done}/${prog.total} requirement slots filled)`);
+      }
       loadProposals();
     } catch (e: any) { toast.error(e.message); } finally { setLoading(false); }
   }
@@ -117,11 +236,20 @@ export default function ProposalsPage() {
     if (!selectedProposal || !rejectionReason.trim()) { toast.error('Provide a reason'); return; }
     setLoading(true);
     try {
-      const isHead = userProfile?.committee_members?.some((m: any) => m.committee_id === selectedProposal.committee_id && m.position === 'head');
+      const isHead = userProfile?.committee_members?.some(
+        (m: any) => m.committee_id === selectedProposal.committee_id && normalizeCommitteePosition(m.position) === 'head',
+      );
       const updateData: any = { rejection_reason: rejectionReason };
-      if (isHead && selectedProposal.status === 'pending_head_approval') {
-        updateData.status = 'rejected_by_head'; updateData.head_rejection_reason = rejectionReason; updateData.head_rejected_at = new Date().toISOString();
-      } else { updateData.status = 'cancelled'; }
+      if (
+        isHead &&
+        (selectedProposal.status === 'pending_head_approval' || selectedProposal.status === 'pending_second_head_approval')
+      ) {
+        updateData.status = 'rejected_by_head';
+        updateData.head_rejection_reason = rejectionReason;
+        updateData.head_rejected_at = new Date().toISOString();
+      } else {
+        updateData.status = 'cancelled';
+      }
       await supabase.from('events').update(updateData).eq('id', selectedProposal.id);
       toast.success('Rejected'); setShowRejectModal(false); setSelectedProposal(null); setRejectionReason(''); loadProposals();
     } catch (e: any) { toast.error(e.message); } finally { setLoading(false); }
@@ -154,7 +282,17 @@ export default function ProposalsPage() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       const statusMap: Record<string, string> = { cohead: 'review_by_cohead', head: 'pending_head_approval', ec: 'pending_ec_approval' };
-      await supabase.from('events').update({ status: statusMap[reviewTarget], review_note: reviewNote || null, review_sent_by: user?.id, review_sent_at: new Date().toISOString() }).eq('id', selectedProposal.id);
+      const nextStatus = statusMap[reviewTarget];
+      const { error: sendErr } = await supabase
+        .from('events')
+        .update({
+          status: nextStatus,
+          review_note: reviewNote || null,
+          review_sent_by: user?.id,
+          review_sent_at: new Date().toISOString(),
+        })
+        .eq('id', selectedProposal.id);
+      if (sendErr) throw sendErr;
       toast.success(`Sent to ${reviewTarget === 'cohead' ? 'Co-Head' : reviewTarget === 'head' ? 'Head' : 'EC'}`);
       setShowSendReviewModal(false); setSelectedProposal(null); setReviewNote(''); loadProposals();
     } catch (e: any) { toast.error(e.message); } finally { setLoading(false); }
@@ -164,17 +302,61 @@ export default function ProposalsPage() {
   const isAdmin = userProfile?.is_admin || false;
   const isEC = userProfile?.executive_role !== null && userProfile?.executive_role !== undefined;
 
+  const committeeRole = (committeeId: string) =>
+    normalizeCommitteePosition(
+      userProfile?.committee_members?.find((m: any) => m.committee_id === committeeId)?.position as string | undefined,
+    );
+
+  const isCommitteeHead = (committeeId: string) =>
+    !!userProfile?.committee_members?.some(
+      (m: any) => m.committee_id === committeeId && normalizeCommitteePosition(m.position) === 'head',
+    );
+
   const canApproveAsHead = (p: any) => {
     if (isFaculty || isAdmin) return p.status === 'pending_head_approval';
     if (!userCommittees.includes(p.committee_id)) return false;
     const m = userProfile?.committee_members?.find((m: any) => m.committee_id === p.committee_id);
-    return m?.position === 'head' && p.status === 'pending_head_approval';
+    return normalizeCommitteePosition(m?.position) === 'head' && p.status === 'pending_head_approval';
   };
-  const canApproveAsEC = (p: any) => (isFaculty || isAdmin || isEC) && (p.status === 'pending_ec_approval' || p.status === 'rejected_by_head');
+
+  /** Co-head (or faculty/admin) can edit while proposal is in co-head review — same as head’s “Review & Edit” for pending_head. */
+  const canReviewEditAsCoHead = (p: any) => {
+    if (p.status !== 'review_by_cohead') return false;
+    if (isFaculty || isAdmin) return true;
+    if (!userCommittees.includes(p.committee_id)) return false;
+    return committeeRole(p.committee_id) === 'co_head';
+  };
+
+  const proposalThresholds = normalizeProposalThresholds(workflowConfig as any);
+
+  /** Two-heads workflow: waiting for second head — committee heads (or faculty/admin) can review/edit. */
+  const canReviewEditWhileSecondHead = (p: any) => {
+    if (p.status !== 'pending_second_head_approval') return false;
+    if (isFaculty || isAdmin) return true;
+    if (!userCommittees.includes(p.committee_id)) return false;
+    return isCommitteeHead(p.committee_id);
+  };
+
+  /** Second approval must be a different person than the first; must be a committee head or faculty/admin. */
+  const canSecondHeadAdvanceToEc = (p: any) => {
+    if (p.status !== 'pending_second_head_approval') return false;
+    if (proposalThresholds.proposal_head_approval !== 'two_heads') return false;
+    if (p.head_approved_by && userProfile?.id === p.head_approved_by) return false;
+    if (isFaculty || isAdmin) return true;
+    return isCommitteeHead(p.committee_id);
+  };
+
+  const canApproveAsEC = (p: any) => {
+    if (p.status === 'rejected_by_head') return isFaculty || isAdmin || isEC;
+    if (p.status !== 'pending_ec_approval') return false;
+    if (isFaculty || isAdmin) return true;
+    if (!isEC) return false;
+    return executiveRoleCountsForProposalEc(userProfile?.executive_role, proposalThresholds.proposal_ec_approval);
+  };
   const canApproveAsFaculty = (p: any) => (isFaculty || isAdmin) && p.status === 'pending_faculty_approval';
   const canResubmitOwn = (p: any) => {
     const mine = p.proposed_by === userProfile?.id || p.created_by === userProfile?.id;
-    return mine && ['rejected_by_head', 'review_by_cohead', 'cancelled'].includes(p.status);
+    return mine && ['rejected_by_head', 'review_by_cohead', 'pending_second_head_approval', 'cancelled'].includes(p.status);
   };
   const getResubmitStatus = () => {
     const isFacultyOrAdmin = !!(userProfile?.is_faculty || userProfile?.is_admin);
@@ -190,7 +372,11 @@ export default function ProposalsPage() {
     if (p.status === 'cancelled' || p.status === 'completed') return false;
     if (isFaculty || isAdmin) return true;
     if (isEC) return p.status === 'pending_ec_approval' || p.status === 'rejected_by_head';
-    return userProfile?.committee_members?.some((m: any) => m.committee_id === p.committee_id && m.position === 'head') && p.status === 'pending_head_approval';
+    return (
+      userProfile?.committee_members?.some(
+        (m: any) => m.committee_id === p.committee_id && normalizeCommitteePosition(m.position) === 'head',
+      ) && p.status === 'pending_head_approval'
+    );
   };
   const hasECApproved = (p: any) => (ecApprovals[p.id] || []).some((a: any) => a.user_id === userProfile?.id && a.approved);
   const getReviewTargets = (p: any) => {
@@ -224,7 +410,7 @@ export default function ProposalsPage() {
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
           className="premium-card rounded-2xl p-4 mb-6 flex items-center gap-4 flex-wrap">
           <Filter className="w-5 h-5 text-indigo-400" />
-          {['all', 'pending_head_approval', 'pending_ec_approval', 'pending_faculty_approval', 'active', 'cancelled'].map(s => (
+          {['all', 'pending_head_approval', 'pending_second_head_approval', 'review_by_cohead', 'pending_ec_approval', 'pending_faculty_approval', 'active', 'cancelled'].map(s => (
             <motion.button key={s} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
               onClick={() => setStatusFilter(s)}
               className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${statusFilter === s
@@ -241,8 +427,9 @@ export default function ProposalsPage() {
           <AnimatePresence>
             {filtered.map((proposal, idx) => {
               const approvals = ecApprovals[proposal.id] || [];
-              const ecCount = approvals.filter((a: any) => a.approved).length;
-              const req = workflowConfig?.ec_approvals_required || 2;
+              const approvedRows = approvals.filter((a: any) => a.approved);
+              const ecProg = proposalEcProgress(proposalThresholds.proposal_ec_approval, approvedRows);
+              const ecPct = ecProg.total > 0 ? (ecProg.done / ecProg.total) * 100 : 0;
               const grad = STATUS_GRADIENTS[proposal.status] || 'from-gray-400 to-gray-500';
 
               return (
@@ -306,10 +493,15 @@ export default function ProposalsPage() {
                     <div className="mb-4 p-4 rounded-xl bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200/50 relative z-10">
                       <div className="flex items-center gap-2 mb-2">
                         <Users className="w-4 h-4 text-indigo-500" />
-                        <span className="font-semibold text-indigo-800 text-sm">EC Progress: {ecCount}/{req}</span>
+                        <span className="font-semibold text-indigo-800 text-sm">
+                          EC progress: {ecProg.done}/{ecProg.total}
+                          {proposalThresholds.proposal_ec_approval === 'tiered_pair'
+                            ? ' (need sec. tier + joint tier)'
+                            : ' (any one sec./joint sec. role)'}
+                        </span>
                       </div>
                       <div className="w-full bg-indigo-100 rounded-full h-2 overflow-hidden">
-                        <motion.div initial={{ width: 0 }} animate={{ width: `${(ecCount / req) * 100}%` }}
+                        <motion.div initial={{ width: 0 }} animate={{ width: `${ecPct}%` }}
                           transition={{ duration: 0.8 }} className="bg-gradient-to-r from-blue-500 to-indigo-500 h-2 rounded-full" />
                       </div>
                       {approvals.filter((a: any) => a.approved).length > 0 && (
@@ -322,19 +514,70 @@ export default function ProposalsPage() {
                     </div>
                   )}
 
-                  {/* Approval History */}
-                  {(proposal.head_approved_by || proposal.status === 'active' || proposal.status === 'pending_faculty_approval') && (
+                  {/* Approval History — show EC & faculty approver names for committee heads and everyone */}
+                  {(proposal.head_approved_by ||
+                    proposal.second_head_approved_by ||
+                    approvedRows.length > 0 ||
+                    proposal.faculty_approved_by) && (
                     <div className="mb-4 p-3 rounded-xl bg-gray-50/80 relative z-10">
                       <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Approval Trail</p>
                       <div className="space-y-1.5">
                         {proposal.head_approved_by && (
-                          <div className="flex items-center gap-2 text-sm"><div className="w-5 h-5 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center"><CheckCircle className="w-3 h-3 text-white" /></div><span className="text-gray-600">Head: {proposal.head_approver?.name}</span></div>
+                          <div className="flex items-center gap-2 text-sm">
+                            <div className="w-5 h-5 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shrink-0">
+                              <CheckCircle className="w-3 h-3 text-white" />
+                            </div>
+                            <span className="text-gray-600">
+                              Head (1st): {proposal.head_approver?.name || profilesMap[proposal.head_approved_by]?.name || '—'}
+                            </span>
+                          </div>
                         )}
-                        {(proposal.status === 'pending_faculty_approval' || proposal.status === 'active') && (
-                          <div className="flex items-center gap-2 text-sm"><div className="w-5 h-5 rounded-full bg-gradient-to-br from-blue-400 to-indigo-500 flex items-center justify-center"><CheckCircle className="w-3 h-3 text-white" /></div><span className="text-gray-600">EC Approved ({ecCount})</span></div>
+                        {proposal.second_head_approved_by && (
+                          <div className="flex items-center gap-2 text-sm">
+                            <div className="w-5 h-5 rounded-full bg-gradient-to-br from-orange-400 to-rose-500 flex items-center justify-center shrink-0">
+                              <CheckCircle className="w-3 h-3 text-white" />
+                            </div>
+                            <span className="text-gray-600">
+                              Head (2nd):{' '}
+                              {proposal.second_head_approver?.name ||
+                                profilesMap[proposal.second_head_approved_by]?.name ||
+                                '—'}
+                            </span>
+                          </div>
                         )}
-                        {(proposal.status === 'active') && proposal.faculty_approved_by && (
-                          <div className="flex items-center gap-2 text-sm"><div className="w-5 h-5 rounded-full bg-gradient-to-br from-emerald-400 to-green-500 flex items-center justify-center"><CheckCircle className="w-3 h-3 text-white" /></div><span className="text-gray-600">Faculty Approved</span></div>
+                        {approvedRows.length > 0 && (
+                          <div className="flex items-start gap-2 text-sm">
+                            <div className="w-5 h-5 rounded-full bg-gradient-to-br from-blue-400 to-indigo-500 flex items-center justify-center shrink-0 mt-0.5">
+                              <CheckCircle className="w-3 h-3 text-white" />
+                            </div>
+                            <div className="text-gray-600 min-w-0">
+                              <span className="font-medium text-gray-700">
+                                EC ({ecProg.done}/{ecProg.total} slots
+                                {proposalThresholds.proposal_ec_approval === 'tiered_pair' ? ', sec. + joint' : ''})
+                              </span>
+                              <span className="text-gray-500"> — </span>
+                              <span>
+                                {approvals
+                                  .filter((a: any) => a.approved)
+                                  .map((a: any) => a.profiles?.name)
+                                  .filter(Boolean)
+                                  .join(', ') || '—'}
+                              </span>
+                            </div>
+                          </div>
+                        )}
+                        {proposal.faculty_approved_by && (
+                          <div className="flex items-center gap-2 text-sm">
+                            <div className="w-5 h-5 rounded-full bg-gradient-to-br from-emerald-400 to-green-500 flex items-center justify-center shrink-0">
+                              <CheckCircle className="w-3 h-3 text-white" />
+                            </div>
+                            <span className="text-gray-600">
+                              Faculty:{' '}
+                              {proposal.faculty_approver?.name ||
+                                profilesMap[proposal.faculty_approved_by]?.name ||
+                                '—'}
+                            </span>
+                          </div>
                         )}
                       </div>
                     </div>
@@ -363,13 +606,24 @@ export default function ProposalsPage() {
                   {/* ACTION BUTTONS */}
                   <div className="flex flex-wrap gap-2 mt-4 relative z-10">
                     {/* Remind button for pending proposals */}
-                    {['pending_head_approval', 'pending_ec_approval', 'pending_faculty_approval', 'review_by_cohead'].includes(proposal.status) && (
+                    {['pending_head_approval', 'pending_second_head_approval', 'pending_ec_approval', 'pending_faculty_approval', 'review_by_cohead'].includes(proposal.status) && (
                       <ReminderButton entityId={proposal.id} entityType="approval" />
                     )}
                     {canApproveAsHead(proposal) && (<>
-                      <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} onClick={() => { setSelectedProposal(proposal); setShowEditModal(true); }} disabled={loading} className="btn-gradient-blue px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 disabled:opacity-50"><Edit className="w-4 h-4" /> Review & Edit</motion.button>
-                      <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} onClick={() => handleHeadApprove(proposal.id)} disabled={loading} className="btn-gradient-green px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 disabled:opacity-50"><CheckCircle className="w-4 h-4" /> Approve → EC</motion.button>
+                      <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} onClick={() => { setEditResubmitTarget(null); setSelectedProposal(proposal); setShowEditModal(true); }} disabled={loading} className="btn-gradient-blue px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 disabled:opacity-50"><Edit className="w-4 h-4" /> Review & Edit</motion.button>
+                      <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} onClick={() => handleHeadApprove(proposal.id)} disabled={loading} className="btn-gradient-green px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 disabled:opacity-50"><CheckCircle className="w-4 h-4" />{proposalThresholds.proposal_head_approval === 'two_heads' ? 'Approve (1 of 2 heads)' : 'Approve → EC'}</motion.button>
                       <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} onClick={() => { setSelectedProposal(proposal); setShowRejectModal(true); }} disabled={loading} className="btn-gradient-red px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 disabled:opacity-50"><XCircle className="w-4 h-4" /> Reject</motion.button>
+                    </>)}
+                    {canReviewEditAsCoHead(proposal) && !canApproveAsHead(proposal) && !canResubmitOwn(proposal) && (<>
+                      <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} onClick={() => { setEditResubmitTarget(null); setSelectedProposal(proposal); setShowEditModal(true); }} disabled={loading} className="btn-gradient-blue px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 disabled:opacity-50"><Edit className="w-4 h-4" /> Review & Edit</motion.button>
+                      <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} onClick={() => { setEditResubmitTarget('pending_head_approval'); setSelectedProposal(proposal); setShowEditModal(true); }} disabled={loading} className="btn-gradient-purple px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 disabled:opacity-50"><RotateCcw className="w-4 h-4" /> Edit & Resubmit</motion.button>
+                    </>)}
+                    {canReviewEditWhileSecondHead(proposal) && !canApproveAsHead(proposal) && !canResubmitOwn(proposal) && (<>
+                      <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} onClick={() => { setEditResubmitTarget(null); setSelectedProposal(proposal); setShowEditModal(true); }} disabled={loading} className="btn-gradient-blue px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 disabled:opacity-50"><Edit className="w-4 h-4" /> Review & Edit</motion.button>
+                      {canSecondHeadAdvanceToEc(proposal) && (
+                        <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} onClick={() => handleSecondHeadApproveToEC(proposal.id)} disabled={loading} className="btn-gradient-green px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 disabled:opacity-50"><CheckCircle className="w-4 h-4" /> Approve (2nd head) → EC</motion.button>
+                      )}
+                      <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} onClick={() => { setEditResubmitTarget('pending_head_approval'); setSelectedProposal(proposal); setShowEditModal(true); }} disabled={loading} className="btn-gradient-purple px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 disabled:opacity-50"><RotateCcw className="w-4 h-4" /> Edit & Resubmit</motion.button>
                     </>)}
                     {proposal.status === 'rejected_by_head' && canApproveAsEC(proposal) && (<>
                       <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} onClick={() => handleAcceptRejection(proposal.id)} disabled={loading} className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 disabled:opacity-50 transition-all"><CheckCircle className="w-4 h-4" /> Accept Rejection</motion.button>
@@ -404,14 +658,17 @@ export default function ProposalsPage() {
                     {proposal.status === 'pending_faculty_approval' && !canApproveAsFaculty(proposal) && (
                       <div className="flex items-center gap-2 text-gray-400 text-sm"><Clock className="w-4 h-4" /> Waiting for Faculty</div>
                     )}
-                    {proposal.status === 'review_by_cohead' && (
-                      <div className="flex items-center gap-2 text-violet-400 text-sm"><Clock className="w-4 h-4" /> Under Co-Head review</div>
+                    {proposal.status === 'review_by_cohead' && !canReviewEditAsCoHead(proposal) && (
+                      <div className="flex items-center gap-2 text-violet-400 text-sm"><Clock className="w-4 h-4" /> Waiting for Co-Head review</div>
+                    )}
+                    {proposal.status === 'pending_second_head_approval' && !canReviewEditWhileSecondHead(proposal) && (
+                      <div className="flex items-center gap-2 text-orange-500 text-sm"><Clock className="w-4 h-4" /> Waiting for second head</div>
                     )}
                     {canResubmitOwn(proposal) && (
                       <motion.button
                         whileHover={{ scale: 1.04 }}
                         whileTap={{ scale: 0.96 }}
-                        onClick={() => { setSelectedProposal(proposal); setShowEditModal(true); }}
+                        onClick={() => { setEditResubmitTarget(getResubmitStatus()); setSelectedProposal(proposal); setShowEditModal(true); }}
                         disabled={loading}
                         className="btn-gradient-purple px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 disabled:opacity-50"
                       >
@@ -497,12 +754,20 @@ export default function ProposalsPage() {
       {showEditModal && selectedProposal && (
         <EditEventModal
           event={selectedProposal}
-          resubmitToStatus={canResubmitOwn(selectedProposal) ? getResubmitStatus() : null}
-          onClose={() => { setShowEditModal(false); setSelectedProposal(null); }}
+          resubmitToStatus={editResubmitTarget}
+          onClose={() => { setShowEditModal(false); setSelectedProposal(null); setEditResubmitTarget(null); }}
           onSuccess={loadProposals}
         />
       )}
       {showRevokeModal && selectedProposal && <RevokeModal event={selectedProposal} onClose={() => { setShowRevokeModal(false); setSelectedProposal(null); }} onSuccess={loadProposals} />}
     </div>
+  );
+}
+
+export default function ProposalsPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-mesh flex items-center justify-center text-gray-600">Loading proposals…</div>}>
+      <ProposalsPageClient />
+    </Suspense>
   );
 }

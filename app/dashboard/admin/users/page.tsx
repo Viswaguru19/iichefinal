@@ -58,7 +58,7 @@ export default async function UserManagementPage() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {pendingUsers.length > 0 && (
           <div className="glass rounded-2xl p-6 mb-8 border-l-4 border-amber-500 glow-amber">
-            <h2 className="text-xl font-bold text-gradient-warm mb-4">⏳ Pending Approvals ({pendingUsers.length})</h2>
+            <h2 className="text-xl font-bold text-gradient-warm mb-4">⏳ Pending user sign-ups ({pendingUsers.length})</h2>
             <div className="space-y-3">
               {pendingUsers.map((user: any) => (
                 <div key={user.id} className="bg-white rounded-lg p-4 flex items-center justify-between">

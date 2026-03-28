@@ -45,9 +45,12 @@ export default async function UserApprovalsPage() {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="glass rounded-2xl p-6">
-          <h2 className="text-xl font-bold text-gradient mb-6">
-            Pending Approvals ({pendingUsers?.length || 0})
+          <h2 className="text-xl font-bold text-gradient mb-2">
+            Pending user sign-ups ({pendingUsers?.length || 0})
           </h2>
+          <p className="text-sm text-gray-500 mb-6">
+            New accounts waiting for faculty/committee assignment — separate from event proposal workflow.
+          </p>
 
           {(!pendingUsers || pendingUsers.length === 0) && (
             <p className="text-gray-400 text-center py-8">No pending approvals</p>

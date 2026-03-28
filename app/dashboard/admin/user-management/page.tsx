@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
 import {
@@ -100,6 +101,8 @@ export default function UserManagementPage() {
             filtered = filtered.filter((user) => user.is_active);
         } else if (statusFilter === 'inactive') {
             filtered = filtered.filter((user) => !user.is_active);
+        } else if (statusFilter === 'pending_signup') {
+            filtered = filtered.filter((user) => !user.approved);
         }
 
         setFilteredUsers(filtered);
@@ -212,7 +215,15 @@ export default function UserManagementPage() {
                             <Users className="w-8 h-8 text-indigo-600" />
                             <div>
                                 <h1 className="text-3xl font-bold text-gradient">User Management</h1>
-                                <p className="text-gray-500 mt-1">{filteredUsers.length} users</p>
+                                <p className="text-gray-500 mt-1">
+                                    {filteredUsers.length} users
+                                    {users.filter((u) => !u.approved).length > 0 && (
+                                        <span className="text-amber-700">
+                                            {' '}
+                                            · {users.filter((u) => !u.approved).length} awaiting signup approval
+                                        </span>
+                                    )}
+                                </p>
                             </div>
                         </div>
                         <button
@@ -226,6 +237,16 @@ export default function UserManagementPage() {
             </div>
 
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                {users.filter((u) => !u.approved).length > 0 && (
+                    <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                        <span className="font-semibold">{users.filter((u) => !u.approved).length} user(s)</span>{' '}
+                        need signup approval (same queue as User Approvals).{' '}
+                        <Link href="/dashboard/admin/approvals" className="font-medium text-amber-950 underline underline-offset-2">
+                            Open user approvals
+                        </Link>
+                    </div>
+                )}
+
                 {/* Filters */}
                 <div className="glass rounded-2xl p-6 mb-6">
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -263,7 +284,8 @@ export default function UserManagementPage() {
                             onChange={(e) => setStatusFilter(e.target.value)}
                             className="px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
                         >
-                            <option value="all">All Status</option>
+                            <option value="all">All status</option>
+                            <option value="pending_signup">Awaiting signup approval</option>
                             <option value="active">Active</option>
                             <option value="inactive">Inactive</option>
                         </select>
@@ -338,15 +360,22 @@ export default function UserManagementPage() {
                                             </div>
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap">
-                                            {user.is_active ? (
-                                                <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
-                                                    Active
-                                                </span>
-                                            ) : (
-                                                <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800">
-                                                    Inactive
-                                                </span>
-                                            )}
+                                            <div className="flex flex-col gap-1">
+                                                {!user.approved && (
+                                                    <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-amber-100 text-amber-900 w-fit">
+                                                        Awaiting signup approval
+                                                    </span>
+                                                )}
+                                                {user.is_active ? (
+                                                    <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800 w-fit">
+                                                        Active
+                                                    </span>
+                                                ) : (
+                                                    <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800 w-fit">
+                                                        Inactive
+                                                    </span>
+                                                )}
+                                            </div>
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                                             <div className="flex gap-2">

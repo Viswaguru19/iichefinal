@@ -31,6 +31,10 @@ export default async function DashboardPage() {
     redirect('/');
   }
 
+  if ((profile as { hiring_portal_only?: boolean }).hiring_portal_only) {
+    redirect('/hiring/portal');
+  }
+
   const isStudent = (profile as any).role === 'student';
   const isAdmin = ['super_admin', 'secretary'].includes((profile as any).role) || (profile as any).is_admin || (profile as any).is_faculty;
   const isExecutive = (profile as any).executive_role !== null;

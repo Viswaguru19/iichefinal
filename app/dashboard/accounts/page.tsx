@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { createClient } from '@/lib/supabase/client';
-import { ArrowLeft, Plus, Filter, Upload, FileText, ExternalLink, X, Pencil, Trash2 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { ArrowLeft, Plus, Filter, Upload, FileText, ExternalLink, X, Pencil, Trash2, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
 
@@ -31,66 +32,103 @@ export default function StatementOfAccountsPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [summary, setSummary] = useState<Summary>({ total_income: 0, total_expense: 0, balance: 0 });
   const [loading, setLoading] = useState(true);
+  const [tableRefreshing, setTableRefreshing] = useState(false);
   const [filterYear, setFilterYear] = useState<string>('all');
   const [filterEvent, setFilterEvent] = useState<string>('all');
   const [showAddModal, setShowAddModal] = useState(false);
+  /** Add / edit / delete / attach bills — treasurer, associate treasurer, or faculty only. */
   const [canManage, setCanManage] = useState(false);
   const [uploadingBill, setUploadingBill] = useState<string | null>(null);
   const [editingTxn, setEditingTxn] = useState<Transaction | null>(null);
   const [deletingTxn, setDeletingTxn] = useState<Transaction | null>(null);
   const billInputRef = useRef<HTMLInputElement>(null);
   const billTxnIdRef = useRef<string | null>(null);
+  const initialLoadDoneRef = useRef(false);
 
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
+  const router = useRouter();
 
-  useEffect(() => {
-    checkPermissions();
-    fetchData();
-  }, [filterYear, filterEvent]);
-
-  async function checkPermissions() {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-
-    const { data: profile }: { data: any } = await supabase
-      .from('profiles')
-      .select('executive_role, role, is_faculty, is_admin')
-      .eq('id', user.id)
-      .single();
-
-    const canView =
-      profile?.role === 'super_admin' ||
-      profile?.is_admin === true ||
-      profile?.is_faculty === true ||
-      ['committee_head', 'committee_cohead'].includes(profile?.role || '') ||
-      profile?.executive_role !== null;
-
-    if (!canView) { window.location.href = '/dashboard'; return; }
-
-    setCanManage(
-      profile?.role === 'super_admin' ||
-      profile?.is_admin === true ||
-      profile?.is_faculty === true ||
-      ['treasurer', 'secretary', 'associate_treasurer'].includes(profile?.executive_role || '')
-    );
-  }
-
-  async function fetchData() {
-    setLoading(true);
+  const fetchStatements = useCallback(async () => {
     let query = supabase.from('statement_of_accounts').select('*').order('date', { ascending: true });
-    if (filterYear !== 'all') query = query.eq('year', parseInt(filterYear));
+    if (filterYear !== 'all') query = query.eq('year', parseInt(filterYear, 10));
     if (filterEvent !== 'all') query = query.eq('event', filterEvent);
-
     const { data: txns } = await query;
     const { data: summaryData }: { data: any } = await supabase.rpc('get_finance_summary');
-
     setTransactions(txns || []);
     if (summaryData && summaryData.length > 0) setSummary(summaryData[0]);
-    setLoading(false);
-  }
+  }, [supabase, filterYear, filterEvent]);
+
+  const reloadAfterMutation = useCallback(async () => {
+    setTableRefreshing(true);
+    try {
+      await fetchStatements();
+    } finally {
+      setTableRefreshing(false);
+    }
+  }, [fetchStatements]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function run() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (cancelled) return;
+      if (!user) {
+        router.replace('/login');
+        return;
+      }
+
+      const { data: profile }: { data: any } = await supabase
+        .from('profiles')
+        .select('executive_role, role, is_faculty, is_admin')
+        .eq('id', user.id)
+        .single();
+
+      if (cancelled) return;
+
+      if (!profile) {
+        router.replace('/dashboard');
+        return;
+      }
+
+      // Any signed-in user with a profile may view (RLS also allows all authenticated SELECT).
+      const exec = String(profile.executive_role || '')
+        .trim()
+        .toLowerCase();
+      setCanManage(
+        profile.is_faculty === true ||
+          exec === 'treasurer' ||
+          exec === 'associate_treasurer',
+      );
+
+      const isFirstLoad = !initialLoadDoneRef.current;
+      if (isFirstLoad) {
+        setLoading(true);
+      } else {
+        setTableRefreshing(true);
+      }
+
+      await fetchStatements();
+
+      if (cancelled) return;
+
+      initialLoadDoneRef.current = true;
+      setLoading(false);
+      setTableRefreshing(false);
+    }
+
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchStatements, router, supabase]);
 
   async function handleAddTransaction(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (!canManage) {
+      toast.error('Only Treasurer, Associate Treasurer, or Faculty can add transactions');
+      return;
+    }
     const formData = new FormData(e.currentTarget);
     const date = formData.get('date') as string;
     const dateObj = new Date(date);
@@ -120,11 +158,15 @@ export default function StatementOfAccountsPage() {
     } as any);
 
     if (error) toast.error('Failed to add transaction');
-    else { toast.success('Transaction added'); setShowAddModal(false); fetchData(); }
+    else { toast.success('Transaction added'); setShowAddModal(false); void reloadAfterMutation(); }
   }
 
   async function handleEditTransaction(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (!canManage) {
+      toast.error('Only Treasurer, Associate Treasurer, or Faculty can edit');
+      return;
+    }
     if (!editingTxn) return;
     const formData = new FormData(e.currentTarget);
     const date = formData.get('date') as string;
@@ -151,17 +193,25 @@ export default function StatementOfAccountsPage() {
     } as any).eq('id', editingTxn.id);
 
     if (error) toast.error('Failed to update');
-    else { toast.success('Transaction updated'); setEditingTxn(null); fetchData(); }
+    else { toast.success('Transaction updated'); setEditingTxn(null); void reloadAfterMutation(); }
   }
 
   async function handleDeleteTransaction() {
+    if (!canManage) {
+      toast.error('Only Treasurer, Associate Treasurer, or Faculty can delete');
+      return;
+    }
     if (!deletingTxn) return;
     const { error } = await supabase.from('statement_of_accounts').delete().eq('id', deletingTxn.id);
     if (error) toast.error('Failed to delete transaction');
-    else { toast.success('Transaction deleted'); setDeletingTxn(null); fetchData(); }
+    else { toast.success('Transaction deleted'); setDeletingTxn(null); void reloadAfterMutation(); }
   }
 
   async function uploadBillForTxn(txnId: string, file: File) {
+    if (!canManage) {
+      toast.error('Only Treasurer, Associate Treasurer, or Faculty can attach bills');
+      return;
+    }
     setUploadingBill(txnId);
     const ext = file.name.split('.').pop();
     const path = `bills/${Date.now()}.${ext}`;
@@ -171,7 +221,7 @@ export default function StatementOfAccountsPage() {
     const { error } = await supabase.from('statement_of_accounts')
       .update({ bill_url: data.publicUrl } as any).eq('id', txnId);
     if (error) toast.error('Failed to save bill');
-    else { toast.success('Bill attached'); fetchData(); }
+    else { toast.success('Bill attached'); void reloadAfterMutation(); }
     setUploadingBill(null);
   }
 
@@ -203,6 +253,9 @@ export default function StatementOfAccountsPage() {
             <div>
               <h1 className="text-3xl font-extrabold text-gradient tracking-tight">Statement of Accounts</h1>
               <p className="text-gray-400 text-sm">IIChE AVVU SC Student Chapter</p>
+              {!canManage && (
+                <p className="text-gray-500 text-xs mt-1">View only — edits are limited to Faculty, Treasurer, and Associate Treasurer.</p>
+              )}
             </div>
           </div>
           {canManage && (
@@ -241,7 +294,12 @@ export default function StatementOfAccountsPage() {
         </motion.div>
 
         {/* Table */}
-        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="premium-panel rounded-2xl overflow-hidden shadow-md">
+        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="premium-panel rounded-2xl overflow-hidden shadow-md relative">
+          {tableRefreshing && (
+            <div className="absolute inset-0 z-20 bg-white/50 backdrop-blur-[1px] flex items-center justify-center pointer-events-none">
+              <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" aria-hidden />
+            </div>
+          )}
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="bg-gradient-to-r from-indigo-50 to-purple-50">

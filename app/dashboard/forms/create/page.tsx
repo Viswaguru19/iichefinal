@@ -7,6 +7,7 @@ import { ArrowLeft, Plus, X, GripVertical, Copy, Eye, Settings, ChevronDown, Che
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
+import { EVENT_REGISTRATION_ELIGIBLE_STATUSES } from '@/lib/event-registration';
 
 interface FormField {
   id: string;
@@ -44,6 +45,35 @@ function generateId() {
   return 'f_' + Math.random().toString(36).substring(2, 9);
 }
 
+/** Fixed ids so we can enforce Name + Email for event registration forms. */
+const ER_FIELD_NAME = 'f_er_name';
+const ER_FIELD_EMAIL = 'f_er_email';
+
+function defaultEventRegistrationFields(): FormField[] {
+  return [
+    {
+      id: ER_FIELD_NAME,
+      field_type: 'text',
+      label: 'Name',
+      description: '',
+      options: [],
+      required: true,
+      validation: {},
+      order_index: 0,
+    },
+    {
+      id: ER_FIELD_EMAIL,
+      field_type: 'email',
+      label: 'Email',
+      description: '',
+      options: [],
+      required: true,
+      validation: { email: true },
+      order_index: 1,
+    },
+  ];
+}
+
 /** Event row may use `event_date` and/or legacy `date` from different code paths. */
 function formatEventListDate(ev: { event_date?: string | null; date?: string | null }) {
   const raw = ev.event_date || ev.date;
@@ -75,6 +105,9 @@ export default function CreateFormPage() {
   const [activeEvents, setActiveEvents] = useState<any[]>([]);
   const [eventsLoading, setEventsLoading] = useState(false);
   const [selectedEventId, setSelectedEventId] = useState('');
+  /** Event registration: show each registrant a personal QR after submit (for attendance scan). */
+  const [showAttendanceQrAfterSubmit, setShowAttendanceQrAfterSubmit] = useState(true);
+  const prevFormTypeRef = useRef<string | null>(null);
 
   const router = useRouter();
   const supabase = createClient();
@@ -85,14 +118,32 @@ export default function CreateFormPage() {
     void loadActiveEvents();
   }, [formType]);
 
+  /** Public /forms/[id] + QR: guests must be able to submit; seed required Name & Email questions. */
+  useEffect(() => {
+    const prev = prevFormTypeRef.current;
+    if (formType === 'event_registration' && prev !== 'event_registration') {
+      setRequireLogin(false);
+      setAccessType('public');
+      setShowAttendanceQrAfterSubmit(true);
+      setFields((prevFields) => {
+        const rest = prevFields.filter((f) => f.id !== ER_FIELD_NAME && f.id !== ER_FIELD_EMAIL);
+        return [...defaultEventRegistrationFields(), ...rest].map((f, i) => ({ ...f, order_index: i }));
+      });
+    }
+    if (formType !== 'event_registration' && prev === 'event_registration') {
+      setFields((prevFields) =>
+        prevFields.filter((f) => f.id !== ER_FIELD_NAME && f.id !== ER_FIELD_EMAIL).map((f, i) => ({ ...f, order_index: i })),
+      );
+    }
+    prevFormTypeRef.current = formType;
+  }, [formType]);
+
   async function loadActiveEvents() {
     setEventsLoading(true);
-    // Match dashboard “upcoming” visibility: not only strict `active` (e.g. faculty_approved / in_progress).
-    const registrationReadyStatuses = ['active', 'in_progress', 'faculty_approved'] as const;
     const wide = await supabase
       .from('events')
       .select('id, title, location, event_date, date, status, created_at')
-      .in('status', [...registrationReadyStatuses])
+      .in('status', [...EVENT_REGISTRATION_ELIGIBLE_STATUSES])
       .order('created_at', { ascending: false });
 
     let rows: any[] | null = wide.data;
@@ -107,7 +158,7 @@ export default function CreateFormPage() {
       const narrow = await supabase
         .from('events')
         .select('id, title, location, event_date, status, created_at')
-        .in('status', [...registrationReadyStatuses])
+        .in('status', [...EVENT_REGISTRATION_ELIGIBLE_STATUSES])
         .order('created_at', { ascending: false });
       rows = narrow.data;
       error = narrow.error;
@@ -147,6 +198,11 @@ export default function CreateFormPage() {
   }
 
   function removeField(index: number) {
+    const f = fields[index];
+    if (formType === 'event_registration' && (f.id === ER_FIELD_NAME || f.id === ER_FIELD_EMAIL)) {
+      toast.error('Name and Email cannot be removed from event registration forms.');
+      return;
+    }
     setFields(fields.filter((_, i) => i !== index).map((f, i) => ({ ...f, order_index: i })));
     setActiveField(null);
   }
@@ -225,6 +281,7 @@ export default function CreateFormPage() {
           end_date: endDate || null,
           access_type: accessType,
           status,
+          ...(formType === 'event_registration' ? { show_attendance_qr_after_submit: showAttendanceQrAfterSubmit } : {}),
         },
         form_type: formType,
         event_id: formType === 'event_registration' ? selectedEventId : null,
@@ -234,9 +291,12 @@ export default function CreateFormPage() {
 
     if (error) { toast.error('Failed to create form: ' + error.message); setLoading(false); return; }
 
-    const link = `${window.location.origin}/dashboard/forms/${form.id}`;
+    const link =
+      formType === 'event_registration'
+        ? `${window.location.origin}/forms/${form.id}`
+        : `${window.location.origin}/dashboard/forms/${form.id}`;
     navigator.clipboard.writeText(link);
-    toast.success('Form created! Link copied.');
+    toast.success(formType === 'event_registration' ? 'Public registration link copied (works for QR & guests).' : 'Form created! Link copied.');
     router.push(`/dashboard/forms/${form.id}`);
   }
 
@@ -394,6 +454,12 @@ export default function CreateFormPage() {
                     <div className="flex flex-wrap gap-6">
                       <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={allowMultiple} onChange={e => setAllowMultiple(e.target.checked)} className="rounded text-indigo-600" /> Allow multiple responses</label>
                       <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={requireLogin} onChange={e => setRequireLogin(e.target.checked)} className="rounded text-indigo-600" /> Require login</label>
+                      {formType === 'event_registration' && (
+                        <label className="flex items-center gap-2 text-sm max-w-md">
+                          <input type="checkbox" checked={showAttendanceQrAfterSubmit} onChange={e => setShowAttendanceQrAfterSubmit(e.target.checked)} className="rounded text-indigo-600" />
+                          <span>Show personal check-in QR after registration (for attendance scanning at the event)</span>
+                        </label>
+                      )}
                     </div>
                   </div>
                 </motion.div>
@@ -432,6 +498,9 @@ export default function CreateFormPage() {
                   </div>
                   {formType === 'event_registration' && (
                     <div>
+                      <p className="text-xs text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-xl px-3 py-2 mb-2">
+                        Share link and QR use <strong>/forms/…</strong> (no dashboard). Access defaults to <strong>Public</strong> with <strong>Require login</strong> off so anyone can register; change in Settings only if you intend members-only sign-up.
+                      </p>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Active Event</label>
                       {eventsLoading ? (
                         <div className="w-full border border-gray-200 rounded-xl px-3 py-2 bg-white/80 text-gray-500 text-sm">Loading active events...</div>

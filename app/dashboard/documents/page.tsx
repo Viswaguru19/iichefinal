@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { openDocumentsBucketFile } from '@/lib/document-utils';
 import { useRouter } from 'next/navigation';
 import { FileText, Upload, Download, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -17,7 +18,7 @@ export default function DocumentsPage() {
   const [description, setDescription] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
   const router = useRouter();
 
   useEffect(() => { loadData(); }, [selectedCommittee]);
@@ -175,10 +176,18 @@ export default function DocumentsPage() {
                       </p>
                     </div>
                     <div className="flex gap-2">
-                      <a href={doc.file_url} target="_blank" rel="noopener noreferrer"
-                        className="btn-gradient-blue px-4 py-2 rounded-xl flex items-center gap-2 text-sm">
+                      <button
+                        type="button"
+                        disabled={!String(doc.file_url || '').trim()}
+                        onClick={() => {
+                          void openDocumentsBucketFile(supabase, doc.file_url).catch(() =>
+                            toast.error('Could not open document')
+                          );
+                        }}
+                        className="btn-gradient-blue px-4 py-2 rounded-xl flex items-center gap-2 text-sm disabled:opacity-50 disabled:pointer-events-none"
+                      >
                         <Download className="w-4 h-4" /> View
-                      </a>
+                      </button>
                       {canUpload && (
                         <button onClick={() => handleDelete(doc.id)}
                           className="px-3 py-2 rounded-xl bg-red-50 text-red-500 hover:bg-red-100 transition text-sm">

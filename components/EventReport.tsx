@@ -97,9 +97,13 @@ export default function EventReport({ event, tasks, eventPhotos = [], canEdit }:
     }, [includeParticipants, loadParticipantsForReport]);
 
     function generateReportContent() {
-        const posterUrl = event.poster_url
-            ? resolveStorageUrl(supabase, event.poster_url, 'event-documents') || null
-            : null;
+        const posterApproved =
+            event.poster_status === 'approved' ||
+            (event.poster_url && (event.poster_status == null || event.poster_status === ''));
+        const posterUrl =
+            posterApproved && event.poster_url
+                ? resolveStorageUrl(supabase, event.poster_url, 'event-documents') || null
+                : null;
         const photoUrls = (eventPhotos || [])
             .map((p: any) => resolveStorageUrl(supabase, p.photo_url, 'event-photos'))
             .filter(Boolean);

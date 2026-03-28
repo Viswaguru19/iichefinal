@@ -5,6 +5,79 @@
 
 import { createClient } from '@/lib/supabase/client';
 import type { DocumentType, DocumentFilters } from '@/types/database';
+import type { SupabaseClient } from '@supabase/supabase-js';
+
+const DOCUMENTS_BUCKET = 'documents';
+
+/** If DB stored a JSON blob instead of a plain URL, return the usable URL string. */
+export function unwrapStoredFileUrl(raw: string | null | undefined): string {
+    if (raw == null) return '';
+    const t = String(raw).trim();
+    if (!t.startsWith('{')) return t;
+    try {
+        const j = JSON.parse(t) as { publicUrl?: string; signedUrl?: string };
+        if (typeof j.publicUrl === 'string' && j.publicUrl.trim()) return j.publicUrl.trim();
+        if (typeof j.signedUrl === 'string' && j.signedUrl.trim()) return j.signedUrl.trim();
+    } catch {
+        /* ignore */
+    }
+    return t;
+}
+
+/** Path inside the `documents` bucket, or null if this is not a documents-bucket reference. */
+export function extractDocumentsBucketObjectPath(raw: string | null | undefined): string | null {
+    if (raw == null) return null;
+    let s = unwrapStoredFileUrl(String(raw));
+    if (!s) return null;
+
+    const markers = ['/object/public/documents/', '/object/sign/documents/'] as const;
+    for (const m of markers) {
+        const idx = s.indexOf(m);
+        if (idx !== -1) {
+            const rest = s.slice(idx + m.length).split(/[?#]/)[0];
+            if (rest) {
+                try {
+                    return decodeURIComponent(rest);
+                } catch {
+                    return rest;
+                }
+            }
+        }
+    }
+
+    if (!/^https?:\/\//i.test(s)) {
+        const path = s.replace(/^\/+/, '');
+        return path || null;
+    }
+
+    return null;
+}
+
+/** Stable public URL for committee / dashboard documents (fixes path-only or relative `file_url` values). */
+export function resolveDocumentsBucketPublicUrl(supabase: SupabaseClient, raw: string | null | undefined): string {
+    const path = extractDocumentsBucketObjectPath(raw);
+    if (path) {
+        const { data } = supabase.storage.from(DOCUMENTS_BUCKET).getPublicUrl(path);
+        return data.publicUrl;
+    }
+    const s = unwrapStoredFileUrl(raw == null ? '' : String(raw));
+    if (/^https?:\/\//i.test(s)) return s;
+    return '#';
+}
+
+/** Open file in a new tab: signed URL when possible, else reconstructed public URL. */
+export async function openDocumentsBucketFile(supabase: SupabaseClient, raw: string | null | undefined): Promise<void> {
+    const path = extractDocumentsBucketObjectPath(raw);
+    if (path) {
+        const { data, error } = await supabase.storage.from(DOCUMENTS_BUCKET).createSignedUrl(path, 3600);
+        if (!error && data?.signedUrl) {
+            window.open(data.signedUrl, '_blank', 'noopener,noreferrer');
+            return;
+        }
+    }
+    const publicUrl = resolveDocumentsBucketPublicUrl(supabase, raw);
+    if (publicUrl !== '#') window.open(publicUrl, '_blank', 'noopener,noreferrer');
+}
 
 // ============================================
 // DOCUMENT UPLOAD

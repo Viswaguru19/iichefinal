@@ -30,6 +30,7 @@ export type OverdueStatus = 'overdue' | 'pending' | 'normal';
 /** Approval stages that support reminders */
 const PENDING_APPROVAL_STATUSES = [
     'pending_head_approval',
+    'pending_second_head_approval',
     'pending_ec_approval',
     'pending_faculty_approval',
 ] as const;
@@ -47,6 +48,7 @@ const APPROVAL_OVERDUE_MS = 48 * 60 * 60 * 1000;
  * and who the recipients should be, based on the event's approval stage.
  *
  * - pending_head_approval: only the event creator can send → recipients are the head approver
+ * - pending_second_head_approval: event creator or first head can send → recipients are other committee heads (not the first approver)
  * - pending_ec_approval: event creator + head approver can send → recipients are pending EC approvers
  * - pending_faculty_approval: event creator + head approver + approving EC members can send → recipients are pending faculty approvers
  */
@@ -88,6 +90,21 @@ export function getApprovalReminderEligibility(
                 canSend: false,
                 recipients: [],
                 reason: 'Only the event creator can send reminders at the head approval stage',
+            };
+        }
+
+        case 'pending_second_head_approval': {
+            // Creator or first head can remind the other head(s)
+            const authorized =
+                currentUserId === eventCreatorId ||
+                (headApproverId !== null && currentUserId === headApproverId);
+            if (authorized) {
+                return { canSend: true, recipients: pendingApprovers };
+            }
+            return {
+                canSend: false,
+                recipients: [],
+                reason: 'Only the event creator or first head can send reminders at the second-head stage',
             };
         }
 

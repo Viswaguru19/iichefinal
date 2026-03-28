@@ -90,7 +90,7 @@ export function useReminderEligibility(
                     // Fetch event data
                     const { data: eventRows } = await supabase
                         .from('events')
-                        .select('status, created_by, committee_id, updated_at')
+                        .select('status, created_by, committee_id, updated_at, head_approved_by')
                         .eq('id', entityId)
                         .limit(1);
 
@@ -105,11 +105,10 @@ export function useReminderEligibility(
                         .from('committee_members')
                         .select('user_id, profiles(id, name, email)')
                         .eq('committee_id', event.committee_id)
-                        .eq('position', 'head')
-                        .limit(1);
+                        .eq('position', 'head');
 
                     const headMember = headMembers?.[0] ?? null;
-                    const headApproverId = headMember?.user_id ?? null;
+                    const headApproverId = event.head_approved_by ?? headMember?.user_id ?? null;
 
                     // Fetch EC approvals
                     const { data: ecApprovals } = await supabase
@@ -125,6 +124,15 @@ export function useReminderEligibility(
                         if (p) {
                             pendingApprovers = [{ userId: p.id, name: p.name, email: p.email }];
                         }
+                    } else if (event.status === 'pending_second_head_approval' && headMembers?.length) {
+                        const firstId = event.head_approved_by;
+                        pendingApprovers = (headMembers ?? [])
+                            .filter((m) => m.user_id !== firstId)
+                            .map((m) => {
+                                const p = m.profiles as unknown as { id: string; name: string; email: string };
+                                return { userId: p?.id ?? m.user_id, name: p?.name ?? '', email: p?.email ?? '' };
+                            })
+                            .filter((r) => r.userId);
                     } else if (event.status === 'pending_ec_approval') {
                         // EC members who haven't approved yet
                         const approvedIds = new Set((ecApprovals ?? []).map((a) => a.user_id));

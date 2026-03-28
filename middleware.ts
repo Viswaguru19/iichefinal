@@ -61,6 +61,18 @@ export async function middleware(request: NextRequest) {
 
     const { data: { user } } = await supabase.auth.getUser();
 
+    // Hiring-only applicants: no access to main dashboard (committee hiring UI is for full accounts only)
+    if (user && request.nextUrl.pathname.startsWith('/dashboard')) {
+      const { data: prof } = await supabase
+        .from('profiles')
+        .select('hiring_portal_only')
+        .eq('id', user.id)
+        .maybeSingle();
+      if ((prof as { hiring_portal_only?: boolean } | null)?.hiring_portal_only) {
+        return NextResponse.redirect(new URL('/hiring/portal', request.url));
+      }
+    }
+
     // Protected routes (only /dashboard and /admin, not public pages)
     if (request.nextUrl.pathname.startsWith('/dashboard') ||
       request.nextUrl.pathname.startsWith('/admin')) {
@@ -71,7 +83,15 @@ export async function middleware(request: NextRequest) {
 
     // Redirect to dashboard if already logged in and trying to access login
     if (request.nextUrl.pathname === '/login' && user) {
-      return NextResponse.redirect(new URL('/dashboard', request.url));
+      const { data: prof } = await supabase
+        .from('profiles')
+        .select('hiring_portal_only')
+        .eq('id', user.id)
+        .maybeSingle();
+      const hiringOnly = (prof as { hiring_portal_only?: boolean } | null)?.hiring_portal_only;
+      return NextResponse.redirect(
+        new URL(hiringOnly ? '/hiring/portal' : '/dashboard', request.url),
+      );
     }
 
     return response;

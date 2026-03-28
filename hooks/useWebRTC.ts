@@ -45,23 +45,41 @@ interface UseWebRTCOptions {
     supabase: SupabaseClient; roomId: string; userId: string; userName: string;
     userRole?: string | null; localStream: MediaStream | null; enabled: boolean;
     onRoomControl?: (payload: RoomControlPayload) => void;
+    /** Read fresh each call — used when someone joins so we broadcast whether we are sending camera/screen video. */
+    getCameraSendingSnapshot?: () => boolean;
 }
 
-export function useWebRTC({ supabase, roomId, userId, userName, userRole, localStream, enabled, onRoomControl }: UseWebRTCOptions) {
+export function useWebRTC({
+    supabase,
+    roomId,
+    userId,
+    userName,
+    userRole,
+    localStream,
+    enabled,
+    onRoomControl,
+    getCameraSendingSnapshot,
+}: UseWebRTCOptions) {
     const [peers, setPeers] = useState<Map<string, PeerState>>(new Map());
     const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
     const [participants, setParticipants] = useState<RoomParticipant[]>([]);
+    /** Explicit per-peer “sending visible video” from signaling; false = show avatar for everyone. */
+    const [peerCameraSendingVideo, setPeerCameraSendingVideo] = useState<Record<string, boolean>>({});
     const peersRef = useRef<Map<string, PeerState>>(new Map());
     const channelRef = useRef<RealtimeChannel | null>(null);
     const localStreamRef = useRef<MediaStream | null>(null);
     const userIdRef = useRef(userId);
     const userNameRef = useRef(userName);
     const onRoomControlRef = useRef(onRoomControl);
+    const getCameraSendingSnapshotRef = useRef(getCameraSendingSnapshot);
 
     useEffect(() => { localStreamRef.current = localStream; }, [localStream]);
     useEffect(() => { userIdRef.current = userId; }, [userId]);
     useEffect(() => { userNameRef.current = userName; }, [userName]);
     useEffect(() => { onRoomControlRef.current = onRoomControl; }, [onRoomControl]);
+    useEffect(() => {
+        getCameraSendingSnapshotRef.current = getCameraSendingSnapshot;
+    }, [getCameraSendingSnapshot]);
 
     const syncPeers = useCallback(() => { setPeers(new Map(peersRef.current)); }, []);
 
@@ -123,7 +141,17 @@ export function useWebRTC({ supabase, roomId, userId, userName, userRole, localS
 
     function removePC(peerId: string) {
         const p = peersRef.current.get(peerId);
-        if (p) { p.connection.close(); peersRef.current.delete(peerId); syncPeers(); }
+        if (p) {
+            p.connection.close();
+            peersRef.current.delete(peerId);
+            syncPeers();
+        }
+        setPeerCameraSendingVideo((prev) => {
+            if (!(peerId in prev)) return prev;
+            const next = { ...prev };
+            delete next[peerId];
+            return next;
+        });
     }
 
     // Main effect — only depends on stable values, NOT on callbacks
@@ -131,6 +159,24 @@ export function useWebRTC({ supabase, roomId, userId, userName, userRole, localS
         if (!enabled || !roomId || !userId) return;
         const channel = supabase.channel(`room:${roomId}`, { config: { broadcast: { self: false } } });
         channelRef.current = channel;
+
+        // When anyone joins, tell them (and others) our camera/screen state — remote track.muted is unreliable for camera-off.
+        channel.on('broadcast', { event: 'peer-joined' }, (msg) => {
+            const { senderId } = msg.payload as { senderId: string };
+            if (!senderId || senderId === userIdRef.current) return;
+            const snap = getCameraSendingSnapshotRef.current?.() ?? true;
+            channel.send({
+                type: 'broadcast',
+                event: 'participant-camera',
+                payload: { senderId: userIdRef.current, cameraOn: snap },
+            });
+        });
+
+        channel.on('broadcast', { event: 'participant-camera' }, (msg) => {
+            const { senderId, cameraOn } = msg.payload as { senderId: string; cameraOn: boolean };
+            if (!senderId || senderId === userIdRef.current) return;
+            setPeerCameraSendingVideo((prev) => ({ ...prev, [senderId]: Boolean(cameraOn) }));
+        });
 
         channel.on('broadcast', { event: 'peer-joined' }, async (msg) => {
             const { senderId, senderName } = msg.payload as { senderId: string; senderName: string };
@@ -193,7 +239,9 @@ export function useWebRTC({ supabase, roomId, userId, userName, userRole, localS
             } catch (err) { console.error('ICE error:', err); }
         });
 
-        channel.on('broadcast', { event: 'peer-left' }, (msg) => { removePC((msg.payload as { senderId: string }).senderId); });
+        channel.on('broadcast', { event: 'peer-left' }, (msg) => {
+            removePC((msg.payload as { senderId: string }).senderId);
+        });
         channel.on('broadcast', { event: 'chat-message' }, (msg) => { setChatMessages(prev => [...prev, msg.payload as ChatMessage]); });
         channel.on('broadcast', { event: 'room-control' }, (msg) => {
             onRoomControlRef.current?.(msg.payload as RoomControlPayload);
@@ -240,6 +288,12 @@ export function useWebRTC({ supabase, roomId, userId, userName, userRole, localS
                 await channel.track({ userId, userName, userRole: userRole || null, online_at: new Date().toISOString() });
                 await new Promise(r => setTimeout(r, 500));
                 channel.send({ type: 'broadcast', event: 'peer-joined', payload: { senderId: userId, senderName: userName } });
+                const snap = getCameraSendingSnapshotRef.current?.() ?? true;
+                channel.send({
+                    type: 'broadcast',
+                    event: 'participant-camera',
+                    payload: { senderId: userId, cameraOn: snap },
+                });
             }
         });
 
@@ -309,5 +363,24 @@ export function useWebRTC({ supabase, roomId, userId, userName, userRole, localS
         });
     }, []);
 
-    return { peers, participants, channelRef, chatMessages, sendChatMessage, replaceVideoTrack, sendRoomControl };
+    const sendCameraState = useCallback((cameraOn: boolean) => {
+        if (!channelRef.current) return;
+        channelRef.current.send({
+            type: 'broadcast',
+            event: 'participant-camera',
+            payload: { senderId: userIdRef.current, cameraOn },
+        });
+    }, []);
+
+    return {
+        peers,
+        participants,
+        channelRef,
+        chatMessages,
+        sendChatMessage,
+        replaceVideoTrack,
+        sendRoomControl,
+        sendCameraState,
+        peerCameraSendingVideo,
+    };
 }

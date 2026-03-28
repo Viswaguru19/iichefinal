@@ -215,20 +215,12 @@ describe('/api/meetings/create', () => {
             );
         });
 
-        it('alumni queries profiles with member_type=alumni', async () => {
-            const { queryCalls, profilesQueryBuilder } = setupMeetingInsertSuccess();
+        it('general audience does not query profiles for participant resolution', async () => {
+            const { queryCalls } = setupMeetingInsertSuccess();
 
-            await POST(makeRequest(validBody({ audience_type: 'alumni' })));
+            await POST(makeRequest(validBody({ audience_type: 'general' })));
 
-            expect(queryCalls.some(c => c.table === 'profiles')).toBe(true);
-            const eqCalls = profilesQueryBuilder._calls.filter(
-                (c: any) => c.method === 'eq'
-            );
-            expect(eqCalls).toEqual(
-                expect.arrayContaining([
-                    expect.objectContaining({ args: ['member_type', 'alumni'] }),
-                ])
-            );
+            expect(queryCalls.some(c => c.table === 'profiles')).toBe(false);
         });
 
         it('executive_committee queries profiles where executive_role IS NOT NULL', async () => {

@@ -67,7 +67,8 @@ export default function TasksPage() {
         event:event_id(title, event_date, status, committee_id, committees(name)),
         assigned_to:assigned_to_committee(name),
         assigned_by:assigned_by_committee(name),
-        assigner:assigned_by_user(name)
+        assigner:assigned_by_user(name),
+        task_documents(id, file_name, file_url, file_type, created_at)
       `)
       .order('created_at', { ascending: false });
 
@@ -582,7 +583,7 @@ export default function TasksPage() {
                       </div>
                     )}
 
-                    {/* Task Updates */}
+                    {/* Task updates (when provided on the task row) */}
                     {task.updates && task.updates.length > 0 && (
                       <div className="mb-4">
                         <h4 className="font-semibold text-sm text-gray-700 mb-2">Updates:</h4>
@@ -600,11 +601,11 @@ export default function TasksPage() {
                     )}
 
                     {/* Task Documents */}
-                    {task.documents && task.documents.length > 0 && (
+                    {task.task_documents && task.task_documents.length > 0 && (
                       <div className="mb-4">
                         <h4 className="font-semibold text-sm text-gray-700 mb-2">Documents:</h4>
                         <div className="space-y-1">
-                          {task.documents.map((doc: any) => (
+                          {task.task_documents.map((doc: any) => (
                             <a
                               key={doc.id}
                               href={`${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/event-documents/${doc.file_url}`}
