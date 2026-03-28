@@ -109,6 +109,13 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, onOpenProfi
                 sender: senderMap[m.sender_id] || { name: 'Unknown', avatar_url: null }
             }));
             setMessages(enriched);
+            if (chat.participantGroupId) {
+                void supabase
+                    .from('chat_participants')
+                    .update({ last_read_at: new Date().toISOString() })
+                    .eq('group_id', chat.participantGroupId)
+                    .eq('user_id', currentUser.id);
+            }
         }
         setLoading(false);
     }
@@ -262,13 +269,13 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, onOpenProfi
                             <img src={chat.avatar} alt="" className="w-10 h-10 rounded-full object-cover" />
                         ) : (
                             <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-white font-semibold text-sm">
-                                {chat.type === 'group' ? <Users className="w-5 h-5" /> : chat.name[0]?.toUpperCase()}
+                                {chat.type === 'group' ? <Users className="w-5 h-5" /> : (chat.name || '?')[0]?.toUpperCase()}
                             </div>
                         )}
                         {isOnline && <div className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 rounded-full border-2 border-[#202c33]" />}
                     </div>
                     <div className="flex-1">
-                        <h2 className="font-semibold text-white text-base">{chat.name}</h2>
+                        <h2 className="font-semibold text-white text-base">{chat.name || 'Chat'}</h2>
                         <p className="text-xs text-gray-400">
                             {typing ? <span className="text-emerald-400 italic">{typing} is typing...</span> : isOnline ? 'Online' : chat.type === 'group' ? 'Group chat' : 'Offline'}
                         </p>

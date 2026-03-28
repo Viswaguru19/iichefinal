@@ -82,7 +82,7 @@ export default async function DashboardPage() {
       .eq('read', false),
     supabase
       .from('chat_participants')
-      .select('last_read_at, group:chat_groups(id, chat_type, committee_id)')
+      .select('group_id, last_read_at')
       .eq('user_id', user.id),
   ]);
 
@@ -95,7 +95,22 @@ export default async function DashboardPage() {
   const unreadDmCount = unreadDmCountRes.count ?? 0;
 
   let groupChatUnreadTotal = 0;
-  const partRows = chatParticipantsRes.data || [];
+  const rawPartRows = chatParticipantsRes.data || [];
+  const groupIdSet = [...new Set(rawPartRows.map((r: { group_id: string }) => String(r.group_id)))];
+  const groupMap = new Map<string, { id: string; chat_type: string | null; committee_id: string | null }>();
+  if (groupIdSet.length > 0) {
+    const { data: chatGroups } = await supabase
+      .from('chat_groups')
+      .select('id, chat_type, committee_id')
+      .in('id', groupIdSet);
+    for (const g of chatGroups || []) {
+      groupMap.set(String((g as { id: string }).id), g as { id: string; chat_type: string | null; committee_id: string | null });
+    }
+  }
+  const partRows = rawPartRows.map((r: { group_id: string; last_read_at: string | null }) => ({
+    last_read_at: r.last_read_at,
+    group: groupMap.get(String(r.group_id)) ?? null,
+  }));
   if (partRows.length > 0) {
     const groupUnreadCounts = await Promise.all(
       partRows.map(async (row: any) => {

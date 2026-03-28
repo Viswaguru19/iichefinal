@@ -34,14 +34,14 @@ export default function ProfilePanel({ user, isOnline, onClose }: Props) {
                         <img src={user.avatar_url} alt="" className="w-24 h-24 rounded-full object-cover shadow-lg" />
                     ) : (
                         <div className="w-24 h-24 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-white text-3xl font-bold shadow-lg">
-                            {user.name[0]?.toUpperCase()}
+                            {(user.name || '?')[0]?.toUpperCase()}
                         </div>
                     )}
                     {isOnline && (
                         <div className="absolute bottom-1 right-1 w-5 h-5 bg-emerald-500 rounded-full border-3 border-white shadow-md" />
                     )}
                 </div>
-                <h2 className="text-xl font-bold text-gray-900">{user.name}</h2>
+                <h2 className="text-xl font-bold text-gray-900">{user.name || 'User'}</h2>
                 <p className="text-sm text-gray-500 mt-0.5">{isOnline ? '🟢 Online' : '⚪ Offline'}</p>
             </div>
 

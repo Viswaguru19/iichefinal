@@ -23,9 +23,26 @@ export interface ChatItem {
   participantGroupId?: string;
 }
 
-function displayGroupName(g: { name: string; chat_type: string | null }) {
+/** Fixed UUID from migration 031 — Whole Organization group */
+const WHOLE_ORG_CHAT_GROUP_ID = '00000000-0000-0000-0000-000000000001';
+
+function displayGroupName(g: { name?: string | null; chat_type: string | null }) {
   if (g.chat_type === 'organization') return 'IIChE AVVU SC';
-  return g.name;
+  const n = g.name?.trim();
+  return n || 'Group';
+}
+
+function previewFromMessageRow(msg: {
+  message?: string | null;
+  file_url?: string | null;
+  poll_data?: unknown;
+} | null) {
+  if (!msg) return 'No messages yet';
+  const t = msg.message?.trim();
+  if (t) return t;
+  if (msg.file_url) return '📎 Attachment';
+  if (msg.poll_data != null) return '📊 Poll';
+  return 'Message';
 }
 
 export interface UserProfile {
@@ -152,11 +169,11 @@ export default function ChatPage() {
     (dms || []).forEach((msg: any) => {
       const otherId = msg.sender_id === userId ? msg.receiver_id : msg.sender_id;
       const other = profileMap[otherId];
-      if (msg.receiver_id === userId && !msg.read) unread[otherId] = (unread[otherId] || 0) + 1;
+      if (msg.receiver_id === userId && msg.read !== true) unread[otherId] = (unread[otherId] || 0) + 1;
       if (!convos.has(otherId)) {
         convos.set(otherId, {
           id: otherId, name: other?.name || 'Unknown', avatar: other?.avatar_url || null,
-          lastMessage: msg.message, time: msg.created_at, type: 'direct', unreadCount: 0,
+          lastMessage: previewFromMessageRow(msg), time: msg.created_at, type: 'direct', unreadCount: 0,
         });
       }
     });
@@ -165,31 +182,56 @@ export default function ChatPage() {
       .filter((c) => Boolean(profileMap[c.id]))
       .map((c) => ({ ...c, unreadCount: unread[c.id] || 0 }));
 
-    // All groups the user is in (committee, system, custom) via chat_participants
-    const { data: participantRows, error: partErr } = await supabase
+    // Group membership (avoid PostgREST embed alias — it often returns null and drops every group)
+    let { data: partRows, error: partErr } = await supabase
       .from('chat_participants')
-      .select('last_read_at, group:chat_groups(id, name, chat_type, committee_id)')
+      .select('group_id, last_read_at')
       .eq('user_id', userId);
 
     if (partErr) console.error('chat_participants load error:', partErr);
 
-    const groupRows = (participantRows || []).filter((r: any) => r.group).map((r: any) => ({
-      last_read_at: r.last_read_at as string | null,
-      group: r.group as { id: string; name: string; chat_type: string | null; committee_id: string | null },
-    }));
+    const hasWholeOrg = (partRows || []).some((r: { group_id: string }) => String(r.group_id) === WHOLE_ORG_CHAT_GROUP_ID);
+    if (!hasWholeOrg) {
+      await supabase.rpc('ensure_default_chat_memberships');
+      const again = await supabase.from('chat_participants').select('group_id, last_read_at').eq('user_id', userId);
+      if (!again.error) partRows = again.data;
+    }
+
+    const groupIds = [...new Set((partRows || []).map((r: { group_id: string }) => String(r.group_id)))];
+    const groupMeta: Record<string, { id: string; name: string; chat_type: string | null; committee_id: string | null }> = {};
+    if (groupIds.length > 0) {
+      const { data: groups, error: gErr } = await supabase
+        .from('chat_groups')
+        .select('id, name, chat_type, committee_id')
+        .in('id', groupIds);
+      if (gErr) console.error('chat_groups load error:', gErr);
+      for (const g of groups || []) {
+        groupMeta[String((g as { id: string }).id)] = g as { id: string; name: string; chat_type: string | null; committee_id: string | null };
+      }
+    }
+
+    const groupRows = (partRows || [])
+      .map((r: { group_id: string; last_read_at: string | null }) => ({
+        last_read_at: r.last_read_at,
+        group: groupMeta[String(r.group_id)],
+      }))
+      .filter((r): r is { last_read_at: string | null; group: { id: string; name: string; chat_type: string | null; committee_id: string | null } } => Boolean(r.group));
 
     const messageChannelIds = [...new Set(groupRows.map((r) => groupMessagesChannelId(r.group)))];
     const latestByChannel: Record<string, { message: string; created_at: string }> = {};
     if (messageChannelIds.length > 0) {
       const { data: gmRows } = await supabase
         .from('group_messages')
-        .select('group_id, message, created_at')
+        .select('group_id, message, created_at, file_url, poll_data')
         .in('group_id', messageChannelIds)
         .order('created_at', { ascending: false });
       for (const row of gmRows || []) {
-        const key = String((row as any).group_id);
+        const key = String((row as { group_id: string }).group_id);
         if (!latestByChannel[key]) {
-          latestByChannel[key] = { message: (row as any).message, created_at: (row as any).created_at };
+          latestByChannel[key] = {
+            message: previewFromMessageRow(row as { message?: string | null; file_url?: string | null; poll_data?: unknown }),
+            created_at: (row as { created_at: string }).created_at,
+          };
         }
       }
     }
@@ -226,7 +268,11 @@ export default function ChatPage() {
 
     setChats((prev) => {
       const newChats = [...directChats, ...groupChats];
-      newChats.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
+      newChats.sort((a, b) => {
+        if (a.type === 'group' && a.name === 'IIChE AVVU SC' && !(b.type === 'group' && b.name === 'IIChE AVVU SC')) return -1;
+        if (b.type === 'group' && b.name === 'IIChE AVVU SC' && !(a.type === 'group' && a.name === 'IIChE AVVU SC')) return 1;
+        return new Date(b.time).getTime() - new Date(a.time).getTime();
+      });
       const activeId = activeChat?.id;
       const activeType = activeChat?.type;
       if (activeId && activeType && !newChats.find((c) => c.id === activeId && c.type === activeType)) {
@@ -265,11 +311,26 @@ export default function ChatPage() {
   function openChat(chat: ChatItem) {
     setActiveChat(chat);
     setShowProfile(false);
-    // Mark as read
-    if (chat.type === 'direct' && currentUser) {
+    if (!currentUser) return;
+    if (chat.type === 'direct') {
       supabase.from('direct_messages').update({ read: true } as any).eq('receiver_id', currentUser.id).eq('sender_id', chat.id).then(() => {
-        setChats(prev => prev.map(c => c.id === chat.id ? { ...c, unreadCount: 0 } : c));
+        setChats(prev => prev.map(c => c.id === chat.id && c.type === 'direct' ? { ...c, unreadCount: 0 } : c));
       });
+    }
+    if (chat.type === 'group' && chat.participantGroupId) {
+      const ts = new Date().toISOString();
+      void supabase
+        .from('chat_participants')
+        .update({ last_read_at: ts })
+        .eq('group_id', chat.participantGroupId)
+        .eq('user_id', currentUser.id)
+        .then(() => {
+          setChats((prev) =>
+            prev.map((c) =>
+              c.type === 'group' && c.participantGroupId === chat.participantGroupId ? { ...c, unreadCount: 0 } : c,
+            ),
+          );
+        });
     }
   }
 

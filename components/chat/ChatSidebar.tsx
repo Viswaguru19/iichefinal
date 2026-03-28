@@ -27,13 +27,13 @@ export default function ChatSidebar({ chats, allUsers, activeChat, onlineUsers, 
     const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
     const [creatingGroup, setCreatingGroup] = useState(false);
     const filtered = chats.filter(c => {
-        if (!c.name.toLowerCase().includes(search.toLowerCase())) return false;
+        if (!(c.name ?? '').toLowerCase().includes(search.toLowerCase())) return false;
         if (filter === 'unread') return c.unreadCount > 0;
         if (filter === 'groups') return c.type === 'group';
         return true;
     });
 
-    const filteredUsers = allUsers.filter(u => u.name.toLowerCase().includes(userSearch.toLowerCase()));
+    const filteredUsers = allUsers.filter(u => (u.name ?? '').toLowerCase().includes(userSearch.toLowerCase()));
 
     return (
         <div className="w-full sm:w-[420px] sm:min-w-[320px] flex flex-col border-r border-gray-200 bg-white h-full">
@@ -96,7 +96,7 @@ export default function ChatSidebar({ chats, allUsers, activeChat, onlineUsers, 
                                         <img src={chat.avatar} alt="" className="w-12 h-12 rounded-full object-cover" />
                                     ) : (
                                         <div className="w-12 h-12 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-white font-semibold text-sm">
-                                            {chat.type === 'group' ? <Users className="w-5 h-5" /> : chat.name[0]?.toUpperCase()}
+                                            {chat.type === 'group' ? <Users className="w-5 h-5" /> : (chat.name || '?')[0]?.toUpperCase()}
                                         </div>
                                     )}
                                     {isOnline && <div className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-500 rounded-full border-2 border-white" />}
@@ -148,7 +148,7 @@ export default function ChatSidebar({ chats, allUsers, activeChat, onlineUsers, 
                                             <img src={user.avatar_url} alt="" className="w-11 h-11 rounded-full object-cover" />
                                         ) : (
                                             <div className="w-11 h-11 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-white font-semibold text-sm">
-                                                {user.name[0]?.toUpperCase()}
+                                                {(user.name || '?')[0]?.toUpperCase()}
                                             </div>
                                         )}
                                         {onlineUsers.has(user.id) && <div className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 rounded-full border-2 border-white" />}
@@ -204,7 +204,7 @@ export default function ChatSidebar({ chats, allUsers, activeChat, onlineUsers, 
                                                 <img src={user.avatar_url} alt="" className="w-11 h-11 rounded-full object-cover" />
                                             ) : (
                                                 <div className="w-11 h-11 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-white font-semibold text-sm">
-                                                    {user.name[0]?.toUpperCase()}
+                                                    {(user.name || '?')[0]?.toUpperCase()}
                                                 </div>
                                             )}
                                             {isSelected && <div className="absolute bottom-0 right-0 w-5 h-5 bg-emerald-500 rounded-full border-2 border-white flex items-center justify-center"><span className="text-white text-[10px]">✓</span></div>}
