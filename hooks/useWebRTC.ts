@@ -94,17 +94,30 @@ export function useWebRTC({
 
     const syncPeers = useCallback(() => { setPeers(new Map(peersRef.current)); }, []);
 
+    /** Supabase presence values are usually arrays of metas; guard other shapes so sync never throws. */
+    function metasFromPresenceValue(raw: unknown): Record<string, unknown>[] {
+        if (raw == null) return [];
+        if (Array.isArray(raw)) return raw.filter((x): x is Record<string, unknown> => x != null && typeof x === 'object');
+        if (typeof raw === 'object') return [raw as Record<string, unknown>];
+        return [];
+    }
+
     // These are NOT useCallbacks — they use refs so they never go stale
-    function createPC(peerId: string, peerName: string): RTCPeerConnection {
-        const safeName = String(peerName ?? '').trim() || 'Participant';
-        const pc = new RTCPeerConnection(ICE_SERVERS);
-        // Add local tracks
-        if (localStreamRef.current) {
-            localStreamRef.current.getTracks().forEach(track => { pc.addTrack(track, localStreamRef.current!); });
-        }
-        const remoteStream = new MediaStream();
-        let negotiationBusy = false;
-        pc.onnegotiationneeded = async () => {
+    function createPC(peerId: string, peerName: string): RTCPeerConnection | null {
+        try {
+            if (typeof RTCPeerConnection === 'undefined') {
+                console.warn('RTCPeerConnection is not available (requires a secure context and a supported browser).');
+                return null;
+            }
+            const safeName = String(peerName ?? '').trim() || 'Participant';
+            const pc = new RTCPeerConnection(ICE_SERVERS);
+            // Add local tracks
+            if (localStreamRef.current) {
+                localStreamRef.current.getTracks().forEach(track => { pc.addTrack(track, localStreamRef.current!); });
+            }
+            const remoteStream = new MediaStream();
+            let negotiationBusy = false;
+            pc.onnegotiationneeded = async () => {
             // Initial SDP is driven by the peer-joined handler; this handles late tracks / transceiver changes only.
             if (!pc.localDescription || !pc.remoteDescription) return;
             if (negotiationBusy || pc.signalingState !== 'stable') return;
@@ -124,31 +137,35 @@ export function useWebRTC({
             } finally {
                 negotiationBusy = false;
             }
-        };
-        pc.ontrack = (event) => {
-            if (event.streams[0]) {
-                event.streams[0].getTracks().forEach(t => { if (!remoteStream.getTracks().find(rt => rt.id === t.id)) remoteStream.addTrack(t); });
-            } else if (event.track) {
-                if (!remoteStream.getTracks().find(t => t.id === event.track.id)) remoteStream.addTrack(event.track);
-            }
-            const ex = peersRef.current.get(peerId);
-            if (ex) { ex.remoteStream = remoteStream; peersRef.current.set(peerId, { ...ex }); syncPeers(); }
-        };
-        pc.onicecandidate = (event) => {
-            if (event.candidate && channelRef.current) {
-                channelRef.current.send({ type: 'broadcast', event: 'ice-candidate', payload: { senderId: userIdRef.current, targetId: peerId, candidate: event.candidate.toJSON() } });
-            }
-        };
-        pc.onconnectionstatechange = () => {
-            console.log(`Peer ${peerId}: ${pc.connectionState}`);
-            if (pc.connectionState === 'failed') pc.restartIce();
-            else if (pc.connectionState === 'disconnected') setTimeout(() => { if (pc.connectionState !== 'connected') removePC(peerId); }, 5000);
-            else if (pc.connectionState === 'closed') removePC(peerId);
-        };
-        pc.oniceconnectionstatechange = () => { if (pc.iceConnectionState === 'failed') pc.restartIce(); };
-        peersRef.current.set(peerId, { connection: pc, remoteStream, userName: safeName });
-        syncPeers();
-        return pc;
+            };
+            pc.ontrack = (event) => {
+                if (event.streams[0]) {
+                    event.streams[0].getTracks().forEach(t => { if (!remoteStream.getTracks().find(rt => rt.id === t.id)) remoteStream.addTrack(t); });
+                } else if (event.track) {
+                    if (!remoteStream.getTracks().find(t => t.id === event.track.id)) remoteStream.addTrack(event.track);
+                }
+                const ex = peersRef.current.get(peerId);
+                if (ex) { ex.remoteStream = remoteStream; peersRef.current.set(peerId, { ...ex }); syncPeers(); }
+            };
+            pc.onicecandidate = (event) => {
+                if (event.candidate && channelRef.current) {
+                    channelRef.current.send({ type: 'broadcast', event: 'ice-candidate', payload: { senderId: userIdRef.current, targetId: peerId, candidate: event.candidate.toJSON() } });
+                }
+            };
+            pc.onconnectionstatechange = () => {
+                console.log(`Peer ${peerId}: ${pc.connectionState}`);
+                if (pc.connectionState === 'failed') pc.restartIce();
+                else if (pc.connectionState === 'disconnected') setTimeout(() => { if (pc.connectionState !== 'connected') removePC(peerId); }, 5000);
+                else if (pc.connectionState === 'closed') removePC(peerId);
+            };
+            pc.oniceconnectionstatechange = () => { if (pc.iceConnectionState === 'failed') pc.restartIce(); };
+            peersRef.current.set(peerId, { connection: pc, remoteStream, userName: safeName });
+            syncPeers();
+            return pc;
+        } catch (e) {
+            console.error('createPC failed:', e);
+            return null;
+        }
     }
 
     function removePC(peerId: string) {
@@ -196,6 +213,7 @@ export function useWebRTC({
             // Glare avoidance: only the lexicographically smaller userId sends the initial offer.
             if (userIdRef.current > senderId) return;
             const pc = createPC(senderId, String(senderName ?? '').trim() || 'Participant');
+            if (!pc) return;
             try {
                 const offer = await pc.createOffer();
                 await pc.setLocalDescription(offer);
@@ -222,6 +240,7 @@ export function useWebRTC({
                 return;
             }
             const pc = createPC(senderId, String(senderName ?? '').trim() || 'Participant');
+            if (!pc) return;
             try {
                 await pc.setRemoteDescription(new RTCSessionDescription(sdp));
                 const answer = await pc.createAnswer();
@@ -258,17 +277,25 @@ export function useWebRTC({
         channel.on('broadcast', { event: 'room-control' }, (msg) => {
             onRoomControlRef.current?.(msg.payload as RoomControlPayload);
         });
-        channel.on('presence', { event: 'leave' }, ({ leftPresences }) => { leftPresences.forEach((p: any) => { if (p.userId && p.userId !== userIdRef.current) removePC(p.userId); }); });
+        channel.on('presence', { event: 'leave' }, ({ leftPresences }) => {
+            const left = Array.isArray(leftPresences) ? leftPresences : [];
+            left.forEach((p) => {
+                const uid = (p as { userId?: string } | null | undefined)?.userId;
+                if (uid && uid !== userIdRef.current) removePC(uid);
+            });
+        });
         channel.on('presence', { event: 'sync' }, () => {
             const state = channel.presenceState();
             const list: RoomParticipant[] = [];
             for (const key of Object.keys(state)) {
-                for (const p of state[key] as any[]) {
+                for (const p of metasFromPresenceValue(state[key])) {
+                    const uid = typeof p.userId === 'string' ? p.userId : '';
+                    if (!uid) continue;
                     list.push({
-                        userId: p.userId,
+                        userId: uid,
                         userName: String(p.userName ?? '').trim() || 'Participant',
-                        userRole: p.userRole || null,
-                        joinedAt: p.online_at,
+                        userRole: (p.userRole as string | null | undefined) || null,
+                        joinedAt: typeof p.online_at === 'string' ? p.online_at : String(p.online_at ?? ''),
                     });
                 }
             }
@@ -283,6 +310,7 @@ export function useWebRTC({
                 if (userIdRef.current > otherId) return;
 
                 const pc = createPC(otherId, p.userName || 'Participant');
+                if (!pc) return;
                 void (async () => {
                     try {
                         const offer = await pc.createOffer();
@@ -320,7 +348,11 @@ export function useWebRTC({
         });
 
         return () => {
-            channel.send({ type: 'broadcast', event: 'peer-left', payload: { senderId: userIdRef.current } });
+            try {
+                channel.send({ type: 'broadcast', event: 'peer-left', payload: { senderId: userIdRef.current } });
+            } catch (e) {
+                console.warn('peer-left broadcast on teardown failed', e);
+            }
             peersRef.current.forEach(p => p.connection.close());
             peersRef.current.clear();
             syncPeers();

@@ -956,29 +956,42 @@ export default function MeetingRoomPage() {
             setMicLevel(0);
             return;
         }
-        const Ctx = window.AudioContext || (window as any).webkitAudioContext;
-        if (!Ctx) return;
-        const ctx = new Ctx();
-        const analyser = ctx.createAnalyser();
-        analyser.fftSize = 256;
-        const source = ctx.createMediaStreamSource(new MediaStream([audioTrack]));
-        source.connect(analyser);
-        const arr = new Uint8Array(analyser.frequencyBinCount);
+        let ctx: AudioContext | null = null;
+        let source: MediaStreamAudioSourceNode | null = null;
+        let analyser: AnalyserNode | null = null;
         let raf = 0;
-        const tick = () => {
-            analyser.getByteFrequencyData(arr);
-            let sum = 0;
-            for (let i = 0; i < arr.length; i++) sum += arr[i];
-            const avg = sum / arr.length;
-            setMicLevel(Math.min(100, Math.round((avg / 255) * 180)));
-            raf = requestAnimationFrame(tick);
-        };
-        tick();
+        try {
+            const Ctx = window.AudioContext || (window as any).webkitAudioContext;
+            if (!Ctx) return;
+            ctx = new Ctx();
+            analyser = ctx.createAnalyser();
+            analyser.fftSize = 256;
+            source = ctx.createMediaStreamSource(new MediaStream([audioTrack]));
+            source.connect(analyser);
+            const arr = new Uint8Array(analyser.frequencyBinCount);
+            const tick = () => {
+                if (!analyser) return;
+                analyser.getByteFrequencyData(arr);
+                let sum = 0;
+                for (let i = 0; i < arr.length; i++) sum += arr[i];
+                const avg = sum / arr.length;
+                setMicLevel(Math.min(100, Math.round((avg / 255) * 180)));
+                raf = requestAnimationFrame(tick);
+            };
+            tick();
+        } catch (e) {
+            console.warn('Mic level analyser unavailable', e);
+            setMicLevel(0);
+        }
         return () => {
             cancelAnimationFrame(raf);
-            source.disconnect();
-            analyser.disconnect();
-            ctx.close().catch(() => undefined);
+            try {
+                source?.disconnect();
+                analyser?.disconnect();
+            } catch {
+                /* ignore */
+            }
+            void ctx?.close();
         };
     }, [localStream, isMuted]);
 
@@ -1127,6 +1140,46 @@ export default function MeetingRoomPage() {
         }
         router.push('/dashboard/meetings');
     }, [localStream, router, roomId]);
+
+    const saveLiveSessionToMeeting = useCallback(async () => {
+        if (!meeting?.id || !canModerateMeetingRoom) return;
+        if (liveSessionSaveGate !== 'allowed') {
+            toast.error('Finalize attendance on the dashboard meeting page first, then save session time here.');
+            return;
+        }
+        setSavingLiveSession(true);
+        try {
+            const elapsed = meetingSessionDisplaySec;
+            const { error } = await (supabase as any).rpc('finalize_meeting_live_session', {
+                p_meeting_id: meeting.id,
+                p_elapsed_seconds: elapsed,
+            });
+            if (error) {
+                const msg = String((error as { message?: string }).message || '');
+                if (msg.includes('attendance_not_finalized')) {
+                    toast.error('Attendance must be finalized on the meeting page before saving session time.');
+                    setLiveSessionSaveGate('blocked');
+                    return;
+                }
+                throw error;
+            }
+            setMeeting((prev) =>
+                prev
+                    ? {
+                          ...prev,
+                          live_session_elapsed_seconds: elapsed,
+                          live_session_finalized_at: new Date().toISOString(),
+                      }
+                    : null,
+            );
+            toast.success('Saved active session time to this meeting (visible on the meeting page).');
+        } catch (e: unknown) {
+            const msg = e instanceof Error ? e.message : 'Could not save session time';
+            toast.error(msg);
+        } finally {
+            setSavingLiveSession(false);
+        }
+    }, [meeting?.id, canModerateMeetingRoom, meetingSessionDisplaySec, supabase, liveSessionSaveGate]);
 
     // Loading state
     if (loading) {
@@ -1482,46 +1535,6 @@ export default function MeetingRoomPage() {
             },
         ] : []),
     ];
-
-    const saveLiveSessionToMeeting = useCallback(async () => {
-        if (!meeting?.id || !canModerateMeetingRoom) return;
-        if (liveSessionSaveGate !== 'allowed') {
-            toast.error('Finalize attendance on the dashboard meeting page first, then save session time here.');
-            return;
-        }
-        setSavingLiveSession(true);
-        try {
-            const elapsed = meetingSessionDisplaySec;
-            const { error } = await (supabase as any).rpc('finalize_meeting_live_session', {
-                p_meeting_id: meeting.id,
-                p_elapsed_seconds: elapsed,
-            });
-            if (error) {
-                const msg = String((error as { message?: string }).message || '');
-                if (msg.includes('attendance_not_finalized')) {
-                    toast.error('Attendance must be finalized on the meeting page before saving session time.');
-                    setLiveSessionSaveGate('blocked');
-                    return;
-                }
-                throw error;
-            }
-            setMeeting((prev) =>
-                prev
-                    ? {
-                          ...prev,
-                          live_session_elapsed_seconds: elapsed,
-                          live_session_finalized_at: new Date().toISOString(),
-                      }
-                    : null,
-            );
-            toast.success('Saved active session time to this meeting (visible on the meeting page).');
-        } catch (e: unknown) {
-            const msg = e instanceof Error ? e.message : 'Could not save session time';
-            toast.error(msg);
-        } finally {
-            setSavingLiveSession(false);
-        }
-    }, [meeting?.id, canModerateMeetingRoom, meetingSessionDisplaySec, supabase, liveSessionSaveGate]);
 
     return (
         <div className="min-h-[100dvh] bg-[#050505] flex flex-col overflow-hidden relative">
@@ -2680,27 +2693,40 @@ function ParticipantMicSphere({
             setLevel(0);
             return;
         }
-        const Ctx = window.AudioContext || (window as any).webkitAudioContext;
-        if (!Ctx) return;
-        const ctx = new Ctx();
-        const analyser = ctx.createAnalyser();
-        analyser.fftSize = 256;
-        const src = ctx.createMediaStreamSource(new MediaStream([audioTrack]));
-        src.connect(analyser);
-        const arr = new Uint8Array(analyser.frequencyBinCount);
+        let ctx: AudioContext | null = null;
+        let src: MediaStreamAudioSourceNode | null = null;
+        let analyser: AnalyserNode | null = null;
         let raf = 0;
-        const loop = () => {
-            analyser.getByteFrequencyData(arr);
-            const avg = arr.reduce((a, b) => a + b, 0) / arr.length;
-            setLevel(Math.min(100, Math.round((avg / 255) * 180)));
-            raf = requestAnimationFrame(loop);
-        };
-        loop();
+        try {
+            const Ctx = window.AudioContext || (window as any).webkitAudioContext;
+            if (!Ctx) return;
+            ctx = new Ctx();
+            analyser = ctx.createAnalyser();
+            analyser.fftSize = 256;
+            src = ctx.createMediaStreamSource(new MediaStream([audioTrack]));
+            src.connect(analyser);
+            const arr = new Uint8Array(analyser.frequencyBinCount);
+            const loop = () => {
+                if (!analyser) return;
+                analyser.getByteFrequencyData(arr);
+                const avg = arr.reduce((a, b) => a + b, 0) / arr.length;
+                setLevel(Math.min(100, Math.round((avg / 255) * 180)));
+                raf = requestAnimationFrame(loop);
+            };
+            loop();
+        } catch (e) {
+            console.warn('ParticipantMicSphere analyser unavailable', e);
+            setLevel(0);
+        }
         return () => {
             cancelAnimationFrame(raf);
-            src.disconnect();
-            analyser.disconnect();
-            ctx.close().catch(() => undefined);
+            try {
+                src?.disconnect();
+                analyser?.disconnect();
+            } catch {
+                /* ignore */
+            }
+            void ctx?.close();
         };
     }, [stream, muted]);
 

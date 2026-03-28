@@ -118,10 +118,14 @@ export default function MeetingDetailPage() {
             for (const row of mpRows || []) {
                 const uid = String(row.user_id || '');
                 const prof = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles;
+                const liveTotal = typeof row.live_total_seconds === 'number' ? row.live_total_seconds : 0;
+                const liveLast = row.live_last_seen_at ?? null;
+                // Rows are created for all invitees at schedule time; only set "joined" after they enter /meet/[id].
+                const joined_portal_room = liveLast != null || liveTotal > 0;
                 const liveExtra = {
-                    live_total_seconds: typeof row.live_total_seconds === 'number' ? row.live_total_seconds : 0,
-                    live_last_seen_at: row.live_last_seen_at ?? null,
-                    joined_portal_room: true,
+                    live_total_seconds: liveTotal,
+                    live_last_seen_at: liveLast,
+                    joined_portal_room,
                 };
                 if (uid && byId.has(uid)) {
                     byId.set(uid, { ...byId.get(uid), ...liveExtra });
