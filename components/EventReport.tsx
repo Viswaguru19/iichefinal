@@ -4,6 +4,12 @@ import { useEffect, useState, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { FileText, Download, Save, Loader2, Plus, Eye, Edit, X } from 'lucide-react';
 import toast from 'react-hot-toast';
+import {
+  escapeHtml,
+  wordHtmlDocument,
+  FORMAL_ORG_LINE,
+  FORMAL_CHAPTER_LINE,
+} from '@/lib/formal-doc-export';
 
 interface EventReportProps {
     event: any;
@@ -221,33 +227,41 @@ export default function EventReport({ event, tasks, eventPhotos = [], canEdit }:
         const data = getReportData();
         if (!data) return;
         const hasImages = !!(data.poster_url || (Array.isArray(data.event_photo_urls) && data.event_photo_urls.length > 0));
-        const text = `EVENT REPORT
-${'='.repeat(50)}
+        const text = `${FORMAL_ORG_LINE}
+${FORMAL_CHAPTER_LINE}
 
-Event Name: ${data.event_name}
-Committee: ${data.committee}
-Date: ${data.event_date}
-Venue: ${data.venue}
-Proposed By: ${data.proposed_by}
-Status: ${data.status}
+OFFICIAL EVENT REPORT
+${'═'.repeat(56)}
 
-DESCRIPTION
-${'-'.repeat(30)}
-${data.description}
-${data.guest_name ? `\nGuest Speaker: ${data.guest_name}` : ''}
-${data.registration_fee ? `\nRegistration Fee: ${data.registration_fee}` : ''}
-${data.prize ? `\nPrize: ${data.prize}` : ''}
-${data.expected_participants ? `\nExpected Participants: ${data.expected_participants}` : ''}
-${data.include_participants_count ? `\nParticipants Count: ${data.participants_count ?? 0}` : ''}
-${hasImages ? `\nPOSTER & EVENT PHOTOS\n${'-'.repeat(30)}\nThe event poster and gallery photos are shown as images in the portal (View report) and embedded in the PDF download — not as plain-text links.\n` : ''}
-${data.include_participants ? `\n\nPARTICIPANTS\n${'-'.repeat(30)}\n${(data.participants || []).map((p: any) => `${p.serial}. ${p.name} | ${p.email} | ${p.attendance}`).join('\n') || 'No participants found.'}` : ''}
-${report.additional_notes ? `\nADDITIONAL NOTES\n${'-'.repeat(30)}\n${report.additional_notes}` : ''}
+1. EVENT SUMMARY
+${'─'.repeat(56)}
+Event title:        ${data.event_name}
+Organizing committee: ${data.committee}
+Date:               ${data.event_date}
+Venue:              ${data.venue}
+Duration:           ${data.duration}
+Proposed by:        ${data.proposed_by}
+Budget:             ${data.budget}
+Status:             ${data.status}
+${data.guest_name ? `Guest / speaker:     ${data.guest_name}` : ''}
+${data.registration_fee ? `Registration fee:   ${data.registration_fee}` : ''}
+${data.prize ? `Prize:              ${data.prize}` : ''}
+${data.expected_participants ? `Expected attendance: ${data.expected_participants}` : ''}
+${data.include_participants_count ? `Registered count:   ${data.participants_count ?? 0}` : ''}
 
-${'='.repeat(50)}
-Report generated on ${new Date(report.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}
-IIChE AVVU Student Chapter`;
+2. DESCRIPTION
+${'─'.repeat(56)}
+${data.description || '—'}
 
-        const blob = new Blob([text], { type: 'text/plain' });
+${hasImages ? `3. VISUAL RECORDS\n${'─'.repeat(56)}\nOfficial poster and event photographs are embedded in the PDF / Word export and displayed in the portal.\n` : ''}
+${data.include_participants ? `\n4. PARTICIPANT REGISTER\n${'─'.repeat(56)}\n${(data.participants || []).map((p: any) => `  ${p.serial}. ${p.name}  |  ${p.email}  |  ${p.attendance}`).join('\n') || '  (No records.)'}\n` : ''}
+${report.additional_notes ? `\n5. ADDITIONAL REMARKS\n${'─'.repeat(56)}\n${report.additional_notes}\n` : ''}
+
+${'═'.repeat(56)}
+Document prepared: ${new Date(report.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}
+This document is generated from the IIChE AVVU Student Chapter portal.`;
+
+        const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
@@ -257,119 +271,335 @@ IIChE AVVU Student Chapter`;
         toast.success('Report downloaded!');
     }
 
-    function buildPlainText(data: any) {
-        const hasImages = !!(data.poster_url || (Array.isArray(data.event_photo_urls) && data.event_photo_urls.length > 0));
-        return `EVENT REPORT
-${'='.repeat(50)}
+    async function downloadAsWord() {
+        const data = getReportData();
+        if (!data || !report) return;
+        const tid = toast.loading('Building Word document…');
+        try {
+            const posterUrl = data.poster_url ? resolveStorageUrl(supabase, data.poster_url, 'event-documents') : '';
+            const photoUrls = (Array.isArray(data.event_photo_urls) ? data.event_photo_urls : []).map((raw: string) =>
+                resolveStorageUrl(supabase, raw, 'event-photos'),
+            );
 
-Event Name: ${data.event_name}
-Committee: ${data.committee}
-Date: ${data.event_date}
-Venue: ${data.venue}
-Proposed By: ${data.proposed_by}
-Status: ${data.status}
+            const metaRows: [string, string][] = [
+                ['Event title', data.event_name],
+                ['Committee', data.committee],
+                ['Date', data.event_date],
+                ['Venue', data.venue],
+                ['Duration', String(data.duration)],
+                ['Proposed by', data.proposed_by],
+                ['Budget', data.budget],
+                ['Status', data.status],
+            ];
+            if (data.guest_name) metaRows.push(['Guest / speaker', String(data.guest_name)]);
+            if (data.registration_fee) metaRows.push(['Registration fee', String(data.registration_fee)]);
+            if (data.prize) metaRows.push(['Prize', String(data.prize)]);
+            if (data.expected_participants) metaRows.push(['Expected participants', String(data.expected_participants)]);
+            if (data.include_participants_count) metaRows.push(['Registered count', String(data.participants_count ?? 0)]);
 
-DESCRIPTION
-${'-'.repeat(30)}
-${data.description}
-${data.guest_name ? `\nGuest Speaker: ${data.guest_name}` : ''}
-${data.registration_fee ? `\nRegistration Fee: ${data.registration_fee}` : ''}
-${data.prize ? `\nPrize: ${data.prize}` : ''}
-${data.expected_participants ? `\nExpected Participants: ${data.expected_participants}` : ''}
-${data.include_participants_count ? `\nParticipants Count: ${data.participants_count ?? 0}` : ''}
-${hasImages ? `\nPOSTER & EVENT PHOTOS\n${'-'.repeat(30)}\n(See following pages in PDF for embedded images.)\n` : ''}
-${data.include_participants ? `\n\nPARTICIPANTS\n${'-'.repeat(30)}\n${(data.participants || []).map((p: any) => `${p.serial}. ${p.name} | ${p.email} | ${p.attendance}`).join('\n') || 'No participants found.'}` : ''}
-${report.additional_notes ? `\nADDITIONAL NOTES\n${'-'.repeat(30)}\n${report.additional_notes}` : ''}
+            let participantTable = '';
+            if (data.include_participants && (data.participants || []).length > 0) {
+                const rows = (data.participants as any[])
+                    .map(
+                        (p) =>
+                            `<tr><td>${escapeHtml(String(p.serial))}</td><td>${escapeHtml(p.name)}</td><td>${escapeHtml(p.email)}</td><td>${escapeHtml(p.attendance)}</td><td>${escapeHtml(p.submitted_at || '—')}</td></tr>`,
+                    )
+                    .join('');
+                participantTable = `<p class="section">Participant register</p><table class="grid"><thead><tr><th>#</th><th>Name</th><th>Email</th><th>Attendance</th><th>Submitted</th></tr></thead><tbody>${rows}</tbody></table>`;
+            } else if (data.include_participants) {
+                participantTable = `<p class="section">Participant register</p><p class="body-text">No participant records on file.</p>`;
+            }
 
-${'='.repeat(50)}
-Report generated on ${new Date(report.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}
-IIChE AVVU Student Chapter`;
+            let figures = '';
+            if (posterUrl) {
+                figures += `<p class="section">Official event poster</p><div class="img-block"><img src="${escapeHtml(posterUrl)}" alt="Event poster"/></div><p class="figure-cap">Figure 1 — Approved event poster.</p>`;
+            }
+            photoUrls.forEach((u: string, i: number) => {
+                figures += `<p class="section">Event photograph ${i + 1}</p><div class="img-block"><img src="${escapeHtml(u)}" alt="Event photo ${i + 1}"/></div><p class="figure-cap">Figure ${(posterUrl ? 2 : 1) + i} — On-site documentation.</p>`;
+            });
+
+            const inner = `
+<div class="rule"></div>
+<p class="org">${escapeHtml(FORMAL_ORG_LINE)}<br/>${escapeHtml(FORMAL_CHAPTER_LINE)}</p>
+<p class="doc-title">EVENT REPORT</p>
+<p class="subtitle">Official record of student chapter activity</p>
+<table class="meta">
+${metaRows.map(([k, v]) => `<tr><td class="lbl">${escapeHtml(k)}</td><td>${escapeHtml(v)}</td></tr>`).join('')}
+</table>
+<p class="section">Executive summary / description</p>
+<p class="body-text">${escapeHtml(data.description || '—')}</p>
+${participantTable}
+${figures}
+${report.additional_notes ? `<p class="section">Additional remarks</p><p class="body-text">${escapeHtml(report.additional_notes)}</p>` : ''}
+<div class="footer">
+<p>This document was generated from the chapter portal on ${escapeHtml(new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' }))}.</p>
+<p>For archival use. Images require network access if opened offline.</p>
+</div>`;
+
+            const html = wordHtmlDocument(inner);
+            const blob = new Blob([html], { type: 'application/msword;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `Event_Report_${data.event_name.replace(/\s+/g, '_')}.doc`;
+            a.click();
+            URL.revokeObjectURL(url);
+            toast.success('Word document downloaded', { id: tid });
+        } catch (e: any) {
+            console.error(e);
+            toast.error(e?.message || 'Could not build document', { id: tid });
+        }
     }
 
     async function downloadAsPDF() {
         const data = getReportData();
         if (!data || !report) return;
-        const tid = toast.loading('Building PDF with images…');
+        const tid = toast.loading('Building formal PDF…');
         try {
             const { jsPDF } = await import('jspdf');
             const doc = new jsPDF({ unit: 'pt', format: 'a4' });
-            const margin = 40;
-            const pageW = doc.internal.pageSize.getWidth();
-            const maxW = pageW - margin * 2;
-            let y = 40;
+            const W = doc.internal.pageSize.getWidth();
+            const H = doc.internal.pageSize.getHeight();
+            const margin = 48;
+            const maxW = W - 2 * margin;
+            const labelX = margin;
+            const valueX = margin + 118;
+            let y = margin;
 
-            const text = buildPlainText(data);
-            const lines = doc.splitTextToSize(text, maxW);
-            for (const line of lines) {
-                if (y > 780) {
-                    doc.addPage();
-                    y = 40;
-                }
+            const drawTopRule = () => {
+                doc.setFillColor(15, 23, 42);
+                doc.rect(0, 0, W, 6, 'F');
+            };
+
+            const drawHeader = () => {
+                drawTopRule();
+                doc.setFont('helvetica', 'normal');
+                doc.setFontSize(8);
+                doc.setTextColor(71, 85, 105);
+                doc.text(FORMAL_ORG_LINE, margin, 24);
+                doc.text(FORMAL_CHAPTER_LINE, margin, 34);
+                doc.setDrawColor(203, 213, 225);
+                doc.setLineWidth(0.5);
+                doc.line(margin, 42, W - margin, 42);
+            };
+
+            const newPage = () => {
+                doc.addPage();
+                y = margin;
+                drawHeader();
+                y = 56;
+            };
+
+            const need = (h: number) => {
+                if (y + h > H - margin) newPage();
+            };
+
+            drawHeader();
+            y = 56;
+
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(17);
+            doc.setTextColor(15, 23, 42);
+            doc.text('EVENT REPORT', margin, y);
+            y += 22;
+            doc.setFontSize(10);
+            doc.setFont('helvetica', 'italic');
+            doc.setTextColor(100, 116, 139);
+            doc.text('Official record — student chapter activity', margin, y);
+            y += 28;
+
+            const kv = (label: string, value: string) => {
+                const v = String(value || '—');
+                need(20);
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(10);
+                doc.setTextColor(51, 65, 85);
+                doc.text(label, labelX, y);
+                doc.setFont('helvetica', 'normal');
+                doc.setTextColor(30, 41, 55);
+                const lines = doc.splitTextToSize(v, maxW - (valueX - margin));
+                doc.text(lines, valueX, y);
+                y += Math.max(16, lines.length * 13) + 6;
+            };
+
+            kv('Event title', data.event_name);
+            kv('Committee', data.committee);
+            kv('Date', data.event_date);
+            kv('Venue', data.venue);
+            kv('Duration', data.duration);
+            kv('Proposed by', data.proposed_by);
+            kv('Budget', data.budget);
+            kv('Status', data.status);
+            if (data.guest_name) kv('Guest / speaker', data.guest_name);
+            if (data.registration_fee) kv('Registration fee', data.registration_fee);
+            if (data.prize) kv('Prize', data.prize);
+            if (data.expected_participants) kv('Expected participants', data.expected_participants);
+            if (data.include_participants_count) kv('Registered count', String(data.participants_count ?? 0));
+
+            y += 8;
+            need(30);
+            doc.setFont('helvetica', 'bold');
+            doc.setFontSize(12);
+            doc.setTextColor(30, 58, 138);
+            doc.text('Executive summary / description', margin, y);
+            y += 6;
+            doc.setDrawColor(148, 163, 184);
+            doc.line(margin, y, W - margin, y);
+            y += 18;
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(10);
+            doc.setTextColor(55, 65, 81);
+            const descLines = doc.splitTextToSize(String(data.description || '—'), maxW);
+            for (const line of descLines) {
+                need(14);
                 doc.text(line, margin, y);
-                y += 14;
+                y += 13;
+            }
+            y += 12;
+
+            if (data.include_participants) {
+                need(28);
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(12);
+                doc.setTextColor(30, 58, 138);
+                doc.text('Participant register', margin, y);
+                y += 6;
+                doc.setDrawColor(148, 163, 184);
+                doc.line(margin, y, W - margin, y);
+                y += 16;
+                doc.setFontSize(9);
+                const participants = data.participants || [];
+                if (participants.length === 0) {
+                    doc.setFont('helvetica', 'italic');
+                    doc.setTextColor(100, 116, 139);
+                    doc.text('No participant records on file.', margin, y);
+                    y += 20;
+                } else {
+                    const col = [margin, margin + 28, margin + 150, margin + 320, margin + 400];
+                    doc.setFont('helvetica', 'bold');
+                    doc.setTextColor(71, 85, 105);
+                    doc.text('#', col[0], y);
+                    doc.text('Name', col[1], y);
+                    doc.text('Email', col[2], y);
+                    doc.text('Attendance', col[3], y);
+                    doc.text('Submitted', col[4], y);
+                    y += 14;
+                    doc.setDrawColor(226, 232, 240);
+                    doc.line(margin, y - 4, W - margin, y - 4);
+                    doc.setFont('helvetica', 'normal');
+                    for (const p of participants) {
+                        const rowH = 36;
+                        need(rowH);
+                        doc.setTextColor(55, 65, 81);
+                        doc.text(String(p.serial), col[0], y);
+                        doc.text(doc.splitTextToSize(String(p.name), 110)[0] || '', col[1], y);
+                        doc.text(doc.splitTextToSize(String(p.email), 155)[0] || '', col[2], y);
+                        doc.text(String(p.attendance), col[3], y);
+                        doc.text(doc.splitTextToSize(String(p.submitted_at || '—'), 95)[0] || '', col[4], y);
+                        y += rowH;
+                    }
+                }
+                y += 8;
             }
 
-            const posterDisplayUrl = data.poster_url
-                ? resolveStorageUrl(supabase, data.poster_url, 'event-documents')
-                : '';
+            if (report.additional_notes) {
+                need(40);
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(12);
+                doc.setTextColor(30, 58, 138);
+                doc.text('Additional remarks', margin, y);
+                y += 6;
+                doc.line(margin, y, W - margin, y);
+                y += 16;
+                doc.setFont('helvetica', 'normal');
+                doc.setFontSize(10);
+                doc.setTextColor(55, 65, 81);
+                for (const line of doc.splitTextToSize(String(report.additional_notes), maxW)) {
+                    need(14);
+                    doc.text(line, margin, y);
+                    y += 13;
+                }
+                y += 12;
+            }
+
+            const posterDisplayUrl = data.poster_url ? resolveStorageUrl(supabase, data.poster_url, 'event-documents') : '';
             if (posterDisplayUrl) {
+                newPage();
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(12);
+                doc.setTextColor(30, 58, 138);
+                doc.text('Official event poster', margin, y);
+                y += 6;
+                doc.setDrawColor(148, 163, 184);
+                doc.line(margin, y, W - margin, y);
+                y += 20;
                 const img = await loadImageForPdf(posterDisplayUrl);
                 if (img) {
-                    try {
-                        if (y > 700) {
-                            doc.addPage();
-                            y = 40;
-                        }
-                        doc.setFontSize(11);
-                        doc.setTextColor(40, 40, 40);
-                        doc.text('Event poster', margin, y);
-                        y += 18;
-                        const targetH = Math.min((img.height * maxW) / img.width, 420);
-                        const targetW = (img.width * targetH) / img.height;
-                        if (y + targetH > 820) {
-                            doc.addPage();
-                            y = 40;
-                        }
-                        doc.addImage(img.dataUrl, img.format, margin, y, targetW, targetH);
-                        y += targetH + 24;
-                    } catch (imgErr) {
-                        console.warn('PDF poster embed failed', imgErr);
+                    const maxH = H - y - margin - 36;
+                    let targetW = maxW;
+                    let targetH = (img.height * targetW) / img.width;
+                    if (targetH > maxH) {
+                        targetH = maxH;
+                        targetW = (img.width * targetH) / img.height;
                     }
+                    const xImg = margin + (maxW - targetW) / 2;
+                    if (y + targetH > H - margin) newPage();
+                    doc.addImage(img.dataUrl, img.format, xImg, y, targetW, targetH);
+                    y += targetH + 14;
+                    doc.setFont('helvetica', 'italic');
+                    doc.setFontSize(9);
+                    doc.setTextColor(71, 85, 105);
+                    doc.text('Figure 1 — Approved event poster.', margin, y);
+                    y += 20;
                 }
             }
 
             const photoList = Array.isArray(data.event_photo_urls) ? data.event_photo_urls : [];
-            const photoCap = 30;
-            if (photoList.length > 0) {
-                if (y > 720) {
-                    doc.addPage();
-                    y = 40;
+            const photoCap = 24;
+            let fig = posterDisplayUrl ? 2 : 1;
+            for (let i = 0; i < Math.min(photoList.length, photoCap); i++) {
+                const url = resolveStorageUrl(supabase, photoList[i], 'event-photos');
+                const pimg = await loadImageForPdf(url);
+                if (!pimg) continue;
+                newPage();
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(12);
+                doc.setTextColor(30, 58, 138);
+                doc.text(`Event photograph ${i + 1}`, margin, y);
+                y += 6;
+                doc.line(margin, y, W - margin, y);
+                y += 18;
+                const maxH = H - y - margin - 40;
+                let targetW = maxW;
+                let targetH = (pimg.height * targetW) / pimg.width;
+                if (targetH > maxH) {
+                    targetH = maxH;
+                    targetW = (pimg.width * targetH) / pimg.height;
                 }
-                doc.setFontSize(11);
-                doc.text(`Event photos${photoList.length > photoCap ? ` (first ${photoCap} of ${photoList.length})` : ''}`, margin, y);
-                y += 20;
-                for (let i = 0; i < Math.min(photoList.length, photoCap); i++) {
-                    const raw = photoList[i];
-                    const url = resolveStorageUrl(supabase, raw, 'event-photos');
-                    const img = await loadImageForPdf(url);
-                    if (!img) continue;
-                    try {
-                        const targetH = Math.min((img.height * maxW) / img.width, 280);
-                        const targetW = (img.width * targetH) / img.height;
-                        if (y + targetH > 820) {
-                            doc.addPage();
-                            y = 40;
-                        }
-                        doc.addImage(img.dataUrl, img.format, margin, y, targetW, targetH);
-                        y += targetH + 16;
-                    } catch (imgErr) {
-                        console.warn('PDF photo embed failed', imgErr);
-                    }
-                }
+                const xImg = margin + (maxW - targetW) / 2;
+                doc.addImage(pimg.dataUrl, pimg.format, xImg, y, targetW, targetH);
+                y += targetH + 12;
+                doc.setFont('helvetica', 'italic');
+                doc.setFontSize(9);
+                doc.setTextColor(71, 85, 105);
+                doc.text(`Figure ${fig} — On-site documentation.`, margin, y);
+                fig += 1;
+                y += 16;
+            }
+
+            need(24);
+            y += 4;
+            doc.setFontSize(8);
+            doc.setTextColor(148, 163, 184);
+            const footNote = `Generated ${new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })} · ${FORMAL_ORG_LINE} · ${FORMAL_CHAPTER_LINE}`;
+            for (const fl of doc.splitTextToSize(footNote, maxW)) {
+                need(11);
+                doc.text(fl, margin, y);
+                y += 10;
             }
 
             doc.save(`Event_Report_${data.event_name.replace(/\s+/g, '_')}.pdf`);
-            toast.success('Report downloaded as PDF', { id: tid });
+            toast.success('Formal PDF downloaded', { id: tid });
         } catch (e: any) {
             console.error(e);
             toast.error(e?.message || 'Could not build PDF', { id: tid });
@@ -400,6 +630,10 @@ IIChE AVVU Student Chapter`;
                             <button onClick={downloadAsPDF}
                                 className="flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-lg bg-purple-50 text-purple-600 hover:bg-purple-100 transition">
                                 <Download className="w-3.5 h-3.5" /> PDF
+                            </button>
+                            <button onClick={downloadAsWord}
+                                className="flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-lg bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200 transition">
+                                <Download className="w-3.5 h-3.5" /> Word
                             </button>
                         </>
                     )}
@@ -563,7 +797,7 @@ IIChE AVVU Student Chapter`;
             )}
 
             {report && !showReport && (
-                <p className="text-sm text-gray-500">Report available. Click "View" to see it or download as TXT/PDF.</p>
+                <p className="text-sm text-gray-500">Report available. View on screen or download as TXT, PDF, or Word.</p>
             )}
         </div>
     );
