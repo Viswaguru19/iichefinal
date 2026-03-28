@@ -33,6 +33,7 @@ import {
     Copy,
     Paperclip,
     FileText,
+    UserMinus,
 } from 'lucide-react';
 import { useWebRTC, type PeerState } from '@/hooks/useWebRTC';
 import type { ChatMessage, RoomControlPayload, RoomParticipant, SendChatPayload } from '@/hooks/useWebRTC';
@@ -49,6 +50,8 @@ interface Meeting {
     require_approval?: boolean | null;
     /** From DB — general link meetings always queue unauthenticated guests for approval */
     access_type?: string | null;
+    live_session_elapsed_seconds?: number | null;
+    live_session_finalized_at?: string | null;
 }
 
 type PendingJoinRequest =
@@ -64,6 +67,21 @@ function initialsFromDisplayName(name: string) {
     if (parts.length === 0) return '?';
     if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
     return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function formatDurationSeconds(totalSec: number) {
+    const s = Math.max(0, Math.floor(totalSec));
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const r = s % 60;
+    if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(r).padStart(2, '0')}`;
+    return `${m}:${String(r).padStart(2, '0')}`;
+}
+
+function profileIsEcOrFaculty(p: { is_faculty?: boolean | null; executive_role?: string | null } | null | undefined): boolean {
+    if (!p) return false;
+    if (p.is_faculty === true) return true;
+    return p.executive_role != null && String(p.executive_role).trim() !== '';
 }
 
 /** Align presence / DB role strings with on-tile badges (Executive, Faculty, Head, Co-Head, Admin). */
@@ -160,6 +178,8 @@ export default function MeetingRoomPage() {
         is_admin: boolean | null;
         executive_role: string | null;
     } | null>(null);
+    const moderatorProfileRef = useRef(moderatorProfile);
+    moderatorProfileRef.current = moderatorProfile;
     const [showGuestEntry, setShowGuestEntry] = useState(false);
     const [guestWaitingForApproval, setGuestWaitingForApproval] = useState(false);
     const [guestRejectedReason, setGuestRejectedReason] = useState<string | null>(null);
@@ -176,6 +196,16 @@ export default function MeetingRoomPage() {
     /** Bumps when camera is turned back on so the preview element re-attaches (fixes black tile until pin/unpin). */
     const [localVideoRenderKey, setLocalVideoRenderKey] = useState(0);
     const [selfUnmuteLocked, setSelfUnmuteLocked] = useState(false);
+    const [removedByModerator, setRemovedByModerator] = useState(false);
+    const [meetingSessionDisplaySec, setMeetingSessionDisplaySec] = useState(0);
+    const [selfLiveTotalFromDb, setSelfLiveTotalFromDb] = useState(0);
+    const [savingLiveSession, setSavingLiveSession] = useState(false);
+    /** Gate saving portal session length until attendance is submitted (if any attendance rows exist). */
+    const [liveSessionSaveGate, setLiveSessionSaveGate] = useState<'idle' | 'loading' | 'allowed' | 'blocked'>('idle');
+
+    const meetingSessionPausedAccumRef = useRef(0);
+    const meetingSessionRunStartedRef = useRef<number | null>(null);
+    const sessionSegmentStartRef = useRef<number>(Date.now());
 
     // Panel state
     const [isChatOpen, setIsChatOpen] = useState(false);
@@ -262,7 +292,7 @@ export default function MeetingRoomPage() {
         userName: currentUserName,
         userRole: currentUserRole,
         localStream,
-        enabled: !!meeting && !!currentUserId && !!currentUserName && hasJoinedMeeting,
+        enabled: !!meeting && !!currentUserId && !!currentUserName && hasJoinedMeeting && !removedByModerator,
         getCameraSendingSnapshot: () => {
             const { isScreenSharing: sharing, localStream: stream } = meetMediaRef.current;
             if (sharing) return true;
@@ -273,13 +303,29 @@ export default function MeetingRoomPage() {
             // Ignore your own control broadcast; sender already knows what they did.
             if (payload.senderId === currentUserId) return;
             if (payload.action === 'mute-all') {
+                const creatorId = meeting?.created_by ?? null;
+                const iAmCreator = Boolean(creatorId && creatorId === currentUserId);
+                const iAmEcOrFaculty = profileIsEcOrFaculty(moderatorProfileRef.current);
+                const pol = payload.mutePolicy;
+                if (pol === 'creator' && iAmEcOrFaculty) {
+                    return;
+                }
+                if (pol === 'ec_faculty' && iAmCreator) {
+                    return;
+                }
                 localStream?.getAudioTracks().forEach((t) => { t.enabled = false; });
                 setIsMuted(true);
                 setSelfUnmuteLocked(true);
                 toast('Moderator muted everyone. Wait until unmute is allowed.', { icon: '🔇' });
             } else if (payload.action === 'allow-unmute') {
                 setSelfUnmuteLocked(false);
-                toast('Moderator allowed unmuting.', { icon: '🔊' });
+                toast('Moderator allowed everyone to unmute.', { icon: '🔊' });
+            } else if (payload.action === 'allow-unmute-peer' && payload.targetUserId === currentUserId) {
+                setSelfUnmuteLocked(false);
+                toast('A moderator allowed you to unmute.', { icon: '🔊' });
+            } else if (payload.action === 'kick-peer' && payload.targetUserId === currentUserId) {
+                toast.error(`You were removed from the meeting by ${payload.senderName || 'a moderator'}.`);
+                setRemovedByModerator(true);
             }
         },
     });
@@ -552,12 +598,116 @@ export default function MeetingRoomPage() {
                     {
                         meeting_id: meeting.id,
                         user_id: currentUserId,
+                        live_last_seen_at: new Date().toISOString(),
                     },
                     { onConflict: 'meeting_id,user_id' }
                 );
         };
         void saveParticipant();
+    }, [hasJoinedMeeting, meeting?.id, currentUserId, supabase]);
+
+    const flushLiveDwellToServer = useCallback(async () => {
+        if (!meeting?.id || !currentUserId || currentUserId.startsWith('guest-') || removedByModerator) return;
+        const delta = Math.floor((Date.now() - sessionSegmentStartRef.current) / 1000);
+        if (delta < 1) return;
+        sessionSegmentStartRef.current = Date.now();
+        const { error } = await (supabase as any).rpc('add_meeting_participant_live_seconds', {
+            p_meeting_id: meeting.id,
+            p_delta: delta,
+        });
+        if (!error) {
+            const { data: row } = await supabase
+                .from('meeting_participants')
+                .select('live_total_seconds')
+                .eq('meeting_id', meeting.id)
+                .eq('user_id', currentUserId)
+                .maybeSingle();
+            if (row && typeof (row as { live_total_seconds?: number }).live_total_seconds === 'number') {
+                setSelfLiveTotalFromDb((row as { live_total_seconds: number }).live_total_seconds);
+            }
+        }
+    }, [meeting?.id, currentUserId, supabase, removedByModerator]);
+
+    useEffect(() => {
+        if (!hasJoinedMeeting || !meeting?.id || currentUserId.startsWith('guest-')) return;
+        sessionSegmentStartRef.current = Date.now();
     }, [hasJoinedMeeting, meeting?.id, currentUserId]);
+
+    useEffect(() => {
+        if (!hasJoinedMeeting || !meeting?.id || !currentUserId || currentUserId.startsWith('guest-')) return;
+        let cancelled = false;
+        void (async () => {
+            const { data } = await supabase
+                .from('meeting_participants')
+                .select('live_total_seconds')
+                .eq('meeting_id', meeting.id)
+                .eq('user_id', currentUserId)
+                .maybeSingle();
+            if (!cancelled && data && typeof (data as { live_total_seconds?: number }).live_total_seconds === 'number') {
+                setSelfLiveTotalFromDb((data as { live_total_seconds: number }).live_total_seconds);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [hasJoinedMeeting, meeting?.id, currentUserId, supabase]);
+
+    useEffect(() => {
+        if (!hasJoinedMeeting || removedByModerator) return;
+        const interval = setInterval(() => {
+            void flushLiveDwellToServer();
+        }, 45000);
+        return () => clearInterval(interval);
+    }, [hasJoinedMeeting, removedByModerator, flushLiveDwellToServer]);
+
+    const flushLiveDwellRef = useRef(flushLiveDwellToServer);
+    flushLiveDwellRef.current = flushLiveDwellToServer;
+    useEffect(
+        () => () => {
+            void flushLiveDwellRef.current();
+        },
+        [],
+    );
+
+    const othersPresentCount = useMemo(
+        () => participants.filter((p) => p.userId !== currentUserId).length,
+        [participants, currentUserId],
+    );
+
+    useEffect(() => {
+        if (!hasJoinedMeeting || removedByModerator) return;
+
+        const tick = () => {
+            const runStart = meetingSessionRunStartedRef.current;
+            const extra = runStart != null ? Math.floor((Date.now() - runStart) / 1000) : 0;
+            setMeetingSessionDisplaySec(meetingSessionPausedAccumRef.current + extra);
+        };
+
+        tick();
+        const interval = setInterval(tick, 1000);
+        return () => clearInterval(interval);
+    }, [hasJoinedMeeting, removedByModerator, othersPresentCount]);
+
+    useEffect(() => {
+        if (!hasJoinedMeeting || removedByModerator) return;
+        if (othersPresentCount === 0) {
+            const runStart = meetingSessionRunStartedRef.current;
+            if (runStart != null) {
+                meetingSessionPausedAccumRef.current += Math.floor((Date.now() - runStart) / 1000);
+                meetingSessionRunStartedRef.current = null;
+            }
+            return;
+        }
+        if (meetingSessionRunStartedRef.current === null) {
+            meetingSessionRunStartedRef.current = Date.now();
+        }
+    }, [hasJoinedMeeting, removedByModerator, othersPresentCount]);
+
+    useEffect(() => {
+        if (!removedByModerator) return;
+        const t = setTimeout(() => router.push('/dashboard/meetings'), 1600);
+        return () => clearTimeout(t);
+    }, [removedByModerator, router]);
 
     // Cleanup media on unmount
     useEffect(() => {
@@ -600,16 +750,46 @@ export default function MeetingRoomPage() {
             moderatorProfile?.role === 'super_admin' ||
             moderatorProfile?.role === 'secretary');
 
-    const canModerateAudio =
+    /** Mute/unmute all, kick, unmute one peer, save session time — creator, EC, or faculty only */
+    const canModerateMeetingRoom =
         !!meeting?.id &&
         !!currentUserId &&
         !currentUserId.startsWith('guest-') &&
-        (meeting?.created_by === currentUserId ||
-            !!moderatorProfile?.is_faculty ||
-            !!moderatorProfile?.is_admin ||
-            !!moderatorProfile?.executive_role ||
-            moderatorProfile?.role === 'super_admin' ||
-            moderatorProfile?.role === 'secretary');
+        (meeting?.created_by === currentUserId || profileIsEcOrFaculty(moderatorProfile));
+
+    useEffect(() => {
+        if (!meeting?.id || !hasJoinedMeeting || !canModerateMeetingRoom) {
+            setLiveSessionSaveGate('idle');
+            return;
+        }
+        let cancelled = false;
+        const refreshGate = async (showLoading: boolean) => {
+            if (showLoading) setLiveSessionSaveGate('loading');
+            const { data: rows, error } = await supabase
+                .from('meeting_attendance')
+                .select('submitted')
+                .eq('meeting_id', meeting.id);
+            if (cancelled) return;
+            if (error) {
+                console.warn('meeting_attendance gate read failed', error);
+                setLiveSessionSaveGate('allowed');
+                return;
+            }
+            const list = rows ?? [];
+            if (list.length === 0) {
+                setLiveSessionSaveGate('allowed');
+                return;
+            }
+            const allSubmitted = list.every((r: { submitted?: boolean | null }) => r.submitted === true);
+            setLiveSessionSaveGate(allSubmitted ? 'allowed' : 'blocked');
+        };
+        void refreshGate(true);
+        const t = setInterval(() => { void refreshGate(false); }, 20000);
+        return () => {
+            cancelled = true;
+            clearInterval(t);
+        };
+    }, [meeting?.id, hasJoinedMeeting, canModerateMeetingRoom, supabase]);
 
     const loadPendingRequests = useCallback(async () => {
         if (!meeting?.id || !canApproveRequests) return;
@@ -802,8 +982,8 @@ export default function MeetingRoomPage() {
         const run = async () => {
             const stream = await ensureLocalMedia();
             if (!stream) return;
-            if (isMuted && selfUnmuteLocked && !canModerateAudio) {
-                toast.error('A moderator has locked unmute. Please wait for "Allow unmute".');
+            if (isMuted && selfUnmuteLocked && !canModerateMeetingRoom) {
+                toast.error('A moderator has locked unmute. Wait for Unmute all or for a moderator to unmute you.');
                 return;
             }
             stream.getAudioTracks().forEach((track) => {
@@ -812,7 +992,7 @@ export default function MeetingRoomPage() {
             setIsMuted((prev) => !prev);
         };
         run();
-    }, [canModerateAudio, ensureLocalMedia, isMuted, selfUnmuteLocked]);
+    }, [canModerateMeetingRoom, ensureLocalMedia, isMuted, selfUnmuteLocked]);
 
     const reacquireAndBindCameraTrack = useCallback(
         async (stream: MediaStream) => {
@@ -1270,28 +1450,73 @@ export default function MeetingRoomPage() {
             onClick: () => { setIsApprovalsOpen((prev: boolean) => !prev); setIsChatOpen(false); setIsParticipantListOpen(false); },
             active: isApprovalsOpen,
         }] : []),
-        ...(canModerateAudio ? [
+        ...(canModerateMeetingRoom ? [
             {
                 icon: MicOff,
                 label: 'Mute All',
                 onClick: () => {
-                    sendRoomControl('mute-all');
-                    toast.success('Sent: mute all participants');
+                    const policy = meeting?.created_by === currentUserId ? 'creator' : 'ec_faculty';
+                    sendRoomControl('mute-all', undefined, { mutePolicy: policy });
+                    toast.success(
+                        policy === 'creator'
+                            ? 'Sent: mute (EC & faculty exempt)'
+                            : 'Sent: mute (meeting creator exempt)',
+                    );
                 },
                 active: false,
                 danger: true,
             },
             {
                 icon: Volume2,
-                label: 'Allow Unmute',
+                label: 'Unmute All',
                 onClick: () => {
                     sendRoomControl('allow-unmute');
-                    toast.success('Sent: participants can unmute');
+                    toast.success('Sent: everyone can unmute');
                 },
                 active: false,
             },
         ] : []),
     ];
+
+    const saveLiveSessionToMeeting = useCallback(async () => {
+        if (!meeting?.id || !canModerateMeetingRoom) return;
+        if (liveSessionSaveGate !== 'allowed') {
+            toast.error('Finalize attendance on the dashboard meeting page first, then save session time here.');
+            return;
+        }
+        setSavingLiveSession(true);
+        try {
+            const elapsed = meetingSessionDisplaySec;
+            const { error } = await (supabase as any).rpc('finalize_meeting_live_session', {
+                p_meeting_id: meeting.id,
+                p_elapsed_seconds: elapsed,
+            });
+            if (error) {
+                const msg = String((error as { message?: string }).message || '');
+                if (msg.includes('attendance_not_finalized')) {
+                    toast.error('Attendance must be finalized on the meeting page before saving session time.');
+                    setLiveSessionSaveGate('blocked');
+                    return;
+                }
+                throw error;
+            }
+            setMeeting((prev) =>
+                prev
+                    ? {
+                          ...prev,
+                          live_session_elapsed_seconds: elapsed,
+                          live_session_finalized_at: new Date().toISOString(),
+                      }
+                    : null,
+            );
+            toast.success('Saved active session time to this meeting (visible on the meeting page).');
+        } catch (e: unknown) {
+            const msg = e instanceof Error ? e.message : 'Could not save session time';
+            toast.error(msg);
+        } finally {
+            setSavingLiveSession(false);
+        }
+    }, [meeting?.id, canModerateMeetingRoom, meetingSessionDisplaySec, supabase, liveSessionSaveGate]);
 
     return (
         <div className="min-h-[100dvh] bg-[#050505] flex flex-col overflow-hidden relative">
@@ -1513,10 +1738,71 @@ export default function MeetingRoomPage() {
                                     uploadMeetingFile={uploadMeetingChatFile}
                                 />
                             ) : isParticipantListOpen ? (
-                                <ParticipantsPanel
-                                    participants={participants}
-                                    currentUserId={currentUserId}
-                                />
+                                <div className="flex-1 flex flex-col overflow-hidden min-h-0">
+                                    <div className="p-3 border-b border-white/5 space-y-2 shrink-0">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <p className="text-white/50 text-[10px] uppercase tracking-wide">Room session</p>
+                                            <div className="text-right">
+                                                {othersPresentCount === 0 ? (
+                                                    <span className="text-amber-200/90 text-[10px] font-semibold mr-2">Paused</span>
+                                                ) : null}
+                                                <span className="text-emerald-300 text-sm font-mono font-semibold tabular-nums">
+                                                    {formatDurationSeconds(meetingSessionDisplaySec)}
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <p className="text-white/35 text-[10px] leading-snug">
+                                            Time accrues while someone else is in the room; it pauses when you are the only one connected.
+                                        </p>
+                                        {canModerateMeetingRoom ? (
+                                            <>
+                                                {liveSessionSaveGate === 'blocked' ? (
+                                                    <p className="text-amber-200/85 text-[10px] leading-snug border border-amber-400/25 rounded-lg px-2 py-1.5 bg-amber-500/10">
+                                                        Finalize attendance on the dashboard meeting page first. This room will pick it up automatically (or refresh the page). Then you can save session time to the meeting record.
+                                                    </p>
+                                                ) : null}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => void saveLiveSessionToMeeting()}
+                                                    disabled={
+                                                        savingLiveSession ||
+                                                        liveSessionSaveGate === 'loading' ||
+                                                        liveSessionSaveGate === 'blocked'
+                                                    }
+                                                    className="w-full py-2 rounded-lg text-[11px] font-semibold bg-amber-500/20 text-amber-100 border border-amber-400/35 hover:bg-amber-500/30 disabled:opacity-50"
+                                                >
+                                                    {savingLiveSession
+                                                        ? 'Saving…'
+                                                        : liveSessionSaveGate === 'loading'
+                                                          ? 'Checking attendance…'
+                                                          : 'Save session time to meeting record'}
+                                                </button>
+                                            </>
+                                        ) : null}
+                                        {meeting?.live_session_finalized_at ? (
+                                            <p className="text-amber-100/60 text-[10px]">
+                                                A session duration was saved for this meeting (see meeting details).
+                                            </p>
+                                        ) : null}
+                                    </div>
+                                    <ParticipantsPanel
+                                        participants={participants}
+                                        currentUserId={currentUserId}
+                                        canModerateMeetingRoom={canModerateMeetingRoom}
+                                        meetingCreatorId={meeting?.created_by ?? null}
+                                        selfUnmuteLocked={selfUnmuteLocked}
+                                        selfLiveTotalFromDb={selfLiveTotalFromDb}
+                                        sessionSegmentStartMs={sessionSegmentStartRef.current}
+                                        onAllowUnmutePeer={(userId) => {
+                                            sendRoomControl('allow-unmute-peer', userId);
+                                            toast.success('Sent unmute to participant');
+                                        }}
+                                        onKickPeer={(userId) => {
+                                            sendRoomControl('kick-peer', userId);
+                                            toast.success('Removal sent');
+                                        }}
+                                    />
+                                </div>
                             ) : isApprovalsOpen ? (
                                 <ApprovalsPanel
                                     pendingRequests={pendingRequests}
@@ -1551,10 +1837,25 @@ export default function MeetingRoomPage() {
                                     }}
                                 />
                             ) : (
-                                <ParticipantsPanel
-                                    participants={participants}
-                                    currentUserId={currentUserId}
-                                />
+                                <div className="flex-1 flex flex-col overflow-hidden min-h-0">
+                                    <ParticipantsPanel
+                                        participants={participants}
+                                        currentUserId={currentUserId}
+                                        canModerateMeetingRoom={canModerateMeetingRoom}
+                                        meetingCreatorId={meeting?.created_by ?? null}
+                                        selfUnmuteLocked={selfUnmuteLocked}
+                                        selfLiveTotalFromDb={selfLiveTotalFromDb}
+                                        sessionSegmentStartMs={sessionSegmentStartRef.current}
+                                        onAllowUnmutePeer={(userId) => {
+                                            sendRoomControl('allow-unmute-peer', userId);
+                                            toast.success('Sent unmute to participant');
+                                        }}
+                                        onKickPeer={(userId) => {
+                                            sendRoomControl('kick-peer', userId);
+                                            toast.success('Removal sent');
+                                        }}
+                                    />
+                                </div>
                             )}
                         </motion.div>
                     )}
@@ -2149,22 +2450,42 @@ function ChatPanel({
 function ParticipantsPanel({
     participants,
     currentUserId,
+    canModerateMeetingRoom = false,
+    meetingCreatorId = null,
+    selfUnmuteLocked = false,
+    selfLiveTotalFromDb = 0,
+    sessionSegmentStartMs = Date.now(),
+    onAllowUnmutePeer,
+    onKickPeer,
 }: {
     participants: RoomParticipant[];
     currentUserId: string;
+    canModerateMeetingRoom?: boolean;
+    meetingCreatorId?: string | null;
+    selfUnmuteLocked?: boolean;
+    selfLiveTotalFromDb?: number;
+    sessionSegmentStartMs?: number;
+    onAllowUnmutePeer?: (userId: string) => void;
+    onKickPeer?: (userId: string) => void;
 }) {
-    // Sort: current user first, then alphabetical
     const sorted = [...participants].sort((a, b) => {
         if (a.userId === currentUserId) return -1;
         if (b.userId === currentUserId) return 1;
         return a.userName.localeCompare(b.userName);
     });
 
+    const now = Date.now();
+
     return (
-        <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex-1 flex flex-col overflow-hidden min-h-0">
+            {canModerateMeetingRoom ? (
+                <p className="text-white/35 text-[10px] px-3 pt-2 pb-1 leading-snug shrink-0 border-b border-white/5">
+                    Mic: allow this person to unmute. Kick: remove from room (not shown for the meeting creator).
+                </p>
+            ) : null}
             <div className="flex-1 overflow-y-auto p-3 space-y-1">
                 {sorted.length === 0 && (
-                    <div className="flex-1 flex items-center justify-center h-full">
+                    <div className="flex-1 flex items-center justify-center h-full min-h-[120px]">
                         <p className="text-white/30 text-xs text-center">
                             No participants connected yet
                         </p>
@@ -2172,6 +2493,7 @@ function ParticipantsPanel({
                 )}
                 {sorted.map((p) => {
                     const isYou = p.userId === currentUserId;
+                    const peerIsMeetingCreator = Boolean(meetingCreatorId && p.userId === meetingCreatorId);
                     const initials = p.userName
                         .split(' ')
                         .map((w) => w[0])
@@ -2179,12 +2501,19 @@ function ParticipantsPanel({
                         .toUpperCase()
                         .slice(0, 2);
 
+                    let dwellSec = 0;
+                    if (isYou) {
+                        dwellSec = selfLiveTotalFromDb + Math.max(0, (now - sessionSegmentStartMs) / 1000);
+                    } else {
+                        const t = Date.parse(p.joinedAt);
+                        dwellSec = Number.isNaN(t) ? 0 : Math.max(0, (now - t) / 1000);
+                    }
+
                     return (
                         <div
                             key={p.userId}
-                            className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-white/5 transition-colors"
+                            className="flex items-center gap-2 px-2 py-2 rounded-xl hover:bg-white/5 transition-colors"
                         >
-                            {/* Avatar */}
                             <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${p.userRole === 'Guest' ? 'bg-gradient-to-br from-gray-500 to-gray-600' :
                                 p.userRole === 'Executive' ? 'bg-gradient-to-br from-yellow-400 to-amber-600' :
                                     p.userRole === 'Faculty' ? 'bg-gradient-to-br from-amber-500 to-orange-600' :
@@ -2196,7 +2525,6 @@ function ParticipantsPanel({
                                 }`}>
                                 <span className="text-white text-[10px] font-bold">{initials}</span>
                             </div>
-                            {/* Name + role badge */}
                             <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-1.5 flex-wrap">
                                     <p className="text-white text-xs font-medium truncate">
@@ -2222,9 +2550,38 @@ function ParticipantsPanel({
                                         </span>
                                     )}
                                 </div>
+                                <p className="text-white/40 text-[10px] mt-0.5 tabular-nums">
+                                    In room this visit: {formatDurationSeconds(dwellSec)}
+                                    {isYou && selfUnmuteLocked ? (
+                                        <span className="text-amber-200/80 ml-1">· mic locked</span>
+                                    ) : null}
+                                </p>
                             </div>
-                            {/* Online indicator */}
-                            <div className="w-2 h-2 rounded-full bg-emerald-400 flex-shrink-0" />
+                            <div className="flex items-center gap-1 shrink-0">
+                                {canModerateMeetingRoom && !isYou ? (
+                                    <>
+                                        <button
+                                            type="button"
+                                            title="Allow this person to unmute"
+                                            onClick={() => onAllowUnmutePeer?.(p.userId)}
+                                            className="p-1.5 rounded-lg bg-white/10 text-emerald-200 hover:bg-white/15"
+                                        >
+                                            <Mic className="w-3.5 h-3.5" />
+                                        </button>
+                                        {!peerIsMeetingCreator ? (
+                                            <button
+                                                type="button"
+                                                title="Kick — remove from meeting"
+                                                onClick={() => onKickPeer?.(p.userId)}
+                                                className="p-1.5 rounded-lg bg-red-500/20 text-red-300 hover:bg-red-500/30"
+                                            >
+                                                <UserMinus className="w-3.5 h-3.5" />
+                                            </button>
+                                        ) : null}
+                                    </>
+                                ) : null}
+                                <div className="w-2 h-2 rounded-full bg-emerald-400 flex-shrink-0" />
+                            </div>
                         </div>
                     );
                 })}

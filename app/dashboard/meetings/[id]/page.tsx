@@ -13,6 +13,16 @@ import { isAttendanceManager } from '@/lib/attendance-helpers';
 import AttendanceSection from '@/components/attendance/AttendanceSection';
 import MeetingMinutes from '@/components/MeetingMinutes';
 
+function formatLiveSeconds(sec: number) {
+    const s = Math.max(0, Math.floor(sec));
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const r = s % 60;
+    if (h > 0) return `${h}h ${m}m ${r}s`;
+    if (m > 0) return `${m}m ${r}s`;
+    return `${r}s`;
+}
+
 export default function MeetingDetailPage() {
     const [meeting, setMeeting] = useState<any>(null);
     const [participants, setParticipants] = useState<any[]>([]);
@@ -69,43 +79,58 @@ export default function MeetingDetailPage() {
             // Meeting creator can also manage attendance
             setIsManager(manager || meetingData.created_by === user.id);
 
-            // Fetch participants — try meeting_participants table first, fall back to participants UUID array
-            let participantProfiles: any[] = [];
+            // Base invitee list (do not replace with only meeting_participants — that hid everyone who had not joined yet)
+            let baseProfiles: any[] = [];
 
-            const { data: participantData } = await (supabase as any)
-                .from('meeting_participants')
-                .select('user_id, profiles:user_id(id, name, email, role, executive_role, is_faculty, is_admin)')
-                .eq('meeting_id', params.id);
-
-            if (participantData && participantData.length > 0) {
-                participantProfiles = participantData.map((p: any) => p.profiles).filter(Boolean);
-            } else if (meetingData.participants && meetingData.participants.length > 0) {
-                // Fall back to participants UUID array on the meetings table
+            if (meetingData.participants && meetingData.participants.length > 0) {
                 const { data: profilesData } = await (supabase as any)
                     .from('profiles')
                     .select('id, name, email, role, executive_role, is_faculty, is_admin')
                     .in('id', meetingData.participants);
-                participantProfiles = profilesData || [];
-            }
-
-            // If still empty, get all committee members for the meeting's committee
-            if (participantProfiles.length === 0 && meetingData.committee_id) {
+                baseProfiles = profilesData || [];
+            } else if (meetingData.committee_id) {
                 const { data: cmMembers } = await (supabase as any)
                     .from('committee_members')
                     .select('profiles:user_id(id, name, email, role, executive_role, is_faculty, is_admin)')
                     .eq('committee_id', meetingData.committee_id);
-                participantProfiles = (cmMembers || []).map((m: any) => m.profiles).filter(Boolean);
-            }
-
-            // For all-members/general meetings, ensure we still have people to mark attendance
-            if (participantProfiles.length === 0 && ['all_members', 'general'].includes(String(meetingData.audience_type || ''))) {
+                baseProfiles = (cmMembers || []).map((m: any) => m.profiles).filter(Boolean);
+            } else if (['all_members', 'general'].includes(String(meetingData.audience_type || ''))) {
                 const { data: fallbackProfiles } = await (supabase as any)
                     .from('profiles')
                     .select('id, name, email, role, executive_role, is_faculty, is_admin')
                     .order('name', { ascending: true })
                     .limit(200);
-                participantProfiles = fallbackProfiles || [];
+                baseProfiles = fallbackProfiles || [];
             }
+
+            const { data: mpRows } = await (supabase as any)
+                .from('meeting_participants')
+                .select(
+                    'user_id, live_total_seconds, live_last_seen_at, profiles:user_id(id, name, email, role, executive_role, is_faculty, is_admin)',
+                )
+                .eq('meeting_id', params.id);
+
+            const byId = new Map<string, any>();
+            for (const p of baseProfiles) {
+                if (p?.id) byId.set(p.id, { ...p });
+            }
+
+            for (const row of mpRows || []) {
+                const uid = String(row.user_id || '');
+                const prof = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles;
+                const liveExtra = {
+                    live_total_seconds: typeof row.live_total_seconds === 'number' ? row.live_total_seconds : 0,
+                    live_last_seen_at: row.live_last_seen_at ?? null,
+                    joined_portal_room: true,
+                };
+                if (uid && byId.has(uid)) {
+                    byId.set(uid, { ...byId.get(uid), ...liveExtra });
+                } else if (prof?.id) {
+                    byId.set(prof.id, { ...prof, ...liveExtra });
+                }
+            }
+
+            let participantProfiles = Array.from(byId.values());
 
             // Fetch attendance records
             const { data: attendanceData } = await (supabase as any)
@@ -269,6 +294,29 @@ export default function MeetingDetailPage() {
                                 </div>
                             </div>
                         )}
+
+                        {isOnline &&
+                            meeting.live_session_elapsed_seconds != null &&
+                            meeting.live_session_elapsed_seconds >= 0 && (
+                                <div className="flex items-center gap-3 p-3 bg-violet-50/80 rounded-xl border border-violet-100 sm:col-span-2">
+                                    <Clock className="w-4 h-4 text-violet-600 flex-shrink-0" />
+                                    <div>
+                                        <p className="text-xs text-violet-600/90">Saved portal session time</p>
+                                        <p className="text-sm font-semibold text-violet-900">
+                                            {formatLiveSeconds(meeting.live_session_elapsed_seconds)}
+                                        </p>
+                                        {meeting.live_session_finalized_at && (
+                                            <p className="text-[11px] text-violet-700/70 mt-0.5">
+                                                Recorded{' '}
+                                                {new Date(meeting.live_session_finalized_at).toLocaleString('en-IN', {
+                                                    dateStyle: 'medium',
+                                                    timeStyle: 'short',
+                                                })}
+                                            </p>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
 
                         {!isOnline && meeting.location && (
                             <div className="flex items-center gap-3 p-3 bg-white/50 rounded-xl">

@@ -4,6 +4,15 @@ import { useState, useMemo } from 'react';
 import { Loader2, CheckCircle2, Send } from 'lucide-react';
 import toast from 'react-hot-toast';
 
+function formatPortalDwell(sec: number) {
+    const s = Math.max(0, Math.floor(sec));
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const r = s % 60;
+    if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(r).padStart(2, '0')}`;
+    return `${m}:${String(r).padStart(2, '0')}`;
+}
+
 interface OnlineAttendanceViewProps {
     meetingId: string;
     participants: any[];
@@ -75,7 +84,10 @@ export default function OnlineAttendanceView({
                 const data = await res.json();
                 throw new Error(data.error || 'Failed to finalize attendance');
             }
-            toast.success('Attendance finalized');
+            toast.success(
+                'Attendance finalized. Moderators in the portal room can now save session time to this meeting.',
+                { duration: 5000 },
+            );
             setFinalized(true);
             onRefresh();
         } catch (err: any) {
@@ -109,6 +121,26 @@ export default function OnlineAttendanceView({
                                     <p className="text-sm font-medium text-gray-800 truncate">{p.name}</p>
                                     {p.committeeName && (
                                         <p className="text-xs text-gray-400 truncate">{p.committeeName}</p>
+                                    )}
+                                    {p.joined_portal_room || (p.live_total_seconds ?? 0) > 0 ? (
+                                        <p className="text-[11px] text-indigo-600 mt-0.5">
+                                            Portal room:{' '}
+                                            {(p.live_total_seconds ?? 0) > 0
+                                                ? `~${formatPortalDwell(p.live_total_seconds)} total`
+                                                : 'joined'}
+                                            {p.live_last_seen_at ? (
+                                                <span className="text-gray-400 font-normal">
+                                                    {' '}
+                                                    · last seen{' '}
+                                                    {new Date(p.live_last_seen_at).toLocaleString('en-IN', {
+                                                        dateStyle: 'short',
+                                                        timeStyle: 'short',
+                                                    })}
+                                                </span>
+                                            ) : null}
+                                        </p>
+                                    ) : (
+                                        <p className="text-[11px] text-gray-400 mt-0.5">Not recorded in portal room yet</p>
                                     )}
                                 </div>
                                 <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${isPresent ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-500'

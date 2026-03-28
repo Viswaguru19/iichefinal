@@ -34,11 +34,22 @@ export type SendChatPayload =
           fileName: string;
       };
 export interface RoomParticipant { userId: string; userName: string; userRole?: string | null; joinedAt: string; }
+export type RoomControlAction = 'mute-all' | 'allow-unmute' | 'allow-unmute-peer' | 'kick-peer';
+/** Who sent mute-all: creator spares EC/faculty; EC/faculty spares meeting creator. */
+export type MuteAllPolicy = 'creator' | 'ec_faculty';
 export interface RoomControlPayload {
-    action: 'mute-all' | 'allow-unmute';
+    action: RoomControlAction;
     senderId: string;
     senderName: string;
     timestamp: string;
+    /** For allow-unmute-peer and kick-peer */
+    targetUserId?: string;
+    /** mute-all: receiver uses this to decide exemptions */
+    mutePolicy?: MuteAllPolicy;
+}
+
+export interface SendRoomControlOptions {
+    mutePolicy?: MuteAllPolicy;
 }
 
 interface UseWebRTCOptions {
@@ -349,17 +360,20 @@ export function useWebRTC({
         setChatMessages(prev => [...prev, chatMsg]);
     }, []);
 
-    const sendRoomControl = useCallback((action: RoomControlPayload['action']) => {
+    const sendRoomControl = useCallback((action: RoomControlAction, targetUserId?: string, opts?: SendRoomControlOptions) => {
         if (!channelRef.current) return;
+        const payload: RoomControlPayload = {
+            action,
+            senderId: userIdRef.current,
+            senderName: userNameRef.current,
+            timestamp: new Date().toISOString(),
+        };
+        if (targetUserId) payload.targetUserId = targetUserId;
+        if (opts?.mutePolicy) payload.mutePolicy = opts.mutePolicy;
         channelRef.current.send({
             type: 'broadcast',
             event: 'room-control',
-            payload: {
-                action,
-                senderId: userIdRef.current,
-                senderName: userNameRef.current,
-                timestamp: new Date().toISOString(),
-            } as RoomControlPayload,
+            payload,
         });
     }, []);
 

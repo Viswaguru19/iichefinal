@@ -1,6 +1,12 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
+type ProfileGate = {
+  hiring_portal_only?: boolean | null;
+  approved?: boolean | null;
+  role?: string | null;
+};
+
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({
     request: {
@@ -61,15 +67,41 @@ export async function middleware(request: NextRequest) {
 
     const { data: { user } } = await supabase.auth.getUser();
 
-    // Hiring-only applicants: no access to main dashboard (committee hiring UI is for full accounts only)
+    // /account-pending: only for logged-in users who are not yet approved
+    if (request.nextUrl.pathname.startsWith('/account-pending')) {
+      if (!user) {
+        return NextResponse.redirect(new URL('/login', request.url));
+      }
+      const { data: prof } = await supabase
+        .from('profiles')
+        .select('hiring_portal_only, approved, role')
+        .eq('id', user.id)
+        .maybeSingle();
+      const p = prof as ProfileGate | null;
+      if (p?.hiring_portal_only) {
+        return NextResponse.redirect(new URL('/hiring/portal', request.url));
+      }
+      if (p?.role === 'super_admin' || p?.approved === true) {
+        return NextResponse.redirect(new URL('/dashboard', request.url));
+      }
+    }
+
+    // Hiring-only + approval gate for main dashboard
     if (user && request.nextUrl.pathname.startsWith('/dashboard')) {
       const { data: prof } = await supabase
         .from('profiles')
-        .select('hiring_portal_only')
+        .select('hiring_portal_only, approved, role')
         .eq('id', user.id)
         .maybeSingle();
-      if ((prof as { hiring_portal_only?: boolean } | null)?.hiring_portal_only) {
+      const p = prof as ProfileGate | null;
+      if (p?.hiring_portal_only) {
         return NextResponse.redirect(new URL('/hiring/portal', request.url));
+      }
+      const canUseDashboard =
+        p?.role === 'super_admin' ||
+        p?.approved === true;
+      if (!canUseDashboard) {
+        return NextResponse.redirect(new URL('/account-pending', request.url));
       }
     }
 
@@ -81,17 +113,22 @@ export async function middleware(request: NextRequest) {
       }
     }
 
-    // Redirect to dashboard if already logged in and trying to access login
+    // Redirect if already logged in and trying to access login
     if (request.nextUrl.pathname === '/login' && user) {
       const { data: prof } = await supabase
         .from('profiles')
-        .select('hiring_portal_only')
+        .select('hiring_portal_only, approved, role')
         .eq('id', user.id)
         .maybeSingle();
-      const hiringOnly = (prof as { hiring_portal_only?: boolean } | null)?.hiring_portal_only;
-      return NextResponse.redirect(
-        new URL(hiringOnly ? '/hiring/portal' : '/dashboard', request.url),
-      );
+      const p = prof as ProfileGate | null;
+      if (p?.hiring_portal_only) {
+        return NextResponse.redirect(new URL('/hiring/portal', request.url));
+      }
+      const dest =
+        p?.role === 'super_admin' || p?.approved === true
+          ? '/dashboard'
+          : '/account-pending';
+      return NextResponse.redirect(new URL(dest, request.url));
     }
 
     return response;

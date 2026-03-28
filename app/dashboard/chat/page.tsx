@@ -102,6 +102,11 @@ export default function ChatPage() {
     });
     setAllUsers(usersWithAvatars);
 
+    const { error: ensureErr } = await supabase.rpc('ensure_default_chat_memberships');
+    if (ensureErr) {
+      console.warn('ensure_default_chat_memberships:', ensureErr.message);
+    }
+
     await loadChats(user.id);
     setLoading(false);
     setupRealtime(user.id);
@@ -155,7 +160,10 @@ export default function ChatPage() {
         });
       }
     });
-    const directChats = Array.from(convos.values()).map(c => ({ ...c, unreadCount: unread[c.id] || 0 }));
+    // Drop DMs where the other person no longer has a profile (deleted / invalid user)
+    const directChats = Array.from(convos.values())
+      .filter((c) => Boolean(profileMap[c.id]))
+      .map((c) => ({ ...c, unreadCount: unread[c.id] || 0 }));
 
     // All groups the user is in (committee, system, custom) via chat_participants
     const { data: participantRows, error: partErr } = await supabase
@@ -223,9 +231,15 @@ export default function ChatPage() {
       const activeType = activeChat?.type;
       if (activeId && activeType && !newChats.find((c) => c.id === activeId && c.type === activeType)) {
         const existing = prev.find((c) => c.id === activeId && c.type === activeType);
-        if (existing) newChats.unshift(existing);
+        const orphanDirect = existing?.type === 'direct' && !profileMap[activeId];
+        if (existing && !orphanDirect) newChats.unshift(existing);
       }
       return newChats;
+    });
+
+    setActiveChat((prev) => {
+      if (prev?.type === 'direct' && !profileMap[prev.id]) return null;
+      return prev;
     });
   }
 

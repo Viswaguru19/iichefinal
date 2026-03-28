@@ -22,25 +22,54 @@ export default function SignupPage() {
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email,
         password,
+        options: {
+          data: {
+            name,
+            username,
+            hiring_signup: 'false',
+          },
+        },
       });
 
       if (authError) throw authError;
 
       if (authData.user) {
-        const { error: profileError } = await (supabase as any)
+        // handle_new_user may have already inserted the profile — avoid duplicate key errors
+        const { data: existing } = await supabase
           .from('profiles')
-          .insert({
-            id: authData.user.id,
-            name,
-            email,
-            username,
-            role: 'student',
-            approved: false,
-          });
+          .select('id')
+          .eq('id', authData.user.id)
+          .maybeSingle();
 
-        if (profileError) throw profileError;
+        if (existing) {
+          const { error: updErr } = await (supabase as any)
+            .from('profiles')
+            .update({
+              name,
+              email,
+              username,
+              role: 'student',
+              approved: false,
+            })
+            .eq('id', authData.user.id);
+          if (updErr) throw updErr;
+        } else {
+          const { error: insErr } = await (supabase as any)
+            .from('profiles')
+            .insert({
+              id: authData.user.id,
+              name,
+              email,
+              username,
+              role: 'student',
+              approved: false,
+            });
+          if (insErr) throw insErr;
+        }
 
-        alert('Signup successful! Please wait for admin approval.');
+        alert(
+          'Signup successful! Please wait for admin approval before using the dashboard. You can sign in after approval.',
+        );
         router.push('/login');
       }
     } catch (error: any) {
