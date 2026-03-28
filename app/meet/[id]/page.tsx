@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 import { createClient } from '@/lib/supabase/client';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { checkMeetingAccess } from '@/lib/meeting-access';
 import toast from 'react-hot-toast';
 import {
@@ -58,6 +59,84 @@ function guestSessionStorageKey(roomId: string) {
     return `avvu_meet_guest_${roomId}`;
 }
 
+function initialsFromDisplayName(name: string) {
+    const parts = name.trim().split(/\s+/).filter(Boolean);
+    if (parts.length === 0) return '?';
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+/** Align presence / DB role strings with on-tile badges (Executive, Faculty, Head, Co-Head, Admin). */
+function normalizeMeetingRoleLabel(raw: string | null | undefined): string | null {
+    if (raw == null || !String(raw).trim()) return null;
+    const s = String(raw).trim();
+    const lower = s.toLowerCase().replace(/_/g, ' ');
+    if (lower === 'guest') return 'Guest';
+    if (lower === 'executive' || lower.includes('executive')) return 'Executive';
+    if (lower === 'faculty' || lower.includes('faculty')) return 'Faculty';
+    if (lower === 'co head' || lower === 'cohead' || lower === 'co-head') return 'Co-Head';
+    if (lower === 'head') return 'Head';
+    if (lower.includes('admin') || lower === 'super admin') return 'Admin';
+    return s;
+}
+
+function resolveProfileAvatarPublicUrl(supabase: SupabaseClient, avatarPath: string | null | undefined): string | null {
+    if (avatarPath == null || !String(avatarPath).trim()) return null;
+    const p = String(avatarPath).trim();
+    if (p.startsWith('http')) return p;
+    const { data } = supabase.storage.from('avatars').getPublicUrl(p);
+    return data.publicUrl;
+}
+
+/** Shown when camera is off: portal profile photo when available, else initials from name (guests use a neutral ring). */
+function CameraOffAvatar({
+    name,
+    profileImageUrl,
+    compact,
+    isGuest,
+    showCameraOffBadge = true,
+}: {
+    name: string;
+    profileImageUrl: string | null;
+    compact?: boolean;
+    isGuest: boolean;
+    showCameraOffBadge?: boolean;
+}) {
+    const [imgFailed, setImgFailed] = useState(false);
+    useEffect(() => {
+        setImgFailed(false);
+    }, [profileImageUrl]);
+    const showImg = Boolean(profileImageUrl && !imgFailed);
+    const outer = compact ? 'w-11 h-11' : 'w-24 h-24';
+    const textSize = compact ? 'text-[11px]' : 'text-2xl';
+    const ring = compact ? 'ring-2 ring-white/15' : 'ring-2 ring-white/15 shadow-lg';
+    const fallbackGradient = isGuest ? 'from-gray-600 to-gray-800' : 'from-slate-600 to-slate-800';
+    const cornerWrap = compact ? 'w-5 h-5 -bottom-0.5 -right-0.5 border border-white/25' : 'w-10 h-10 -bottom-1 -right-1 border-2 border-white/20';
+    const cornerIcon = compact ? 'w-2.5 h-2.5' : 'w-5 h-5';
+
+    return (
+        <div className={`relative shrink-0 ${compact ? 'mb-0.5' : ''}`}>
+            <div className={`${outer} rounded-full overflow-hidden flex items-center justify-center bg-gradient-to-br ${fallbackGradient} ${ring}`}>
+                {showImg ? (
+                    <img
+                        src={profileImageUrl!}
+                        alt=""
+                        className="w-full h-full object-cover"
+                        onError={() => setImgFailed(true)}
+                    />
+                ) : (
+                    <span className={`${textSize} font-bold text-white/95 tracking-tight`}>{initialsFromDisplayName(name)}</span>
+                )}
+            </div>
+            {showCameraOffBadge ? (
+                <div className={`absolute ${cornerWrap} rounded-full bg-slate-950 flex items-center justify-center shadow-md`}>
+                    <VideoOff className={`${cornerIcon} text-amber-200`} />
+                </div>
+            ) : null}
+        </div>
+    );
+}
+
 export default function MeetingRoomPage() {
     const params = useParams();
     const router = useRouter();
@@ -72,6 +151,8 @@ export default function MeetingRoomPage() {
     const [currentUserId, setCurrentUserId] = useState<string>('');
     const [currentUserName, setCurrentUserName] = useState<string>('');
     const [currentUserRole, setCurrentUserRole] = useState<string | null>(null);
+    /** Resolved public URL from `profiles.avatar_url` for the signed-in user (not guests). */
+    const [localProfileAvatarUrl, setLocalProfileAvatarUrl] = useState<string | null>(null);
     /** Loaded for signed-in portal users — used to show Approvals tab (not derived from presence label). */
     const [moderatorProfile, setModeratorProfile] = useState<{
         role: string | null;
@@ -153,6 +234,14 @@ export default function MeetingRoomPage() {
         [supabase],
     );
 
+    useEffect(() => {
+        if (!currentUserId) {
+            setLocalProfileAvatarUrl(null);
+            return;
+        }
+        if (currentUserId.startsWith('guest-')) setLocalProfileAvatarUrl(null);
+    }, [currentUserId]);
+
     // WebRTC peer connections
     const { peers, participants, chatMessages, sendChatMessage, replaceVideoTrack, sendRoomControl } = useWebRTC({
         supabase,
@@ -177,11 +266,77 @@ export default function MeetingRoomPage() {
         },
     });
 
-    const presenceRoleByUserId = useMemo(() => {
+    const participantsRoleKey = useMemo(
+        () => participants.map((p) => `${p.userId}:${p.userRole ?? ''}`).join('|'),
+        [participants],
+    );
+
+    const [peerRoleFallback, setPeerRoleFallback] = useState<Record<string, string | null>>({});
+    const [peerAvatarUrls, setPeerAvatarUrls] = useState<Record<string, string | null>>({});
+
+    const portalParticipantIdsKey = useMemo(
+        () =>
+            [...new Set(participants.filter((p) => p.userId && !p.userId.startsWith('guest-')).map((p) => p.userId))].sort().join(','),
+        [participants],
+    );
+
+    useEffect(() => {
+        let cancelled = false;
+        if (!portalParticipantIdsKey) {
+            setPeerAvatarUrls({});
+            return;
+        }
+        const ids = portalParticipantIdsKey.split(',').filter(Boolean);
+        if (ids.length === 0) {
+            setPeerAvatarUrls({});
+            return;
+        }
+        void (async () => {
+            const { data, error } = await supabase.from('profiles').select('id, avatar_url').in('id', ids);
+            if (cancelled || error) return;
+            const next: Record<string, string | null> = {};
+            for (const id of ids) next[id] = null;
+            for (const row of data || []) {
+                next[row.id] = resolveProfileAvatarPublicUrl(supabase, row.avatar_url);
+            }
+            if (!cancelled) setPeerAvatarUrls(next);
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [portalParticipantIdsKey, supabase]);
+
+    useEffect(() => {
+        let cancelled = false;
+        const need = participants.filter(
+            (p) => p.userId && !p.userId.startsWith('guest-') && !(p.userRole && String(p.userRole).trim()),
+        );
+        const ids = [...new Set(need.map((p) => p.userId))];
+        if (ids.length === 0) return;
+        void (async () => {
+            const results = await Promise.all(ids.map(async (id) => [id, await resolvePortalPresenceRole(id)] as const));
+            if (cancelled) return;
+            setPeerRoleFallback((prev) => {
+                const next = { ...prev };
+                for (const [id, role] of results) {
+                    if (next[id] === undefined) next[id] = role;
+                }
+                return next;
+            });
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [participantsRoleKey, resolvePortalPresenceRole]);
+
+    const peerRawRoleByUserId = useMemo(() => {
         const m = new Map<string, string | null | undefined>();
-        for (const p of participants) m.set(p.userId, p.userRole);
+        for (const p of participants) {
+            const fromPresence = p.userRole && String(p.userRole).trim() ? p.userRole : peerRoleFallback[p.userId];
+            m.set(p.userId, fromPresence ?? null);
+        }
         return m;
-    }, [participants]);
+    }, [participants, peerRoleFallback]);
 
     const uploadMeetingChatFile = useCallback(
         async (file: File) => {
@@ -223,10 +378,11 @@ export default function MeetingRoomPage() {
                     if (accessResult.userId) {
                         const { data: profile } = await supabase
                             .from('profiles')
-                            .select('name')
+                            .select('name, avatar_url')
                             .eq('id', accessResult.userId)
                             .single();
                         setCurrentUserName(profile?.name || 'Member');
+                        setLocalProfileAvatarUrl(resolveProfileAvatarPublicUrl(supabase, profile?.avatar_url));
                     }
                     setLoading(false);
                     return;
@@ -320,11 +476,12 @@ export default function MeetingRoomPage() {
                 // 5. Fetch user profile name
                 const { data: profile } = await supabase
                     .from('profiles')
-                    .select('name')
+                    .select('name, avatar_url')
                     .eq('id', accessResult.userId)
                     .single();
                 if (!cancelled) {
                     setCurrentUserName(profile?.name || 'Anonymous');
+                    setLocalProfileAvatarUrl(resolveProfileAvatarPublicUrl(supabase, profile?.avatar_url));
                 }
 
                 // 6. Request camera/mic permissions
@@ -517,11 +674,12 @@ export default function MeetingRoomPage() {
                 }
                 const { data: profile } = await supabase
                     .from('profiles')
-                    .select('name')
+                    .select('name, avatar_url')
                     .eq('id', next.userId)
                     .single();
                 if (!cancelled) {
                     setCurrentUserName(profile?.name || 'Member');
+                    setLocalProfileAvatarUrl(resolveProfileAvatarPublicUrl(supabase, profile?.avatar_url));
                 }
                 try {
                     const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
@@ -1003,7 +1161,22 @@ export default function MeetingRoomPage() {
                     </div>
                     <div className="grid grid-cols-1 lg:grid-cols-[1.5fr_1fr] gap-4">
                         <div className="relative rounded-xl overflow-hidden bg-black/40 border border-amber-200/20 aspect-video">
-                            {localStream && !isCameraOff ? <video ref={preJoinVideoRef} autoPlay playsInline muted className="w-full h-full object-cover" /> : <div className="w-full h-full flex flex-col items-center justify-center gap-3"><VideoOff className="w-8 h-8 text-white/60" /><p className="text-white/50 text-sm">{isCameraOff ? 'Camera off' : 'No camera preview'}</p></div>}
+                            {localStream && !isCameraOff ? (
+                                <video ref={preJoinVideoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
+                            ) : (
+                                <div className="w-full h-full flex flex-col items-center justify-center gap-3 bg-gradient-to-b from-slate-900/90 to-black/90">
+                                    <CameraOffAvatar
+                                        name={currentUserName || 'You'}
+                                        profileImageUrl={localProfileAvatarUrl ?? peerAvatarUrls[currentUserId] ?? null}
+                                        isGuest={currentUserId.startsWith('guest-')}
+                                        showCameraOffBadge={false}
+                                    />
+                                    {currentUserId ? (
+                                        <RemoteVideoRoleBadge peerId={currentUserId} userRole={currentUserRole} />
+                                    ) : null}
+                                    <p className="text-white/50 text-sm">{isCameraOff ? 'Camera off' : 'No camera preview'}</p>
+                                </div>
+                            )}
                         </div>
                         <div className="rounded-xl border border-amber-200/20 bg-gradient-to-b from-zinc-900/70 to-black/60 p-4 space-y-4">
                             <div>
@@ -1168,12 +1341,32 @@ export default function MeetingRoomPage() {
                 >
                     <div className={`w-full h-full ${pinnedPeerId ? 'flex flex-col gap-3' : `grid gap-3 ${peers.size === 0 ? 'grid-cols-1' : peers.size <= 1 ? 'grid-cols-1 md:grid-cols-2' : peers.size <= 3 ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1 sm:grid-cols-2 md:grid-cols-3'}`}`}>
                         {pinnedPeerId && pinnedPeerId !== 'local' && peers.has(pinnedPeerId) && (
-                            <div className="flex-1 min-h-0"><RemoteVideo peer={peers.get(pinnedPeerId)!} peerId={pinnedPeerId} presenceRole={presenceRoleByUserId.get(pinnedPeerId)} isPinned={true} onPin={() => setPinnedPeerId(null)} /></div>
+                            <div className="flex-1 min-h-0">
+                                <RemoteVideo
+                                    peer={peers.get(pinnedPeerId)!}
+                                    peerId={pinnedPeerId}
+                                    presenceRole={peerRawRoleByUserId.get(pinnedPeerId)}
+                                    profileAvatarUrl={peerAvatarUrls[pinnedPeerId] ?? null}
+                                    isPinned={true}
+                                    onPin={() => setPinnedPeerId(null)}
+                                />
+                            </div>
                         )}
                         {pinnedPeerId === 'local' && (
                             <div className="flex-1 min-h-0 relative rounded-2xl overflow-hidden bg-slate-900/80 border border-white/5">
-                                <LocalVideoTile key={`lv-${localVideoRenderKey}`} stream={localPreviewStream || localStream} isCameraOff={isCameraOff} isScreenSharing={isScreenSharing} />
-                                <div className="absolute bottom-3 left-3 glass-dark rounded-lg px-3 py-1.5"><p className="text-white text-xs font-medium">You (Pinned)</p></div>
+                                <LocalVideoTile
+                                    key={`lv-${localVideoRenderKey}`}
+                                    stream={localPreviewStream || localStream}
+                                    isCameraOff={isCameraOff}
+                                    isScreenSharing={isScreenSharing}
+                                    displayName={currentUserName || 'You'}
+                                    profileAvatarUrl={localProfileAvatarUrl ?? peerAvatarUrls[currentUserId] ?? null}
+                                    userId={currentUserId}
+                                />
+                                <div className="absolute bottom-3 left-3 glass-dark rounded-lg px-3 py-1.5 flex items-center gap-2 flex-wrap max-w-[min(100%,20rem)]">
+                                    <p className="text-white text-xs font-medium">You (Pinned)</p>
+                                    <RemoteVideoRoleBadge peerId={currentUserId} userRole={currentUserRole} compact />
+                                </div>
                                 <button onClick={() => setPinnedPeerId(null)} className="absolute top-3 right-3 bg-indigo-500/80 rounded-full p-1.5 hover:bg-indigo-500"><PinOff className="w-3 h-3 text-white" /></button>
                                 {isMuted && <div className="absolute top-3 left-3 bg-red-500/80 rounded-full p-1.5"><MicOff className="w-3 h-3 text-white" /></div>}
                             </div>
@@ -1182,23 +1375,65 @@ export default function MeetingRoomPage() {
                             <div className="flex gap-2 overflow-x-auto pb-1">
                                 {pinnedPeerId !== 'local' && (
                                     <div className="relative rounded-xl overflow-hidden bg-slate-900/80 border border-white/5 w-40 h-24 flex-shrink-0 cursor-pointer" onClick={() => setPinnedPeerId('local')}>
-                                        <LocalVideoTile key={`lv-${localVideoRenderKey}`} stream={localPreviewStream || localStream} isCameraOff={isCameraOff} isScreenSharing={isScreenSharing} compact />
-                                        <div className="absolute bottom-1 left-1 bg-black/60 rounded px-1.5 py-0.5"><p className="text-white text-[10px]">You</p></div>
+                                        <LocalVideoTile
+                                            key={`lv-${localVideoRenderKey}`}
+                                            stream={localPreviewStream || localStream}
+                                            isCameraOff={isCameraOff}
+                                            isScreenSharing={isScreenSharing}
+                                            compact
+                                            displayName={currentUserName || 'You'}
+                                            profileAvatarUrl={localProfileAvatarUrl ?? peerAvatarUrls[currentUserId] ?? null}
+                                            userId={currentUserId}
+                                        />
+                                        <div className="absolute bottom-1 left-1 right-8 bg-black/60 rounded px-1.5 py-0.5 flex items-center gap-1 flex-wrap min-w-0">
+                                            <p className="text-white text-[10px] truncate">You</p>
+                                            <RemoteVideoRoleBadge peerId={currentUserId} userRole={currentUserRole} compact />
+                                        </div>
                                     </div>
                                 )}
                                 {Array.from(peers.entries()).filter(([pid]) => pid !== pinnedPeerId).map(([pid, peer]) => (
-                                    <RemoteVideo key={pid} peer={peer} peerId={pid} presenceRole={presenceRoleByUserId.get(pid)} isPinned={false} onPin={() => setPinnedPeerId(pid)} small />
+                                    <RemoteVideo
+                                        key={pid}
+                                        peer={peer}
+                                        peerId={pid}
+                                        presenceRole={peerRawRoleByUserId.get(pid)}
+                                        profileAvatarUrl={peerAvatarUrls[pid] ?? null}
+                                        isPinned={false}
+                                        onPin={() => setPinnedPeerId(pid)}
+                                        small
+                                    />
                                 ))}
                             </div>
                         )}
                         {!pinnedPeerId && (<>
                             <div className="relative rounded-2xl overflow-hidden bg-slate-900/80 border border-white/5 aspect-video group">
-                                <LocalVideoTile key={`lv-${localVideoRenderKey}`} stream={localPreviewStream || localStream} isCameraOff={isCameraOff} isScreenSharing={isScreenSharing} />
-                                <div className="absolute bottom-3 left-3 glass-dark rounded-lg px-3 py-1.5"><p className="text-white text-xs font-medium">You</p></div>
+                                <LocalVideoTile
+                                    key={`lv-${localVideoRenderKey}`}
+                                    stream={localPreviewStream || localStream}
+                                    isCameraOff={isCameraOff}
+                                    isScreenSharing={isScreenSharing}
+                                    displayName={currentUserName || 'You'}
+                                    profileAvatarUrl={localProfileAvatarUrl ?? peerAvatarUrls[currentUserId] ?? null}
+                                    userId={currentUserId}
+                                />
+                                <div className="absolute bottom-3 left-3 glass-dark rounded-lg px-3 py-1.5 flex items-center gap-2 flex-wrap max-w-[min(100%,20rem)]">
+                                    <p className="text-white text-xs font-medium">You</p>
+                                    <RemoteVideoRoleBadge peerId={currentUserId} userRole={currentUserRole} compact />
+                                </div>
                                 {isMuted && <div className="absolute top-3 right-3 bg-red-500/80 rounded-full p-1.5"><MicOff className="w-3 h-3 text-white" /></div>}
                                 <button onClick={() => setPinnedPeerId('local')} className="absolute top-3 left-3 bg-white/10 rounded-full p-1.5 opacity-0 group-hover:opacity-100 hover:bg-white/20 transition-opacity"><Pin className="w-3 h-3 text-white" /></button>
                             </div>
-                            {Array.from(peers.entries()).map(([pid, peer]) => (<RemoteVideo key={pid} peer={peer} peerId={pid} presenceRole={presenceRoleByUserId.get(pid)} isPinned={false} onPin={() => setPinnedPeerId(pid)} />))}
+                            {Array.from(peers.entries()).map(([pid, peer]) => (
+                                <RemoteVideo
+                                    key={pid}
+                                    peer={peer}
+                                    peerId={pid}
+                                    presenceRole={peerRawRoleByUserId.get(pid)}
+                                    profileAvatarUrl={peerAvatarUrls[pid] ?? null}
+                                    isPinned={false}
+                                    onPin={() => setPinnedPeerId(pid)}
+                                />
+                            ))}
                         </>)}
                     </div>
                 </motion.div>
@@ -1364,28 +1599,63 @@ function isRemoteMeetingGuest(peerId: string, userRole: string | null | undefine
     return peerId.startsWith('guest-') || userRole === 'Guest';
 }
 
-/** Role chip for camera-off tiles — portal users only; never for guests. */
-function RemoteVideoRoleBadge({ peerId, userRole, className = '' }: { peerId: string; userRole: string | null | undefined; className?: string }) {
-    if (!userRole || isRemoteMeetingGuest(peerId, userRole)) return null;
+/** Role chip on video tiles — portal roles + Guest for link guests. Camera on or off. */
+function RemoteVideoRoleBadge({
+    peerId,
+    userRole,
+    className = '',
+    compact,
+}: {
+    peerId: string;
+    userRole: string | null | undefined;
+    className?: string;
+    compact?: boolean;
+}) {
+    const role = normalizeMeetingRoleLabel(userRole);
+    if (isRemoteMeetingGuest(peerId, role)) {
+        const sizeCls = compact ? 'text-[8px] px-1 py-0.5' : 'text-[9px] px-1.5 py-0.5';
+        return (
+            <span className={`${sizeCls} rounded-full font-semibold shrink-0 bg-gray-500/30 text-gray-300 ${className}`.trim()}>👤 Guest</span>
+        );
+    }
+    if (!role) return null;
     const spanCls =
-        userRole === 'Executive' ? 'bg-yellow-500/30 text-yellow-300' :
-            userRole === 'Faculty' ? 'bg-amber-500/30 text-amber-300' :
-                userRole === 'Head' ? 'bg-blue-500/30 text-blue-200' :
-                    userRole === 'Co-Head' ? 'bg-cyan-500/30 text-cyan-200' :
-                        userRole === 'Admin' ? 'bg-red-500/30 text-red-300' :
+        role === 'Executive' ? 'bg-yellow-500/30 text-yellow-300' :
+            role === 'Faculty' ? 'bg-amber-500/30 text-amber-300' :
+                role === 'Head' ? 'bg-blue-500/30 text-blue-200' :
+                    role === 'Co-Head' ? 'bg-cyan-500/30 text-cyan-200' :
+                        role === 'Admin' ? 'bg-red-500/30 text-red-300' :
                             'bg-amber-400/30 text-amber-200';
     const label =
-        userRole === 'Executive' ? '👑 Executive' :
-            userRole === 'Faculty' ? '🎓 Faculty' :
-                userRole === 'Head' ? '🧭 Head' :
-                    userRole === 'Co-Head' ? '📍 Co-Head' :
-                        userRole === 'Admin' ? '🛡️ Admin' :
-                            `👑 ${userRole}`;
-    return <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-semibold ${spanCls} ${className}`.trim()}>{label}</span>;
+        role === 'Executive' ? '👑 Executive' :
+            role === 'Faculty' ? '🎓 Faculty' :
+                role === 'Head' ? '🧭 Head' :
+                    role === 'Co-Head' ? '📍 Co-Head' :
+                        role === 'Admin' ? '🛡️ Admin' :
+                            `👑 ${role}`;
+    const sizeCls = compact ? 'text-[8px] px-1 py-0.5' : 'text-[9px] px-1.5 py-0.5';
+    return <span className={`${sizeCls} rounded-full font-semibold shrink-0 ${spanCls} ${className}`.trim()}>{label}</span>;
 }
 
 // Separate component for remote video to manage its own ref
-function RemoteVideo({ peer, peerId, presenceRole, isPinned, onPin, small }: { peer: PeerState; peerId: string; presenceRole: string | null | undefined; isPinned: boolean; onPin: () => void; small?: boolean }) {
+function RemoteVideo({
+    peer,
+    peerId,
+    presenceRole,
+    profileAvatarUrl,
+    isPinned,
+    onPin,
+    small,
+}: {
+    peer: PeerState;
+    peerId: string;
+    presenceRole: string | null | undefined;
+    profileAvatarUrl: string | null;
+    isPinned: boolean;
+    onPin: () => void;
+    small?: boolean;
+}) {
+    const isGuestPeer = peerId.startsWith('guest-');
     const videoRef = useRef<HTMLVideoElement>(null);
     const [hasVideo, setHasVideo] = useState(false);
     const [isRemoteScreenShare, setIsRemoteScreenShare] = useState(false);
@@ -1472,14 +1742,23 @@ function RemoteVideo({ peer, peerId, presenceRole, isPinned, onPin, small }: { p
             <div className="relative rounded-xl overflow-hidden bg-slate-900/80 border border-white/5 w-40 h-24 flex-shrink-0 cursor-pointer group" onClick={onPin}>
                 <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" style={{ display: hasVideo ? 'block' : 'none' }} />
                 {!hasVideo && (
-                    <div className="w-full h-full flex flex-col items-center justify-center relative">
-                        <UserCircle className="w-6 h-6 text-white/40" />
-                        <div className="absolute top-1 right-1"><RemoteVideoRoleBadge peerId={peerId} userRole={presenceRole} /></div>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-b from-slate-800/95 via-slate-900 to-black/90">
+                        <CameraOffAvatar
+                            name={peer.userName}
+                            profileImageUrl={profileAvatarUrl}
+                            compact
+                            isGuest={isGuestPeer}
+                        />
+                        <p className="text-[8px] text-white/45 uppercase tracking-wide mt-0.5">Camera off</p>
                     </div>
                 )}
                 {peer.remoteStream && <AudioPlayer stream={peer.remoteStream} />}
                 {isRemoteScreenShare && <div className="absolute top-1 left-1 rounded-md border border-emerald-400/40 bg-emerald-500/20 px-1.5 py-0.5"><p className="text-[9px] text-emerald-200 font-semibold">Sharing</p></div>}
-                <div className="absolute bottom-1 left-1 bg-black/60 rounded px-1.5 py-0.5"><p className="text-white text-[10px]">{peer.userName}</p></div>
+                {hasVideo && <div className="absolute top-1 right-1 z-[1]"><RemoteVideoRoleBadge peerId={peerId} userRole={presenceRole} compact /></div>}
+                <div className="absolute bottom-1 left-1 right-8 bg-black/60 rounded px-1.5 py-0.5 flex items-center gap-1.5 flex-wrap min-w-0">
+                    <p className="text-white text-[10px] truncate">{peer.userName}</p>
+                    {!hasVideo ? <RemoteVideoRoleBadge peerId={peerId} userRole={presenceRole} compact /> : null}
+                </div>
             </div>
         );
     }
@@ -1488,16 +1767,22 @@ function RemoteVideo({ peer, peerId, presenceRole, isPinned, onPin, small }: { p
         <div className={`relative rounded-2xl overflow-hidden bg-slate-900/80 border border-white/5 ${isPinned ? 'w-full h-full' : 'aspect-video'} group`}>
             <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" style={{ display: hasVideo ? 'block' : 'none' }} />
             {!hasVideo && (
-                <div className="w-full h-full flex flex-col items-center justify-center gap-3">
-                    <div className="w-20 h-20 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center"><UserCircle className="w-8 h-8 text-white" /></div>
-                    <RemoteVideoRoleBadge peerId={peerId} userRole={presenceRole} className="text-[10px] px-2 py-0.5" />
-                    <p className="text-white/50 text-sm">{peer.userName}</p>
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-4 bg-gradient-to-b from-slate-800/95 via-slate-900 to-black/90">
+                    <CameraOffAvatar name={peer.userName} profileImageUrl={profileAvatarUrl} isGuest={isGuestPeer} />
+                    <RemoteVideoRoleBadge peerId={peerId} userRole={presenceRole} className="text-[10px] px-2.5 py-1" />
+                    <p className="text-[10px] text-white/45 uppercase tracking-widest">Camera off</p>
+                    <p className="text-white/85 text-sm font-medium">{peer.userName}</p>
                 </div>
             )}
             {peer.remoteStream && <AudioPlayer stream={peer.remoteStream} />}
-            {isRemoteScreenShare && <div className="absolute top-3 left-3 rounded-full border border-emerald-400/40 bg-emerald-500/20 px-2 py-1"><p className="text-[10px] text-emerald-200 font-semibold">Sharing screen</p></div>}
-            <div className="absolute bottom-3 left-3 glass-dark rounded-lg px-3 py-1.5"><p className="text-white text-xs font-medium">{peer.userName}{isPinned ? ' (Pinned)' : ''}</p></div>
-            <button onClick={onPin} className="absolute top-3 right-3 bg-white/10 rounded-full p-1.5 opacity-0 group-hover:opacity-100 hover:bg-white/20 transition-opacity" title={isPinned ? 'Unpin' : 'Pin'}>
+            {isRemoteScreenShare && <div className="absolute top-3 left-3 rounded-full border border-emerald-400/40 bg-emerald-500/20 px-2 py-1 z-[1]"><p className="text-[10px] text-emerald-200 font-semibold">Sharing screen</p></div>}
+            {hasVideo && (
+                <div className="absolute bottom-3 left-3 right-14 glass-dark rounded-lg px-3 py-1.5 flex items-center gap-2 flex-wrap max-w-[min(100%,22rem)]">
+                    <p className="text-white text-xs font-medium truncate">{peer.userName}{isPinned ? ' (Pinned)' : ''}</p>
+                    <RemoteVideoRoleBadge peerId={peerId} userRole={presenceRole} compact />
+                </div>
+            )}
+            <button onClick={onPin} className="absolute top-3 right-3 bg-white/10 rounded-full p-1.5 opacity-0 group-hover:opacity-100 hover:bg-white/20 transition-opacity z-[2]" title={isPinned ? 'Unpin' : 'Pin'}>
                 {isPinned ? <PinOff className="w-3 h-3 text-white" /> : <Pin className="w-3 h-3 text-white" />}
             </button>
         </div>
@@ -1521,11 +1806,18 @@ function LocalVideoTile({
     isCameraOff,
     isScreenSharing = false,
     compact = false,
+    displayName = 'You',
+    profileAvatarUrl = null,
+    userId = '',
 }: {
     stream: MediaStream | null;
     isCameraOff: boolean;
     isScreenSharing?: boolean;
     compact?: boolean;
+    displayName?: string;
+    profileAvatarUrl?: string | null;
+    /** Used only to detect guest vs portal for avatar styling. Role chip stays on the parent bar. */
+    userId?: string;
 }) {
     const ref = useRef<HTMLVideoElement>(null);
 
@@ -1561,12 +1853,18 @@ function LocalVideoTile({
         void el.play().catch(() => undefined);
     }, [isCameraOff, isScreenSharing, stream]);
 
+    const localIsGuest = userId.startsWith('guest-');
+
     if (!stream) {
         return (
-            <div className="w-full h-full flex flex-col items-center justify-center gap-3">
-                <div className={`${compact ? 'w-8 h-8' : 'w-20 h-20'} rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center`}>
-                    <VideoOff className={`${compact ? 'w-4 h-4' : 'w-8 h-8'} text-white`} />
-                </div>
+            <div className="w-full h-full flex flex-col items-center justify-center gap-2 px-2">
+                <CameraOffAvatar
+                    name={displayName}
+                    profileImageUrl={profileAvatarUrl}
+                    compact={compact}
+                    isGuest={localIsGuest}
+                    showCameraOffBadge={false}
+                />
                 {!compact && <p className="text-white/50 text-sm">No camera</p>}
             </div>
         );
@@ -1584,10 +1882,14 @@ function LocalVideoTile({
                 className={`w-full h-full object-cover ${showCameraOffOverlay ? 'opacity-0 absolute inset-0 min-h-0 pointer-events-none' : ''}`}
             />
             {showCameraOffOverlay && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-slate-900/90">
-                    <div className={`${compact ? 'w-8 h-8' : 'w-20 h-20'} rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center`}>
-                        <VideoOff className={`${compact ? 'w-4 h-4' : 'w-8 h-8'} text-white`} />
-                    </div>
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-slate-900/90 px-2">
+                    <CameraOffAvatar
+                        name={displayName}
+                        profileImageUrl={profileAvatarUrl}
+                        compact={compact}
+                        isGuest={localIsGuest}
+                        showCameraOffBadge={false}
+                    />
                     {!compact && <p className="text-white/50 text-sm">Camera is off</p>}
                 </div>
             )}
