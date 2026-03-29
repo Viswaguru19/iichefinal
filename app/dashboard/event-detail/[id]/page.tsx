@@ -43,6 +43,7 @@ function TaskSupportingDocuments({ docs }: { docs: any[] | null | undefined }) {
 }
 
 export default function EventDetailPage() {
+  const EC_COMMITTEE_ID = '00000000-0000-0000-0000-000000000001';
   const [event, setEvent] = useState<any>(null);
   const [tasks, setTasks] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -184,22 +185,38 @@ export default function EventDetailPage() {
     const trimmed = raw.trim();
     if (!trimmed) return;
     let payload: Record<string, unknown>;
-    try {
-      payload = JSON.parse(trimmed) as Record<string, unknown>;
-    } catch {
-      const start = trimmed.indexOf('{');
-      const end = trimmed.lastIndexOf('}');
-      if (start < 0 || end <= start) {
-        toast.error('Invalid QR — expected registration check-in code');
-        return;
-      }
+
+    const tryParseJson = (text: string): Record<string, unknown> | null => {
       try {
-        payload = JSON.parse(trimmed.slice(start, end + 1)) as Record<string, unknown>;
+        return JSON.parse(text) as Record<string, unknown>;
       } catch {
-        toast.error('Invalid QR payload');
-        return;
+        return null;
+      }
+    };
+
+    const candidates = [
+      trimmed,
+      decodeURIComponent(trimmed),
+    ].filter((v, i, arr) => arr.indexOf(v) === i);
+
+    payload = {} as Record<string, unknown>;
+    let parsed = null as Record<string, unknown> | null;
+    for (const c of candidates) {
+      parsed = tryParseJson(c);
+      if (parsed) break;
+      const start = c.indexOf('{');
+      const end = c.lastIndexOf('}');
+      if (start >= 0 && end > start) {
+        parsed = tryParseJson(c.slice(start, end + 1));
+        if (parsed) break;
       }
     }
+
+    if (!parsed) {
+      toast.error('Invalid QR payload');
+      return;
+    }
+    payload = parsed;
     const pid = payload?.participant_id;
     const eid = payload?.event_id;
     if (pid == null || pid === '') {
@@ -231,8 +248,11 @@ export default function EventDetailPage() {
 
     setUserProfile(profile);
 
-    // Check if user is EC member
-    const isExecutive = profile?.executive_role !== null;
+    // Check if user is EC member (executive_role or Executive Committee membership)
+    const isExecutive = !!(
+      profile?.executive_role !== null ||
+      profile?.committee_members?.some((m: any) => m.committee_id === EC_COMMITTEE_ID)
+    );
     setIsEC(isExecutive);
     setIsFaculty(profile?.is_faculty === true || profile?.is_admin === true);
 
@@ -1187,7 +1207,11 @@ export default function EventDetailPage() {
                             <button
                               onClick={() => {
                                 setEditingTask(task.id);
-                                setEditedTaskData({ title: task.title, description: task.description });
+                                setEditedTaskData({
+                                  title: task.title,
+                                  description: task.description,
+                                  deadline: task.deadline ? new Date(task.deadline).toISOString().slice(0, 16) : '',
+                                });
                               }}
                               className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition"
                             >

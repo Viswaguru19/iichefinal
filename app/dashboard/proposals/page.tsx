@@ -353,6 +353,10 @@ function ProposalsPageClient() {
     if (!isEC) return false;
     return executiveRoleCountsForProposalEc(userProfile?.executive_role, proposalThresholds.proposal_ec_approval);
   };
+  const canReviewEditAtEcOrFacultyStage = (p: any) => {
+    if (!(p.status === 'pending_ec_approval' || p.status === 'pending_faculty_approval')) return false;
+    return isFaculty || isAdmin || isEC;
+  };
   const canApproveAsFaculty = (p: any) => (isFaculty || isAdmin) && p.status === 'pending_faculty_approval';
   const canResubmitOwn = (p: any) => {
     const mine = p.proposed_by === userProfile?.id || p.created_by === userProfile?.id;
@@ -630,13 +634,24 @@ function ProposalsPageClient() {
                       <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} onClick={() => { setSelectedProposal(proposal); setShowRevokeModal(true); }} disabled={loading} className="btn-gradient-amber px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 disabled:opacity-50"><RotateCcw className="w-4 h-4" /> Revoke</motion.button>
                     </>)}
                     {proposal.status === 'pending_ec_approval' && canApproveAsEC(proposal) && !hasECApproved(proposal) && (<>
+                      {canReviewEditAtEcOrFacultyStage(proposal) && !canResubmitOwn(proposal) && (
+                        <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} onClick={() => { setEditResubmitTarget(null); setSelectedProposal(proposal); setShowEditModal(true); }} disabled={loading} className="btn-gradient-blue px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 disabled:opacity-50"><Edit className="w-4 h-4" /> Review & Edit</motion.button>
+                      )}
                       <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} onClick={() => handleECApprove(proposal.id)} disabled={loading} className="btn-gradient-blue px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 disabled:opacity-50"><Crown className="w-4 h-4" /> Approve as EC</motion.button>
                       <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} onClick={() => { setSelectedProposal(proposal); setShowRejectModal(true); }} disabled={loading} className="btn-gradient-red px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 disabled:opacity-50"><XCircle className="w-4 h-4" /> Reject</motion.button>
                     </>)}
                     {proposal.status === 'pending_ec_approval' && canApproveAsEC(proposal) && hasECApproved(proposal) && (
-                      <span className="flex items-center gap-2 text-emerald-500 font-semibold text-sm"><CheckCircle className="w-5 h-5" /> You approved this</span>
+                      <>
+                        {canReviewEditAtEcOrFacultyStage(proposal) && !canResubmitOwn(proposal) && (
+                          <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} onClick={() => { setEditResubmitTarget(null); setSelectedProposal(proposal); setShowEditModal(true); }} disabled={loading} className="btn-gradient-blue px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 disabled:opacity-50"><Edit className="w-4 h-4" /> Review & Edit</motion.button>
+                        )}
+                        <span className="flex items-center gap-2 text-emerald-500 font-semibold text-sm"><CheckCircle className="w-5 h-5" /> You approved this</span>
+                      </>
                     )}
                     {canApproveAsFaculty(proposal) && (<>
+                      {canReviewEditAtEcOrFacultyStage(proposal) && !canResubmitOwn(proposal) && (
+                        <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} onClick={() => { setEditResubmitTarget(null); setSelectedProposal(proposal); setShowEditModal(true); }} disabled={loading} className="btn-gradient-blue px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 disabled:opacity-50"><Edit className="w-4 h-4" /> Review & Edit</motion.button>
+                      )}
                       <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} onClick={() => handleFacultyApprove(proposal.id)} disabled={loading} className="btn-gradient-green px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 disabled:opacity-50"><CheckCircle className="w-4 h-4" /> Faculty Approve</motion.button>
                       <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} onClick={() => { setSelectedProposal(proposal); setRejectionReason(''); setShowRejectModal(true); }} disabled={loading} className="btn-gradient-red px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 disabled:opacity-50"><XCircle className="w-4 h-4" /> Faculty Reject</motion.button>
                     </>)}

@@ -52,9 +52,10 @@ export default function TasksPage() {
 
     if (profile) {
       setUserProfile(profile);
-      isExec = profile.executive_role !== null || profile.is_admin === true || profile.is_faculty === true;
-      setIsExecutive(isExec);
       committeeIds = (profile as any).committee_members?.map((cm: any) => cm.committee_id) || [];
+      const hasEcCommitteeMembership = committeeIds.includes(EC_COMMITTEE_ID);
+      isExec = profile.executive_role !== null || profile.is_admin === true || profile.is_faculty === true || hasEcCommitteeMembership;
+      setIsExecutive(isExec);
       nonEcCommitteeIds = committeeIds.filter(id => id !== EC_COMMITTEE_ID);
       setUserCommittees(committeeIds);
     }

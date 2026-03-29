@@ -67,6 +67,7 @@ export default function EventReport({ event, tasks, eventPhotos = [], canEdit }:
     const [includeParticipantsCount, setIncludeParticipantsCount] = useState(false);
     const [participantsForReport, setParticipantsForReport] = useState<any[]>([]);
     const [showReport, setShowReport] = useState(false);
+    const [computedBudget, setComputedBudget] = useState<number | null>(null);
     const supabase = createClient();
 
     const loadReport = useCallback(async () => {
@@ -87,6 +88,28 @@ export default function EventReport({ event, tasks, eventPhotos = [], canEdit }:
 
     useEffect(() => { loadReport(); }, [loadReport]);
 
+    useEffect(() => {
+        async function loadComputedBudget() {
+            const eventName = String(event?.title || '').trim();
+            if (!eventName) {
+                setComputedBudget(null);
+                return;
+            }
+            // Finance records store event name in statement_of_accounts.event.
+            const { data, error } = await supabase
+                .from('statement_of_accounts')
+                .select('debit')
+                .eq('event', eventName);
+            if (error) {
+                setComputedBudget(null);
+                return;
+            }
+            const total = (data || []).reduce((sum: number, row: any) => sum + (Number(row.debit) || 0), 0);
+            setComputedBudget(total > 0 ? total : null);
+        }
+        void loadComputedBudget();
+    }, [event?.title, supabase]);
+
     const loadParticipantsForReport = useCallback(async () => {
         const { data } = await supabase
             .from('event_participants')
@@ -102,7 +125,21 @@ export default function EventReport({ event, tasks, eventPhotos = [], canEdit }:
         }
     }, [includeParticipants, loadParticipantsForReport]);
 
-    function generateReportContent() {
+    async function getParticipantsSnapshot() {
+        if (!includeParticipants) return [] as any[];
+        const { data, error } = await supabase
+            .from('event_participants')
+            .select('participant_name, participant_email, attendance_status, submitted_at, created_at')
+            .eq('event_id', event.id)
+            .order('created_at', { ascending: true });
+        if (error) return participantsForReport || [];
+        return data || [];
+    }
+
+    function generateReportContent(participantRows: any[] = participantsForReport) {
+        const rawEventBudget = Number(event?.budget);
+        const fallbackEventBudget = Number.isFinite(rawEventBudget) ? rawEventBudget : null;
+        const resolvedBudget = computedBudget ?? fallbackEventBudget;
         const posterApproved =
             event.poster_status === 'approved' ||
             (event.poster_url && (event.poster_status == null || event.poster_status === ''));
@@ -126,18 +163,18 @@ export default function EventReport({ event, tasks, eventPhotos = [], canEdit }:
             expected_participants: event.expected_participants || null,
             registration_fee: event.registration_fee || null,
             prize: event.prize || null,
-            budget: event.budget ? `₹${event.budget.toLocaleString()}` : 'N/A',
+            budget: resolvedBudget != null ? `₹${resolvedBudget.toLocaleString('en-IN')}` : 'N/A',
             status: event.status?.replace(/_/g, ' ').toUpperCase() || 'N/A',
             include_participants: includeParticipants,
             include_participants_count: includeParticipantsCount,
-            participants_count: includeParticipantsCount ? (participantsForReport || []).length : null,
+            participants_count: includeParticipantsCount ? (participantRows || []).length : null,
             participants: includeParticipants
-                ? (participantsForReport || []).map((p: any, idx: number) => ({
+                ? (participantRows || []).map((p: any, idx: number) => ({
                     serial: idx + 1,
                     name: p.participant_name || 'Participant',
                     email: p.participant_email || '-',
                     attendance: (p.attendance_status || 'registered').toUpperCase(),
-                    submitted_at: p.submitted_at ? new Date(p.submitted_at).toLocaleString('en-IN') : '-',
+                    submitted_at: (p.submitted_at || p.created_at) ? new Date(p.submitted_at || p.created_at).toLocaleString('en-IN') : '-',
                 }))
                 : [],
             poster_url: posterUrl,
@@ -158,7 +195,9 @@ export default function EventReport({ event, tasks, eventPhotos = [], canEdit }:
             const userId = session?.user?.id || (await supabase.auth.getUser()).data.user?.id;
             if (!userId) { toast.error('Please log in again'); setSaving(false); return; }
 
-            const content = generateReportContent();
+            const participantRows = await getParticipantsSnapshot();
+            setParticipantsForReport(participantRows);
+            const content = generateReportContent(participantRows);
 
             const { error } = await supabase.from('event_reports').insert({
                 event_id: event.id,
@@ -201,7 +240,9 @@ export default function EventReport({ event, tasks, eventPhotos = [], canEdit }:
         if (!report) return;
         setSaving(true);
         try {
-            const content = generateReportContent();
+            const participantRows = await getParticipantsSnapshot();
+            setParticipantsForReport(participantRows);
+            const content = generateReportContent(participantRows);
             const { error } = await supabase.from('event_reports').update({
                 report_content: JSON.stringify(content),
                 additional_notes: additionalNotes.trim() || null,
