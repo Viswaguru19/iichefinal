@@ -83,6 +83,7 @@ export function useWebRTC({
     const userNameRef = useRef(userName);
     const onRoomControlRef = useRef(onRoomControl);
     const getCameraSendingSnapshotRef = useRef(getCameraSendingSnapshot);
+    const disconnectTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
     useEffect(() => { localStreamRef.current = localStream; }, [localStream]);
     useEffect(() => { userIdRef.current = userId; }, [userId]);
@@ -154,9 +155,27 @@ export function useWebRTC({
             };
             pc.onconnectionstatechange = () => {
                 console.log(`Peer ${peerId}: ${pc.connectionState}`);
-                if (pc.connectionState === 'failed') pc.restartIce();
-                else if (pc.connectionState === 'disconnected') setTimeout(() => { if (pc.connectionState !== 'connected') removePC(peerId); }, 5000);
-                else if (pc.connectionState === 'closed') removePC(peerId);
+                const existingTimer = disconnectTimersRef.current.get(peerId);
+                if (existingTimer && (pc.connectionState === 'connected' || pc.connectionState === 'connecting')) {
+                    clearTimeout(existingTimer);
+                    disconnectTimersRef.current.delete(peerId);
+                }
+                if (pc.connectionState === 'failed') {
+                    pc.restartIce();
+                    if (!disconnectTimersRef.current.has(peerId)) {
+                        const t = setTimeout(() => {
+                            if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') removePC(peerId);
+                        }, 20000);
+                        disconnectTimersRef.current.set(peerId, t);
+                    }
+                } else if (pc.connectionState === 'disconnected') {
+                    if (!disconnectTimersRef.current.has(peerId)) {
+                        const t = setTimeout(() => {
+                            if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed' || pc.connectionState === 'closed') removePC(peerId);
+                        }, 20000);
+                        disconnectTimersRef.current.set(peerId, t);
+                    }
+                } else if (pc.connectionState === 'closed') removePC(peerId);
             };
             pc.oniceconnectionstatechange = () => { if (pc.iceConnectionState === 'failed') pc.restartIce(); };
             peersRef.current.set(peerId, { connection: pc, remoteStream, userName: safeName });
@@ -169,6 +188,11 @@ export function useWebRTC({
     }
 
     function removePC(peerId: string) {
+        const timer = disconnectTimersRef.current.get(peerId);
+        if (timer) {
+            clearTimeout(timer);
+            disconnectTimersRef.current.delete(peerId);
+        }
         const p = peersRef.current.get(peerId);
         if (p) {
             p.connection.close();
@@ -355,6 +379,8 @@ export function useWebRTC({
             }
             peersRef.current.forEach(p => p.connection.close());
             peersRef.current.clear();
+            disconnectTimersRef.current.forEach((t) => clearTimeout(t));
+            disconnectTimersRef.current.clear();
             syncPeers();
             channel.untrack();
             supabase.removeChannel(channel);
@@ -379,6 +405,15 @@ export function useWebRTC({
     const replaceVideoTrack = useCallback(async (newTrack: MediaStreamTrack) => {
         const promises: Promise<void>[] = [];
         peersRef.current.forEach(peer => { const s = peer.connection.getSenders().find(s => s.track?.kind === 'video'); if (s) promises.push(s.replaceTrack(newTrack)); });
+        await Promise.all(promises);
+    }, []);
+
+    const replaceAudioTrack = useCallback(async (newTrack: MediaStreamTrack) => {
+        const promises: Promise<void>[] = [];
+        peersRef.current.forEach((peer) => {
+            const s = peer.connection.getSenders().find((sender) => sender.track?.kind === 'audio');
+            if (s) promises.push(s.replaceTrack(newTrack));
+        });
         await Promise.all(promises);
     }, []);
 
@@ -436,6 +471,7 @@ export function useWebRTC({
         chatMessages,
         sendChatMessage,
         replaceVideoTrack,
+        replaceAudioTrack,
         sendRoomControl,
         sendCameraState,
         peerCameraSendingVideo,

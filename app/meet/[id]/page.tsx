@@ -287,6 +287,7 @@ export default function MeetingRoomPage() {
         chatMessages,
         sendChatMessage,
         replaceVideoTrack,
+        replaceAudioTrack,
         sendRoomControl,
         sendCameraState,
         peerCameraSendingVideo,
@@ -1004,13 +1005,34 @@ export default function MeetingRoomPage() {
                 toast.error('A moderator has locked unmute. Wait for Unmute all or for a moderator to unmute you.');
                 return;
             }
-            stream.getAudioTracks().forEach((track) => {
-                track.enabled = !track.enabled;
-            });
-            setIsMuted((prev) => !prev);
+            let audioTrack = stream.getAudioTracks()[0];
+            const needsFreshTrack = !audioTrack || audioTrack.readyState !== 'live';
+            if (needsFreshTrack) {
+                try {
+                    const audioOnly = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    const fresh = audioOnly.getAudioTracks()[0];
+                    if (fresh) {
+                        fresh.enabled = true;
+                        const old = stream.getAudioTracks()[0];
+                        if (old) {
+                            stream.removeTrack(old);
+                            old.stop();
+                        }
+                        stream.addTrack(fresh);
+                        await replaceAudioTrack(fresh);
+                        audioTrack = fresh;
+                    }
+                } catch {
+                    toast.error('Could not access microphone. Check browser microphone permissions.');
+                    return;
+                }
+            }
+            if (!audioTrack) return;
+            audioTrack.enabled = !audioTrack.enabled;
+            setIsMuted(!audioTrack.enabled);
         };
-        run();
-    }, [canModerateMeetingRoom, ensureLocalMedia, isMuted, selfUnmuteLocked]);
+        void run();
+    }, [canModerateMeetingRoom, ensureLocalMedia, isMuted, selfUnmuteLocked, replaceAudioTrack]);
 
     const reacquireAndBindCameraTrack = useCallback(
         async (stream: MediaStream) => {

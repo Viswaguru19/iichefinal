@@ -97,10 +97,10 @@ export default function CreateFormPage() {
   // Settings
   const [status, setStatus] = useState<'active' | 'draft'>('active');
   const [allowMultiple, setAllowMultiple] = useState(false);
-  const [requireLogin, setRequireLogin] = useState(true);
+  const [requireLogin, setRequireLogin] = useState(false);
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
-  const [accessType, setAccessType] = useState<'public' | 'internal'>('internal');
+  const [accessType, setAccessType] = useState<'public' | 'internal'>('public');
   const [formType, setFormType] = useState<'normal' | 'event_registration'>('normal');
   const [activeEvents, setActiveEvents] = useState<any[]>([]);
   const [eventsLoading, setEventsLoading] = useState(false);

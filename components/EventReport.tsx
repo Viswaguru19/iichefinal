@@ -67,7 +67,8 @@ export default function EventReport({ event, tasks, eventPhotos = [], canEdit }:
     const [includeParticipantsCount, setIncludeParticipantsCount] = useState(false);
     const [participantsForReport, setParticipantsForReport] = useState<any[]>([]);
     const [showReport, setShowReport] = useState(false);
-    const [computedBudget, setComputedBudget] = useState<number | null>(null);
+    const [computedExpense, setComputedExpense] = useState<number | null>(null);
+    const [liveParticipantsForView, setLiveParticipantsForView] = useState<any[]>([]);
     const supabase = createClient();
 
     const loadReport = useCallback(async () => {
@@ -89,10 +90,10 @@ export default function EventReport({ event, tasks, eventPhotos = [], canEdit }:
     useEffect(() => { loadReport(); }, [loadReport]);
 
     useEffect(() => {
-        async function loadComputedBudget() {
+        async function loadComputedExpense() {
             const eventName = String(event?.title || '').trim();
             if (!eventName) {
-                setComputedBudget(null);
+                setComputedExpense(null);
                 return;
             }
             // Finance records store event name in statement_of_accounts.event.
@@ -101,13 +102,13 @@ export default function EventReport({ event, tasks, eventPhotos = [], canEdit }:
                 .select('debit')
                 .eq('event', eventName);
             if (error) {
-                setComputedBudget(null);
+                setComputedExpense(null);
                 return;
             }
             const total = (data || []).reduce((sum: number, row: any) => sum + (Number(row.debit) || 0), 0);
-            setComputedBudget(total > 0 ? total : null);
+            setComputedExpense(total > 0 ? total : null);
         }
-        void loadComputedBudget();
+        void loadComputedExpense();
     }, [event?.title, supabase]);
 
     const loadParticipantsForReport = useCallback(async () => {
@@ -136,10 +137,26 @@ export default function EventReport({ event, tasks, eventPhotos = [], canEdit }:
         return data || [];
     }
 
+    useEffect(() => {
+        async function loadLiveParticipantsForView() {
+            if (!showReport) return;
+            const rows = await getParticipantsSnapshot();
+            setLiveParticipantsForView(
+                (rows || []).map((p: any, idx: number) => ({
+                    serial: idx + 1,
+                    name: p.participant_name || 'Participant',
+                    email: p.participant_email || '-',
+                    attendance: (p.attendance_status || 'registered').toUpperCase(),
+                    submitted_at: (p.submitted_at || p.created_at) ? new Date(p.submitted_at || p.created_at).toLocaleString('en-IN') : '-',
+                })),
+            );
+        }
+        void loadLiveParticipantsForView();
+    }, [showReport, event.id]);
+
     function generateReportContent(participantRows: any[] = participantsForReport) {
         const rawEventBudget = Number(event?.budget);
-        const fallbackEventBudget = Number.isFinite(rawEventBudget) ? rawEventBudget : null;
-        const resolvedBudget = computedBudget ?? fallbackEventBudget;
+        const resolvedBudget = Number.isFinite(rawEventBudget) ? rawEventBudget : null;
         const posterApproved =
             event.poster_status === 'approved' ||
             (event.poster_url && (event.poster_status == null || event.poster_status === ''));
@@ -164,6 +181,7 @@ export default function EventReport({ event, tasks, eventPhotos = [], canEdit }:
             registration_fee: event.registration_fee || null,
             prize: event.prize || null,
             budget: resolvedBudget != null ? `₹${resolvedBudget.toLocaleString('en-IN')}` : 'N/A',
+            actual_expense: computedExpense != null ? `₹${computedExpense.toLocaleString('en-IN')}` : 'N/A',
             status: event.status?.replace(/_/g, ' ').toUpperCase() || 'N/A',
             include_participants: includeParticipants,
             include_participants_count: includeParticipantsCount,
@@ -283,6 +301,7 @@ Venue:              ${data.venue}
 Duration:           ${data.duration}
 Proposed by:        ${data.proposed_by}
 Budget:             ${data.budget}
+Actual expense:     ${data.actual_expense || 'N/A'}
 Status:             ${data.status}
 ${data.guest_name ? `Guest / speaker:     ${data.guest_name}` : ''}
 ${data.registration_fee ? `Registration fee:   ${data.registration_fee}` : ''}
@@ -330,6 +349,7 @@ This document is generated from the IIChE AVVU Student Chapter portal.`;
                 ['Duration', String(data.duration)],
                 ['Proposed by', data.proposed_by],
                 ['Budget', data.budget],
+                ['Actual expense', data.actual_expense || 'N/A'],
                 ['Status', data.status],
             ];
             if (data.guest_name) metaRows.push(['Guest / speaker', String(data.guest_name)]);
@@ -470,6 +490,7 @@ ${report.additional_notes ? `<p class="section">Additional remarks</p><p class="
             kv('Duration', data.duration);
             kv('Proposed by', data.proposed_by);
             kv('Budget', data.budget);
+            kv('Actual expense', data.actual_expense || 'N/A');
             kv('Status', data.status);
             if (data.guest_name) kv('Guest / speaker', data.guest_name);
             if (data.registration_fee) kv('Registration fee', data.registration_fee);
@@ -650,6 +671,17 @@ ${report.additional_notes ? `<p class="section">Additional remarks</p><p class="
     if (loading) return null;
 
     const reportData = report ? getReportData() : null;
+    const savedParticipants = Array.isArray(reportData?.participants) ? reportData.participants : [];
+    const participantsForDisplay =
+        reportData?.include_participants
+            ? (savedParticipants.length > 0 ? savedParticipants : liveParticipantsForView)
+            : [];
+    const participantsCountForDisplay =
+        reportData?.include_participants_count
+            ? (typeof reportData?.participants_count === 'number'
+                ? reportData.participants_count
+                : participantsForDisplay.length)
+            : null;
 
     return (
         <div className="glass rounded-2xl p-4 sm:p-8 mb-6">
@@ -747,9 +779,10 @@ ${report.additional_notes ? `<p class="section">Additional remarks</p><p class="
                         <div><span className="font-semibold text-gray-500">Duration:</span> <span className="text-gray-800">{reportData.duration}</span></div>
                         <div><span className="font-semibold text-gray-500">Proposed By:</span> <span className="text-gray-800">{reportData.proposed_by}</span></div>
                         <div><span className="font-semibold text-gray-500">Budget:</span> <span className="text-gray-800">{reportData.budget}</span></div>
+                        <div><span className="font-semibold text-gray-500">Actual Expense:</span> <span className="text-gray-800">{reportData.actual_expense || 'N/A'}</span></div>
                         <div><span className="font-semibold text-gray-500">Status:</span> <span className="text-gray-800">{reportData.status}</span></div>
                         {reportData.expected_participants && <div><span className="font-semibold text-gray-500">Expected Participants:</span> <span className="text-gray-800">{reportData.expected_participants}</span></div>}
-                        {reportData.include_participants_count && <div><span className="font-semibold text-gray-500">Participants Count:</span> <span className="text-gray-800">{reportData.participants_count ?? 0}</span></div>}
+                        {reportData.include_participants_count && <div><span className="font-semibold text-gray-500">Participants Count:</span> <span className="text-gray-800">{participantsCountForDisplay ?? 0}</span></div>}
                         {reportData.guest_name && <div><span className="font-semibold text-gray-500">Guest Speaker:</span> <span className="text-gray-800">{reportData.guest_name}</span></div>}
                         {reportData.registration_fee && <div><span className="font-semibold text-gray-500">Registration Fee:</span> <span className="text-gray-800">{reportData.registration_fee}</span></div>}
                         {reportData.prize && <div><span className="font-semibold text-gray-500">Prize:</span> <span className="text-gray-800">{reportData.prize}</span></div>}
@@ -801,12 +834,12 @@ ${report.additional_notes ? `<p class="section">Additional remarks</p><p class="
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {(reportData.participants || []).length === 0 ? (
+                                        {participantsForDisplay.length === 0 ? (
                                             <tr>
                                                 <td colSpan={5} className="px-3 py-3 text-center text-gray-500">No participants found.</td>
                                             </tr>
                                         ) : (
-                                            (reportData.participants || []).map((p: any) => (
+                                            participantsForDisplay.map((p: any) => (
                                                 <tr key={`participant-row-${p.serial}`} className="border-t border-gray-100">
                                                     <td className="px-3 py-2 text-gray-700">{p.serial}</td>
                                                     <td className="px-3 py-2 text-gray-800 font-medium">{p.name}</td>

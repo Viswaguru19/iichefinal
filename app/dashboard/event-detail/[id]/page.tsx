@@ -222,13 +222,37 @@ export default function EventDetailPage() {
       };
 
       const decoded = safeDecode(trimmed);
-      const candidates = [trimmed, decoded || ''].filter(Boolean).filter((v, i, arr) => arr.indexOf(v) === i);
+      const unescaped = trimmed.replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+      const candidates = [trimmed, decoded || '', unescaped].filter(Boolean).filter((v, i, arr) => arr.indexOf(v) === i);
+
+      // If organizer scans the event registration QR (URL), guide them to scan participant check-in QR instead.
+      const urlLike = candidates.find((c) => /^https?:\/\//i.test(c));
+      if (urlLike && /\/forms\/[^/\s?]+/i.test(urlLike)) {
+        toast.error('This is the registration form QR. Scan the participant check-in QR shown after form submission.');
+        return;
+      }
 
       payload = {} as Record<string, unknown>;
       let parsed = null as Record<string, unknown> | null;
       for (const c of candidates) {
         parsed = tryParseJson(c);
         if (parsed) break;
+
+        // Support URLs that embed payload in query params: ?payload=... or ?data=...
+        if (/^https?:\/\//i.test(c)) {
+          try {
+            const u = new URL(c);
+            const qp = u.searchParams.get('payload') || u.searchParams.get('data') || u.searchParams.get('qr');
+            if (qp) {
+              const decQp = safeDecode(qp) || qp;
+              parsed = tryParseJson(decQp) || tryParseJson(decQp.replace(/\\"/g, '"').replace(/\\\\/g, '\\'));
+              if (parsed) break;
+            }
+          } catch {
+            // ignore invalid URL
+          }
+        }
+
         const start = c.indexOf('{');
         const end = c.lastIndexOf('}');
         if (start >= 0 && end > start) {
