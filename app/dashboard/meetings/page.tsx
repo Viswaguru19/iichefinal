@@ -53,7 +53,8 @@ export default function MeetingsPage() {
     const upcomingMeetings = meetings.filter((meeting: any) => {
       const status = String(meeting.status || '').toLowerCase();
       const meetingTime = new Date(meeting.meeting_date);
-      return status === 'scheduled' || status === 'ongoing' || (status !== 'completed' && status !== 'cancelled' && meetingTime >= now);
+      // Treat past-dated scheduled meetings as past, not upcoming.
+      return status === 'ongoing' || (status !== 'completed' && status !== 'cancelled' && meetingTime >= now);
     });
     const pastMeetings = meetings
       .filter((meeting: any) => !upcomingMeetings.some((up: any) => up.id === meeting.id))

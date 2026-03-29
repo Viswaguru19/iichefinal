@@ -19,6 +19,7 @@ export default function TasksPage() {
   const [updateText, setUpdateText] = useState('');
   const [updateDoc, setUpdateDoc] = useState<File | null>(null);
   const [selectedEvent, setSelectedEvent] = useState('');
+  const [taskKind, setTaskKind] = useState<'event' | 'general'>('event');
   const [selectedCommittee, setSelectedCommittee] = useState('');
   const [taskTitle, setTaskTitle] = useState('');
   const [taskDescription, setTaskDescription] = useState('');
@@ -137,7 +138,7 @@ export default function TasksPage() {
       const { error } = await supabase
         .from('task_assignments')
         .insert({
-          event_id: selectedEvent,
+          event_id: taskKind === 'event' ? selectedEvent : null,
           title: taskTitle,
           description: taskDescription,
           assigned_to_committee: selectedCommittee,
@@ -152,6 +153,7 @@ export default function TasksPage() {
       setShowAssign(false);
       setTaskTitle('');
       setTaskDescription('');
+      setTaskKind('event');
       setSelectedEvent('');
       setSelectedCommittee('');
       loadData();
@@ -296,9 +298,10 @@ export default function TasksPage() {
       let docUrl = null;
       if (updateDoc) {
         const fileName = `${Date.now()}_${updateDoc.name}`;
+        const taskFolder = selectedTask.event_id || 'general';
         const { data: uploadData, error: uploadError } = await supabase.storage
           .from('event-documents')
-          .upload(`${selectedTask.event_id}/${fileName}`, updateDoc);
+          .upload(`${taskFolder}/${fileName}`, updateDoc);
 
         if (uploadError) throw uploadError;
 
@@ -347,8 +350,8 @@ export default function TasksPage() {
   function canAssignTasks() {
     // Faculty, admins, and EC can assign tasks to any committee
     if (userProfile?.is_faculty || userProfile?.is_admin || isExecutive) return true;
-    // Committee heads/co-heads with active events can assign
-    return userCommittees.length > 0 && events.some(e => userCommittees.includes(e.committee_id));
+    // Committee members can assign (non-EC roles still go through pending_ec_approval workflow)
+    return userCommittees.length > 0;
   }
 
   function canUpdateTask(task: any) {
@@ -387,6 +390,22 @@ export default function TasksPage() {
                 <h2 className="text-xl font-bold text-gradient mb-4">Assign Task to Committee</h2>
                 <form onSubmit={handleAssignTask} className="space-y-4">
                   <div>
+                    <label className="block text-sm font-medium mb-2">Task Type *</label>
+                    <select
+                      value={taskKind}
+                      onChange={(e) => {
+                        const v = e.target.value as 'event' | 'general';
+                        setTaskKind(v);
+                        if (v === 'general') setSelectedEvent('');
+                      }}
+                      className="w-full px-4 py-2 border rounded-lg"
+                    >
+                      <option value="event">Event Task</option>
+                      <option value="general">General Task</option>
+                    </select>
+                  </div>
+                  {taskKind === 'event' && (
+                    <div>
                     <label className="block text-sm font-medium mb-2">Event *</label>
                     <select
                       value={selectedEvent}
@@ -401,7 +420,15 @@ export default function TasksPage() {
                         </option>
                       ))}
                     </select>
-                  </div>
+                    </div>
+                  )}
+                  {taskKind === 'general' && (
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                      <p className="text-sm text-blue-800">
+                        This task is not linked to an event. The same approval workflow still applies.
+                      </p>
+                    </div>
+                  )}
                   <div>
                     <label className="block text-sm font-medium mb-2">Assign to Committee *</label>
                     <select
@@ -540,7 +567,7 @@ export default function TasksPage() {
                           )}
                         </p>
                         <p className="text-xs text-gray-500 mt-1">
-                          Event: {task.event?.title}
+                          {task.event?.title ? `Event: ${task.event.title}` : 'General Task'}
                         </p>
                         {/* Deadline */}
                         {task.deadline ? (
