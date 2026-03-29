@@ -110,11 +110,13 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, onOpenProfi
             }));
             setMessages(enriched);
             if (chat.participantGroupId) {
-                void supabase
+                const { error: lrErr } = await supabase
                     .from('chat_participants')
                     .update({ last_read_at: new Date().toISOString() })
                     .eq('group_id', chat.participantGroupId)
-                    .eq('user_id', currentUser.id);
+                    .eq('user_id', currentUser.id)
+                    .select('group_id');
+                if (lrErr) console.error('last_read_at update:', lrErr);
             }
         }
         setLoading(false);

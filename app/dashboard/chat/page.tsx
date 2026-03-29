@@ -28,6 +28,7 @@ const WHOLE_ORG_CHAT_GROUP_ID = '00000000-0000-0000-0000-000000000001';
 
 function displayGroupName(g: { name?: string | null; chat_type: string | null }) {
   if (g.chat_type === 'organization') return 'IIChE AVVU SC';
+  if (g.chat_type === 'executive') return 'Executive Committee';
   const n = g.name?.trim();
   return n || 'Group';
 }
@@ -268,9 +269,13 @@ export default function ChatPage() {
 
     setChats((prev) => {
       const newChats = [...directChats, ...groupChats];
+      const orgName = 'IIChE AVVU SC';
+      const ecName = 'Executive Committee';
       newChats.sort((a, b) => {
-        if (a.type === 'group' && a.name === 'IIChE AVVU SC' && !(b.type === 'group' && b.name === 'IIChE AVVU SC')) return -1;
-        if (b.type === 'group' && b.name === 'IIChE AVVU SC' && !(a.type === 'group' && a.name === 'IIChE AVVU SC')) return 1;
+        if (a.type === 'group' && a.name === orgName && !(b.type === 'group' && b.name === orgName)) return -1;
+        if (b.type === 'group' && b.name === orgName && !(a.type === 'group' && a.name === orgName)) return 1;
+        if (a.type === 'group' && a.name === ecName && !(b.type === 'group' && b.name === ecName) && !(b.type === 'group' && b.name === orgName)) return -1;
+        if (b.type === 'group' && b.name === ecName && !(a.type === 'group' && a.name === ecName) && !(a.type === 'group' && a.name === orgName)) return 1;
         return new Date(b.time).getTime() - new Date(a.time).getTime();
       });
       const activeId = activeChat?.id;
@@ -308,38 +313,45 @@ export default function ChatPage() {
     return () => { supabase.removeChannel(ch); };
   }
 
-  function openChat(chat: ChatItem) {
+  async function openChat(chat: ChatItem) {
     setActiveChat(chat);
     setShowProfile(false);
     if (!currentUser) return;
     if (chat.type === 'direct') {
-      supabase.from('direct_messages').update({ read: true } as any).eq('receiver_id', currentUser.id).eq('sender_id', chat.id).then(() => {
-        setChats(prev => prev.map(c => c.id === chat.id && c.type === 'direct' ? { ...c, unreadCount: 0 } : c));
-      });
+      const { error } = await supabase
+        .from('direct_messages')
+        .update({ read: true } as any)
+        .eq('receiver_id', currentUser.id)
+        .eq('sender_id', chat.id)
+        .eq('read', false);
+      if (error) console.error('DM mark read:', error);
+      setChats((prev) => prev.map((c) => (c.id === chat.id && c.type === 'direct' ? { ...c, unreadCount: 0 } : c)));
     }
     if (chat.type === 'group' && chat.participantGroupId) {
       const ts = new Date().toISOString();
-      void supabase
+      const { data, error } = await supabase
         .from('chat_participants')
         .update({ last_read_at: ts })
         .eq('group_id', chat.participantGroupId)
         .eq('user_id', currentUser.id)
-        .then(() => {
-          setChats((prev) =>
-            prev.map((c) =>
-              c.type === 'group' && c.participantGroupId === chat.participantGroupId ? { ...c, unreadCount: 0 } : c,
-            ),
-          );
-        });
+        .select('group_id');
+      if (error) console.error('last_read_at update:', error);
+      else if (data?.length) {
+        setChats((prev) =>
+          prev.map((c) =>
+            c.type === 'group' && c.participantGroupId === chat.participantGroupId ? { ...c, unreadCount: 0 } : c,
+          ),
+        );
+      }
     }
   }
 
   function startNewChat(user: UserProfile) {
     const existing = chats.find(c => c.type === 'direct' && c.id === user.id);
-    if (existing) { openChat(existing); return; }
+    if (existing) { void openChat(existing); return; }
     const newChat: ChatItem = { id: user.id, name: user.name, avatar: user.avatar_url, lastMessage: '', time: new Date().toISOString(), type: 'direct', unreadCount: 0 };
     setChats(prev => [newChat, ...prev]);
-    openChat(newChat);
+    void openChat(newChat);
   }
 
   async function createGroup(name: string, description: string, memberIds: string[]) {
@@ -363,7 +375,7 @@ export default function ChatPage() {
         unreadCount: 0,
       };
       setChats(prev => [newChat, ...prev]);
-      openChat(newChat);
+      void openChat(newChat);
       toast.success('Group created!');
     } catch (err: any) {
       toast.error(err.message || 'Failed to create group');
@@ -400,7 +412,7 @@ export default function ChatPage() {
           allUsers={allUsers}
           activeChat={activeChat}
           onlineUsers={onlineUsers}
-          onSelectChat={openChat}
+          onSelectChat={(c) => void openChat(c)}
           onNewChat={startNewChat}
           onCreateGroup={createGroup}
           onBack={() => router.push('/dashboard')}

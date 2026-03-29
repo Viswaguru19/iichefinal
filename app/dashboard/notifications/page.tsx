@@ -5,13 +5,15 @@ import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
 import { Bell, Check, CheckCheck, X, Filter } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { getNotificationHref } from '@/lib/notification-href';
 
 interface Notification {
     id: string;
     type: string;
     title: string;
     message: string;
-    link: string | null;
+    link?: string | null;
+    related_id?: string | null;
     read: boolean;
     created_at: string;
 }
@@ -72,19 +74,29 @@ export default function NotificationsPage() {
         setNotifications(data || []);
     }
 
-    async function markAsRead(notificationId: string) {
-        const { error } = await supabase
+    async function markAsRead(notificationId: string): Promise<boolean> {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return false;
+
+        const { data, error } = await supabase
             .from('notifications')
             .update({ read: true })
-            .eq('id', notificationId);
+            .eq('id', notificationId)
+            .eq('user_id', user.id)
+            .select('id');
 
         if (error) {
             console.error('Error marking notification as read:', error);
             toast.error('Failed to mark as read');
-            return;
+            return false;
+        }
+        if (!data?.length) {
+            toast.error('Could not save read state');
+            return false;
         }
 
-        loadNotifications();
+        await loadNotifications();
+        return true;
     }
 
     async function markAllAsRead() {
@@ -112,10 +124,14 @@ export default function NotificationsPage() {
     }
 
     async function deleteNotification(notificationId: string) {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+
         const { error } = await supabase
             .from('notifications')
             .delete()
-            .eq('id', notificationId);
+            .eq('id', notificationId)
+            .eq('user_id', user.id);
 
         if (error) {
             console.error('Error deleting notification:', error);
@@ -151,12 +167,13 @@ export default function NotificationsPage() {
         }
     }
 
-    function handleNotificationClick(notification: Notification) {
-        if (!notification.read) {
-            markAsRead(notification.id);
+    async function handleNotificationClick(notification: Notification) {
+        if (notification.read !== true) {
+            await markAsRead(notification.id);
         }
-        if (notification.link) {
-            router.push(notification.link);
+        const href = getNotificationHref(notification);
+        if (href) {
+            router.push(href);
         }
     }
 
@@ -190,7 +207,7 @@ export default function NotificationsPage() {
         });
     }
 
-    const unreadCount = notifications.filter(n => !n.read).length;
+    const unreadCount = notifications.filter((n) => n.read !== true).length;
 
     return (
         <div className="min-h-screen bg-gray-50">
@@ -272,7 +289,7 @@ export default function NotificationsPage() {
                         notifications.map((notification) => (
                             <div
                                 key={notification.id}
-                                className={`bg-white rounded-xl shadow-sm p-5 hover:shadow-md transition-shadow cursor-pointer relative ${!notification.read ? 'border-l-4 border-blue-600' : ''
+                                className={`bg-white rounded-xl shadow-sm p-5 hover:shadow-md transition-shadow cursor-pointer relative ${notification.read !== true ? 'border-l-4 border-blue-600' : ''
                                     }`}
                                 onClick={() => handleNotificationClick(notification)}
                             >
@@ -285,11 +302,11 @@ export default function NotificationsPage() {
                                     {/* Content */}
                                     <div className="flex-1 min-w-0">
                                         <div className="flex items-start justify-between gap-4 mb-2">
-                                            <h3 className={`text-lg font-semibold text-gray-900 ${!notification.read ? 'font-bold' : ''
+                                            <h3 className={`text-lg font-semibold text-gray-900 ${notification.read !== true ? 'font-bold' : ''
                                                 }`}>
                                                 {notification.title}
                                             </h3>
-                                            {!notification.read && (
+                                            {notification.read !== true && (
                                                 <span className="bg-blue-600 text-white text-xs font-bold px-2 py-1 rounded-full flex-shrink-0">
                                                     NEW
                                                 </span>
@@ -301,11 +318,11 @@ export default function NotificationsPage() {
                                                 {formatDateTime(notification.created_at)}
                                             </p>
                                             <div className="flex items-center gap-2">
-                                                {!notification.read && (
+                                                {notification.read !== true && (
                                                     <button
                                                         onClick={(e) => {
                                                             e.stopPropagation();
-                                                            markAsRead(notification.id);
+                                                            void markAsRead(notification.id);
                                                         }}
                                                         className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700 font-medium"
                                                     >

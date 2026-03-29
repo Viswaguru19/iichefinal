@@ -20,6 +20,11 @@ export default async function DashboardPage() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect('/login');
 
+  const { error: ensureChatErr } = await supabase.rpc('ensure_default_chat_memberships');
+  if (ensureChatErr) {
+    console.warn('ensure_default_chat_memberships:', ensureChatErr.message);
+  }
+
   const { data: profile, error: profileError } = await supabase
     .from('profiles')
     .select('*')

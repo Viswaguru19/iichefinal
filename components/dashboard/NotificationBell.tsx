@@ -5,13 +5,15 @@ import { createClient } from '@/lib/supabase/client';
 import { Bell, X, Check, CheckCheck } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
+import { getNotificationHref } from '@/lib/notification-href';
 
 interface Notification {
     id: string;
     type: string;
     title: string;
     message: string;
-    link: string | null;
+    link?: string | null;
+    related_id?: string | null;
     read: boolean;
     created_at: string;
 }
@@ -78,21 +80,30 @@ export default function NotificationBell() {
         }
 
         setNotifications(data || []);
-        setUnreadCount(data?.filter(n => !n.read).length || 0);
+        setUnreadCount(data?.filter((n) => n.read !== true).length || 0);
     }
 
-    async function markAsRead(notificationId: string) {
-        const { error } = await supabase
+    async function markAsRead(notificationId: string): Promise<boolean> {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return false;
+
+        const { data, error } = await supabase
             .from('notifications')
             .update({ read: true })
-            .eq('id', notificationId);
+            .eq('id', notificationId)
+            .eq('user_id', user.id)
+            .select('id');
 
         if (error) {
             console.error('Error marking notification as read:', error);
-            return;
+            return false;
+        }
+        if (!data?.length) {
+            return false;
         }
 
-        loadNotifications();
+        await loadNotifications();
+        return true;
     }
 
     async function markAllAsRead() {
@@ -120,10 +131,14 @@ export default function NotificationBell() {
     }
 
     async function deleteNotification(notificationId: string) {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+
         const { error } = await supabase
             .from('notifications')
             .delete()
-            .eq('id', notificationId);
+            .eq('id', notificationId)
+            .eq('user_id', user.id);
 
         if (error) {
             console.error('Error deleting notification:', error);
@@ -135,12 +150,17 @@ export default function NotificationBell() {
         loadNotifications();
     }
 
-    function handleNotificationClick(notification: Notification) {
-        if (!notification.read) {
-            markAsRead(notification.id);
+    async function handleNotificationClick(notification: Notification) {
+        if (notification.read !== true) {
+            const ok = await markAsRead(notification.id);
+            if (!ok) {
+                toast.error('Failed to mark as read');
+                return;
+            }
         }
-        if (notification.link) {
-            router.push(notification.link);
+        const href = getNotificationHref(notification);
+        if (href) {
+            router.push(href);
             setShowDropdown(false);
         }
     }
@@ -257,12 +277,12 @@ export default function NotificationBell() {
                                     {notifications.map((notification) => (
                                         <div
                                             key={notification.id}
-                                            className={`p-4 hover:bg-gray-50 transition-colors cursor-pointer relative ${!notification.read ? 'bg-blue-50/30' : ''
+                                            className={`p-4 hover:bg-gray-50 transition-colors cursor-pointer relative ${notification.read !== true ? 'bg-blue-50/30' : ''
                                                 }`}
-                                            onClick={() => handleNotificationClick(notification)}
+                                            onClick={() => void handleNotificationClick(notification)}
                                         >
                                             {/* Unread Indicator */}
-                                            {!notification.read && (
+                                            {notification.read !== true && (
                                                 <div className="absolute left-2 top-1/2 -translate-y-1/2 w-2 h-2 bg-blue-600 rounded-full" />
                                             )}
 
@@ -288,11 +308,11 @@ export default function NotificationBell() {
 
                                                 {/* Actions */}
                                                 <div className="flex items-center gap-1 flex-shrink-0">
-                                                    {!notification.read && (
+                                                    {notification.read !== true && (
                                                         <button
                                                             onClick={(e) => {
                                                                 e.stopPropagation();
-                                                                markAsRead(notification.id);
+                                                                void markAsRead(notification.id);
                                                             }}
                                                             className="p-1 text-blue-600 hover:bg-blue-100 rounded"
                                                             title="Mark as read"
