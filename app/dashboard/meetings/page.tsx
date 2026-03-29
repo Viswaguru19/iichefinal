@@ -137,8 +137,23 @@ export default function MeetingsPage() {
     toast.success('Meeting link copied');
   }
 
-  const displayed = (filter === 'upcoming' ? upcoming : filter === 'past' ? past : [...upcoming, ...past])
-    .filter(m => !search || m.title?.toLowerCase().includes(search.toLowerCase()));
+  const q = search.trim().toLowerCase();
+  const matchesSearch = (m: any) => {
+    if (!q) return true;
+    const title = String(m.title || '').toLowerCase();
+    const committee = String(m.committee?.name || '').toLowerCase();
+    const creator = String(m.creator?.name || '').toLowerCase();
+    return title.includes(q) || committee.includes(q) || creator.includes(q);
+  };
+
+  const filteredUpcoming = upcoming.filter(matchesSearch);
+  const filteredPast = past.filter(matchesSearch);
+  const displayed =
+    filter === 'upcoming'
+      ? filteredUpcoming
+      : filter === 'past'
+        ? filteredPast
+        : [...filteredUpcoming, ...filteredPast];
 
   function getAudienceBadge(meeting: any): { label: string; className: string } {
     if (meeting.committee?.name) {
@@ -232,7 +247,15 @@ export default function MeetingsPage() {
               {filter === tab && (
                 <motion.div layoutId="meetingTab" className="absolute inset-0 bg-gradient-to-r from-indigo-500 to-purple-500 rounded-xl shadow-lg" transition={{ type: 'spring', stiffness: 400, damping: 30 }} />
               )}
-              <span className="relative z-10">{tab.charAt(0).toUpperCase() + tab.slice(1)} ({tab === 'upcoming' ? upcoming.length : tab === 'past' ? past.length : upcoming.length + past.length})</span>
+              <span className="relative z-10">
+                {tab.charAt(0).toUpperCase() + tab.slice(1)} (
+                {tab === 'upcoming'
+                  ? filteredUpcoming.length
+                  : tab === 'past'
+                    ? filteredPast.length
+                    : filteredUpcoming.length + filteredPast.length}
+                )
+              </span>
             </button>
           ))}
         </motion.div>
@@ -244,7 +267,13 @@ export default function MeetingsPage() {
               <Calendar className="w-16 h-16 text-gray-300 mx-auto mb-4" />
             </motion.div>
             <h3 className="text-xl font-bold text-gray-600 mb-2">No meetings found</h3>
-            <p className="text-gray-400 mb-6">{filter === 'upcoming' ? 'No upcoming meetings' : 'No meetings yet'}</p>
+            <p className="text-gray-400 mb-6">
+              {filter === 'upcoming'
+                ? (q ? 'No upcoming meetings match your search' : 'No upcoming meetings')
+                : filter === 'past'
+                  ? (q ? 'No past meetings match your search' : 'No past meetings')
+                  : (q ? 'No meetings match your search' : 'No meetings yet')}
+            </p>
             <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.97 }}>
               <Link href="/dashboard/meetings/create" className="btn-gradient-purple px-6 py-2.5 rounded-2xl inline-flex items-center gap-2 text-sm font-semibold shadow-lg shadow-purple-500/20">
                 <Plus className="w-4 h-4" /> Schedule Meeting
