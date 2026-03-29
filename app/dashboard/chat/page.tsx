@@ -318,13 +318,15 @@ export default function ChatPage() {
     setShowProfile(false);
     if (!currentUser) return;
     if (chat.type === 'direct') {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('direct_messages')
         .update({ read: true } as any)
         .eq('receiver_id', currentUser.id)
         .eq('sender_id', chat.id)
-        .eq('read', false);
+        .eq('read', false)
+        .select('id');
       if (error) console.error('DM mark read:', error);
+      else if (!data?.length && chat.unreadCount > 0) console.warn('DM mark read affected 0 rows for unread chat', chat.id);
       setChats((prev) => prev.map((c) => (c.id === chat.id && c.type === 'direct' ? { ...c, unreadCount: 0 } : c)));
     }
     if (chat.type === 'group' && chat.participantGroupId) {
@@ -344,6 +346,7 @@ export default function ChatPage() {
         );
       }
     }
+    await loadChats(currentUser.id);
   }
 
   function startNewChat(user: UserProfile) {

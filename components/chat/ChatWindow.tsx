@@ -87,8 +87,15 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, onOpenProfi
             }
 
             if (!e2 && received && received.length > 0) {
-                supabase.from('direct_messages').update({ read: true } as any)
-                    .eq('receiver_id', currentUser.id).eq('sender_id', chat.id).eq('read', false).then(() => { });
+                const { data: marked, error: markErr } = await supabase
+                    .from('direct_messages')
+                    .update({ read: true } as any)
+                    .eq('receiver_id', currentUser.id)
+                    .eq('sender_id', chat.id)
+                    .eq('read', false)
+                    .select('id');
+                if (markErr) console.error('DM read update error:', markErr);
+                else if ((marked?.length || 0) > 0) onMessageSent();
             }
         } else {
             const { data, error } = await supabase
@@ -117,6 +124,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, onOpenProfi
                     .eq('user_id', currentUser.id)
                     .select('group_id');
                 if (lrErr) console.error('last_read_at update:', lrErr);
+                else onMessageSent();
             }
         }
         setLoading(false);
@@ -249,10 +257,23 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, onOpenProfi
 
     async function deleteMessage(msgId: string) {
         const table = isDirect ? 'direct_messages' : 'group_messages';
-        const { error } = await supabase.from(table).delete().eq('id', msgId);
-        if (error) { toast.error('Failed to delete'); return; }
+        const { data, error } = await supabase
+            .from(table)
+            .delete()
+            .eq('id', msgId)
+            .eq('sender_id', currentUser.id)
+            .select('id');
+        if (error) {
+            toast.error(`Failed to delete: ${error.message}`);
+            return;
+        }
+        if (!data || data.length === 0) {
+            toast.error('Delete was not applied. You can delete only your own message.');
+            return;
+        }
         setMessages(prev => prev.filter(m => m.id !== msgId));
         setMenuMsgId(null);
+        await loadMessages();
         onMessageSent();
     }
 
