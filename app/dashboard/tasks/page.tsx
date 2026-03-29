@@ -128,6 +128,7 @@ export default function TasksPage() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user || !userProfile) throw new Error('Not authenticated');
+      if (taskKind === 'event' && !selectedEvent) throw new Error('Please select an event before assigning a task');
 
       // Get user's committee (faculty can assign without being in a committee)
       const userCommittee = (userProfile as any).committee_members?.[0];
@@ -405,7 +406,7 @@ export default function TasksPage() {
                     </select>
                   </div>
                   {taskKind === 'event' && (
-                    <div>
+                  <div>
                     <label className="block text-sm font-medium mb-2">Event *</label>
                     <select
                       value={selectedEvent}
@@ -420,7 +421,7 @@ export default function TasksPage() {
                         </option>
                       ))}
                     </select>
-                    </div>
+                  </div>
                   )}
                   {taskKind === 'general' && (
                     <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">

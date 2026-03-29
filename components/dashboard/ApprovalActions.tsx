@@ -73,15 +73,6 @@ export default function ApprovalActions({ user, committees }: any) {
 
       if (memberError) throw memberError;
 
-      if (position === 'head' || position === 'co_head') {
-        const { error: ecError } = await (supabase as any).from('committee_members').insert({
-          user_id: user.id,
-          committee_id: EXECUTIVE_COMMITTEE_SYNTHETIC_ID,
-          position: 'member',
-        });
-        if (ecError) throw ecError;
-      }
-
       toast.success('User approved and assigned');
       router.refresh();
     } catch (error: any) {

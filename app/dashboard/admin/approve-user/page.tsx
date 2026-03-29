@@ -84,15 +84,6 @@ function ApproveUserContent() {
         });
 
         if (cmError) throw cmError;
-
-        if (position === 'head' || position === 'co_head') {
-          const { error: ecError } = await (supabase as any).from('committee_members').insert({
-            user_id: userId,
-            committee_id: EXECUTIVE_COMMITTEE_SYNTHETIC_ID,
-            position: 'member',
-          });
-          if (ecError) throw ecError;
-        }
       }
 
       toast.success('User approved successfully!');
