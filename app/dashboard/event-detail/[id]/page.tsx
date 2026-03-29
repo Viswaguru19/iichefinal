@@ -42,6 +42,24 @@ function TaskSupportingDocuments({ docs }: { docs: any[] | null | undefined }) {
   );
 }
 
+function sanitizeParticipantFormData(raw: any) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw;
+  const duplicateKeys = new Set([
+    'name',
+    'full_name',
+    'participant_name',
+    'email',
+    'participant_email',
+    'mail',
+  ]);
+  const out: Record<string, unknown> = {};
+  Object.entries(raw).forEach(([key, value]) => {
+    const normalized = key.trim().toLowerCase().replace(/[\s-]+/g, '_');
+    if (!duplicateKeys.has(normalized)) out[key] = value;
+  });
+  return out;
+}
+
 export default function EventDetailPage() {
   const EC_COMMITTEE_ID = '00000000-0000-0000-0000-000000000001';
   const [event, setEvent] = useState<any>(null);
@@ -182,53 +200,64 @@ export default function EventDetailPage() {
   }
 
   async function processScanPayload(raw: string) {
-    const trimmed = raw.trim();
-    if (!trimmed) return;
-    let payload: Record<string, unknown>;
+    try {
+      const trimmed = raw.trim();
+      if (!trimmed) return;
+      let payload: Record<string, unknown>;
 
-    const tryParseJson = (text: string): Record<string, unknown> | null => {
-      try {
-        return JSON.parse(text) as Record<string, unknown>;
-      } catch {
-        return null;
-      }
-    };
+      const tryParseJson = (text: string): Record<string, unknown> | null => {
+        try {
+          return JSON.parse(text) as Record<string, unknown>;
+        } catch {
+          return null;
+        }
+      };
 
-    const candidates = [
-      trimmed,
-      decodeURIComponent(trimmed),
-    ].filter((v, i, arr) => arr.indexOf(v) === i);
+      const safeDecode = (text: string): string | null => {
+        try {
+          return decodeURIComponent(text);
+        } catch {
+          return null;
+        }
+      };
 
-    payload = {} as Record<string, unknown>;
-    let parsed = null as Record<string, unknown> | null;
-    for (const c of candidates) {
-      parsed = tryParseJson(c);
-      if (parsed) break;
-      const start = c.indexOf('{');
-      const end = c.lastIndexOf('}');
-      if (start >= 0 && end > start) {
-        parsed = tryParseJson(c.slice(start, end + 1));
+      const decoded = safeDecode(trimmed);
+      const candidates = [trimmed, decoded || ''].filter(Boolean).filter((v, i, arr) => arr.indexOf(v) === i);
+
+      payload = {} as Record<string, unknown>;
+      let parsed = null as Record<string, unknown> | null;
+      for (const c of candidates) {
+        parsed = tryParseJson(c);
         if (parsed) break;
+        const start = c.indexOf('{');
+        const end = c.lastIndexOf('}');
+        if (start >= 0 && end > start) {
+          parsed = tryParseJson(c.slice(start, end + 1));
+          if (parsed) break;
+        }
       }
-    }
 
-    if (!parsed) {
-      toast.error('Invalid QR payload');
-      return;
+      if (!parsed) {
+        toast.error('Invalid QR payload');
+        return;
+      }
+      payload = parsed;
+      const pid = payload?.participant_id;
+      const eid = payload?.event_id;
+      if (pid == null || pid === '') {
+        toast.error('Invalid participant QR');
+        return;
+      }
+      if (String(eid) !== String(event?.id)) {
+        toast.error('This QR is for a different event');
+        return;
+      }
+      await markAttendance(String(pid), 'present');
+      toast.success('Attendance marked present');
+    } catch (err) {
+      console.error('processScanPayload failed:', err);
+      toast.error('Failed to process QR scan');
     }
-    payload = parsed;
-    const pid = payload?.participant_id;
-    const eid = payload?.event_id;
-    if (pid == null || pid === '') {
-      toast.error('Invalid participant QR');
-      return;
-    }
-    if (String(eid) !== String(event?.id)) {
-      toast.error('This QR is for a different event');
-      return;
-    }
-    await markAttendance(String(pid), 'present');
-    toast.success('Attendance marked present');
   }
 
   async function handleScan() {
@@ -1355,7 +1384,7 @@ export default function EventDetailPage() {
                       )}
                       <h4 className="font-semibold text-gray-900 mb-2">Submitted Form Details</h4>
                       <pre className="text-xs text-gray-700 whitespace-pre-wrap break-words">
-                        {JSON.stringify(selectedParticipant.form_data || {}, null, 2)}
+                        {JSON.stringify(sanitizeParticipantFormData(selectedParticipant.form_data || {}), null, 2)}
                       </pre>
                     </>
                   ) : (

@@ -395,7 +395,7 @@ export default function TasksPage() {
                       className="w-full px-4 py-2 border rounded-lg"
                     >
                       <option value="">Select event</option>
-                      {events.filter(e => (userProfile?.is_faculty || userProfile?.is_admin) ? true : userCommittees.includes(e.committee_id)).map((e) => (
+                      {events.filter((e) => (userProfile?.is_faculty || userProfile?.is_admin || isExecutive) ? true : userCommittees.includes(e.committee_id)).map((e) => (
                         <option key={e.id} value={e.id}>
                           {e.title} ({e.committees?.name})
                         </option>
