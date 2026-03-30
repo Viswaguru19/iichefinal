@@ -21,8 +21,10 @@ export default function TasksPage() {
   const [updateDoc, setUpdateDoc] = useState<File | null>(null);
   const [selectedEvent, setSelectedEvent] = useState('');
   const [taskKind, setTaskKind] = useState<'event' | 'general'>('event');
+  const [generalAssignMode, setGeneralAssignMode] = useState<'committee' | 'individual'>('committee');
   const [selectedCommittee, setSelectedCommittee] = useState('');
   const [selectedAssignee, setSelectedAssignee] = useState('');
+  const [allUsers, setAllUsers] = useState<any[]>([]);
   const [taskTitle, setTaskTitle] = useState('');
   const [taskDescription, setTaskDescription] = useState('');
   const [loading, setLoading] = useState(false);
@@ -130,6 +132,13 @@ export default function TasksPage() {
       .select('user_id, committee_id, position, profiles(id, name), committees(name)')
       .or(`committee_id.eq.${EC_COMMITTEE_ID},position.eq.co_head`);
     setAssignmentMembers((membersData || []).filter((m: any) => m?.profiles?.id && m?.profiles?.name));
+
+    // For general tasks assigned to an individual, allow assigning to any user.
+    const { data: allUsersData } = await supabase
+      .from('profiles')
+      .select('id, name, committee_members(committee_id, committees(name))')
+      .order('name', { ascending: true });
+    setAllUsers((allUsersData || []).filter((u: any) => u?.id && u?.name));
     setPageLoading(false);
   }
 
@@ -147,9 +156,19 @@ export default function TasksPage() {
       if (!userCommittee && !userProfile?.is_faculty && !userProfile?.is_admin) {
         throw new Error('You must be part of a committee to assign tasks');
       }
-      const assigneeCommitteeId = assignmentMembers.find((m: any) => m.user_id === selectedAssignee)?.committee_id || null;
-      if (!selectedCommittee && !assigneeCommitteeId) {
-        throw new Error('Please select a committee or choose an individual assignee');
+      const generalSelectedUser = allUsers.find((u: any) => u.id === selectedAssignee) || null;
+      const generalAssigneeCommitteeId = generalSelectedUser?.committee_members?.[0]?.committee_id || null;
+      const assigneeCommitteeId = generalAssigneeCommitteeId;
+
+      if (taskKind === 'general') {
+        if (generalAssignMode === 'committee' && !selectedCommittee) {
+          throw new Error('Please select a committee for general task assignment');
+        }
+        if (generalAssignMode === 'individual' && !selectedAssignee) {
+          throw new Error('Please select an individual for general task assignment');
+        }
+      } else if (!selectedCommittee) {
+        throw new Error('Please select a committee for event task assignment');
       }
 
       const { error } = await supabase
@@ -158,9 +177,15 @@ export default function TasksPage() {
           event_id: taskKind === 'event' ? selectedEvent : null,
           title: taskTitle,
           description: taskDescription,
-          assigned_to_committee: assigneeCommitteeId || selectedCommittee || null,
-          assigned_to_user: selectedAssignee || null,
-          assigned_by_committee: userCommittee?.committee_id || selectedCommittee || assigneeCommitteeId,
+          assigned_to_committee:
+            taskKind === 'general'
+              ? (generalAssignMode === 'committee' ? selectedCommittee : (assigneeCommitteeId || null))
+              : (selectedCommittee || null),
+          assigned_to_user:
+            taskKind === 'general'
+              ? (generalAssignMode === 'individual' ? selectedAssignee : null)
+              : null,
+          assigned_by_committee: userCommittee?.committee_id || selectedCommittee || assigneeCommitteeId || null,
           assigned_by_user: user.id,
           status: (userProfile?.is_faculty || userProfile?.is_admin || isExecutive) ? 'approved' : 'pending_ec_approval'
         });
@@ -172,6 +197,7 @@ export default function TasksPage() {
       setTaskTitle('');
       setTaskDescription('');
       setTaskKind('event');
+      setGeneralAssignMode('committee');
       setSelectedEvent('');
       setSelectedCommittee('');
       setSelectedAssignee('');
@@ -382,7 +408,13 @@ export default function TasksPage() {
   }
 
   const selectedAssigneeMember =
-    assignmentMembers.find((m: any) => m.user_id === selectedAssignee) || null;
+    (taskKind === 'general'
+      ? allUsers.find((u: any) => u.id === selectedAssignee)
+      : assignmentMembers.find((m: any) => m.user_id === selectedAssignee)) || null;
+  const selectedAssigneeCommitteeName =
+    taskKind === 'general'
+      ? selectedAssigneeMember?.committee_members?.[0]?.committees?.name || null
+      : selectedAssigneeMember?.committees?.name || null;
 
   return (
     <div className="min-h-screen bg-mesh">
@@ -421,6 +453,8 @@ export default function TasksPage() {
                         const v = e.target.value as 'event' | 'general';
                         setTaskKind(v);
                         if (v === 'general') setSelectedEvent('');
+                        setSelectedAssignee('');
+                        setSelectedCommittee('');
                       }}
                       className="w-full px-4 py-2 border rounded-lg"
                     >
@@ -453,12 +487,30 @@ export default function TasksPage() {
                       </p>
                     </div>
                   )}
+                  {taskKind === 'general' && (
+                    <div>
+                      <label className="block text-sm font-medium mb-2">General Task Assignment Mode *</label>
+                      <select
+                        value={generalAssignMode}
+                        onChange={(e) => {
+                          setGeneralAssignMode(e.target.value as 'committee' | 'individual');
+                          setSelectedCommittee('');
+                          setSelectedAssignee('');
+                        }}
+                        className="w-full px-4 py-2 border rounded-lg"
+                      >
+                        <option value="committee">To Committee</option>
+                        <option value="individual">To Individual</option>
+                      </select>
+                    </div>
+                  )}
                   <div>
                     <label className="block text-sm font-medium mb-2">Assign to Committee *</label>
                     <select
                       value={selectedCommittee}
                       onChange={(e) => setSelectedCommittee(e.target.value)}
-                      required
+                      required={taskKind === 'event' || (taskKind === 'general' && generalAssignMode === 'committee')}
+                      disabled={taskKind === 'general' && generalAssignMode === 'individual'}
                       className="w-full px-4 py-2 border rounded-lg"
                     >
                       <option value="">Select committee</option>
@@ -467,29 +519,36 @@ export default function TasksPage() {
                       ))}
                     </select>
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium mb-2">Assign to Individual (Optional)</label>
-                    <select
-                      value={selectedAssignee}
-                      onChange={(e) => setSelectedAssignee(e.target.value)}
-                      className="w-full px-4 py-2 border rounded-lg"
-                    >
-                      <option value="">No individual assignee (committee-wide)</option>
-                      {assignmentMembers.map((m) => (
-                        <option key={m.user_id} value={m.user_id}>
-                          {m.profiles?.name} - {m.committees?.name} ({m.position === 'co_head' ? 'Co-Head' : 'EC'})
-                        </option>
-                      ))}
-                    </select>
-                    <p className="text-xs text-gray-500 mt-1">
-                      Faculty can assign directly to a single EC member. Committee heads can assign directly to co-heads.
-                    </p>
-                    {selectedAssigneeMember?.committees?.name ? (
-                      <p className="text-xs text-indigo-700 mt-1 font-medium">
-                        Selected member committee: {selectedAssigneeMember.committees.name}
+                  {taskKind === 'general' && (
+                    <div>
+                      <label className="block text-sm font-medium mb-2">Assign to Individual (Optional)</label>
+                      <select
+                        value={selectedAssignee}
+                        onChange={(e) => setSelectedAssignee(e.target.value)}
+                        required={generalAssignMode === 'individual'}
+                        className="w-full px-4 py-2 border rounded-lg"
+                      >
+                        <option value="">Select an individual</option>
+                        {allUsers.map((u) => (
+                          <option key={u.id} value={u.id}>
+                            {u.name}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-xs text-gray-500 mt-1">
+                        General tasks can be assigned to any individual user.
                       </p>
-                    ) : null}
-                  </div>
+                      {selectedAssigneeCommitteeName ? (
+                        <p className="text-xs text-indigo-700 mt-1 font-medium">
+                          Selected member committee: {selectedAssigneeCommitteeName}
+                        </p>
+                      ) : selectedAssignee ? (
+                        <p className="text-xs text-indigo-700 mt-1 font-medium">
+                          Selected member committee: No committee assigned
+                        </p>
+                      ) : null}
+                    </div>
+                  )}
                   <div>
                     <label className="block text-sm font-medium mb-2">Task Title *</label>
                     <input
