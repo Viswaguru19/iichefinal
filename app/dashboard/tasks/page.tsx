@@ -8,10 +8,10 @@ import toast from 'react-hot-toast';
 import PageHeader from '@/components/PageHeader';
 
 export default function TasksPage() {
+  const EC_COMMITTEE_ID = '00000000-0000-0000-0000-000000000001';
   const [tasks, setTasks] = useState<any[]>([]);
   const [events, setEvents] = useState<any[]>([]);
   const [committees, setCommittees] = useState<any[]>([]);
-  const [assignmentMembers, setAssignmentMembers] = useState<any[]>([]);
   const [userProfile, setUserProfile] = useState<any>(null);
   const [userCommittees, setUserCommittees] = useState<string[]>([]);
   const [isExecutive, setIsExecutive] = useState(false);
@@ -53,7 +53,6 @@ export default function TasksPage() {
     let committeeIds: string[] = [];
     let nonEcCommitteeIds: string[] = [];
     let isExec = false;
-    const EC_COMMITTEE_ID = '00000000-0000-0000-0000-000000000001';
 
     if (profile) {
       setUserProfile(profile);
@@ -123,15 +122,6 @@ export default function TasksPage() {
       .eq('type', 'regular')
       .neq('id', '00000000-0000-0000-0000-000000000001'); // Exclude EC
     setCommittees(committeesData || []);
-
-    // Load individual assignee candidates:
-    // - EC members (for faculty/admin/executive direct assignment)
-    // - Co-heads (for head -> co-head delegation)
-    const { data: membersData } = await supabase
-      .from('committee_members')
-      .select('user_id, committee_id, position, profiles(id, name), committees(name)')
-      .or(`committee_id.eq.${EC_COMMITTEE_ID},position.eq.co_head`);
-    setAssignmentMembers((membersData || []).filter((m: any) => m?.profiles?.id && m?.profiles?.name));
 
     // For general tasks assigned to an individual, allow assigning to any user.
     const { data: allUsersData } = await supabase
@@ -407,14 +397,11 @@ export default function TasksPage() {
     return userCommittees.includes(task.assigned_to_committee);
   }
 
-  const selectedAssigneeMember =
-    (taskKind === 'general'
-      ? allUsers.find((u: any) => u.id === selectedAssignee)
-      : assignmentMembers.find((m: any) => m.user_id === selectedAssignee)) || null;
-  const selectedAssigneeCommitteeName =
-    taskKind === 'general'
-      ? selectedAssigneeMember?.committee_members?.[0]?.committees?.name || null
-      : selectedAssigneeMember?.committees?.name || null;
+  const selectedAssigneeMember = allUsers.find((u: any) => u.id === selectedAssignee) || null;
+  const selectedAssigneeCommitteeName = selectedAssigneeMember?.committee_members?.[0]?.committees?.name || null;
+  const isSelectedAssigneeEcMember = !!selectedAssigneeMember?.committee_members?.some(
+    (m: any) => m.committee_id === EC_COMMITTEE_ID
+  );
 
   return (
     <div className="min-h-screen bg-mesh">
@@ -505,7 +492,10 @@ export default function TasksPage() {
                     </div>
                   )}
                   <div>
-                    <label className="block text-sm font-medium mb-2">Assign to Committee *</label>
+                    <label className="block text-sm font-medium mb-2">
+                      Assign to Committee
+                      {taskKind === 'event' || (taskKind === 'general' && generalAssignMode === 'committee') ? ' *' : ''}
+                    </label>
                     <select
                       value={selectedCommittee}
                       onChange={(e) => setSelectedCommittee(e.target.value)}
@@ -532,12 +522,18 @@ export default function TasksPage() {
                         {allUsers.map((u) => (
                           <option key={u.id} value={u.id}>
                             {u.name}
+                            {u.committee_members?.some((m: any) => m.committee_id === EC_COMMITTEE_ID) ? ' [EC]' : ''}
                           </option>
                         ))}
                       </select>
                       <p className="text-xs text-gray-500 mt-1">
                         General tasks can be assigned to any individual user.
                       </p>
+                      {isSelectedAssigneeEcMember ? (
+                        <p className="text-xs text-emerald-700 mt-1 font-medium">
+                          Badge: Executive Committee (EC)
+                        </p>
+                      ) : null}
                       {selectedAssigneeCommitteeName ? (
                         <p className="text-xs text-indigo-700 mt-1 font-medium">
                           Selected member committee: {selectedAssigneeCommitteeName}
