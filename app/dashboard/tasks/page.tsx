@@ -11,6 +11,7 @@ export default function TasksPage() {
   const [tasks, setTasks] = useState<any[]>([]);
   const [events, setEvents] = useState<any[]>([]);
   const [committees, setCommittees] = useState<any[]>([]);
+  const [assignmentMembers, setAssignmentMembers] = useState<any[]>([]);
   const [userProfile, setUserProfile] = useState<any>(null);
   const [userCommittees, setUserCommittees] = useState<string[]>([]);
   const [isExecutive, setIsExecutive] = useState(false);
@@ -21,6 +22,7 @@ export default function TasksPage() {
   const [selectedEvent, setSelectedEvent] = useState('');
   const [taskKind, setTaskKind] = useState<'event' | 'general'>('event');
   const [selectedCommittee, setSelectedCommittee] = useState('');
+  const [selectedAssignee, setSelectedAssignee] = useState('');
   const [taskTitle, setTaskTitle] = useState('');
   const [taskDescription, setTaskDescription] = useState('');
   const [loading, setLoading] = useState(false);
@@ -68,6 +70,7 @@ export default function TasksPage() {
         *,
         event:event_id(title, event_date, status, committee_id, committees(name)),
         assigned_to:assigned_to_committee(name),
+        assignee:assigned_to_user(id, name),
         assigned_by:assigned_by_committee(name),
         assigner:assigned_by_user(name),
         task_documents(id, file_name, file_url, file_type, created_at)
@@ -78,18 +81,18 @@ export default function TasksPage() {
     // EC/admin/faculty can also see pending_ec_approval tasks for review
     if (nonEcCommitteeIds.length > 0) {
       if (isExec) {
-        // EC members see: tasks for their committees + tasks pending EC approval
+        // EC members see: tasks for their committees + tasks pending EC approval + tasks assigned directly to them
         tasksQuery = tasksQuery.or(
-          `assigned_to_committee.in.(${nonEcCommitteeIds.join(',')}),status.eq.pending_ec_approval`
+          `assigned_to_committee.in.(${nonEcCommitteeIds.join(',')}),status.eq.pending_ec_approval,assigned_to_user.eq.${user.id}`
         );
       } else {
-        tasksQuery = tasksQuery
-          .in('assigned_to_committee', nonEcCommitteeIds)
-          .not('status', 'eq', 'rejected');
+        tasksQuery = tasksQuery.or(
+          `assigned_to_committee.in.(${nonEcCommitteeIds.join(',')}),assigned_to_user.eq.${user.id}`
+        );
       }
     } else if (isExec) {
-      // EC-only member (no regular committee) — see pending EC approval tasks only
-      tasksQuery = tasksQuery.eq('status', 'pending_ec_approval');
+      // EC-only member (no regular committee) — see pending EC approvals + tasks assigned directly to them
+      tasksQuery = tasksQuery.or(`status.eq.pending_ec_approval,assigned_to_user.eq.${user.id}`);
     } else {
       setTasks([]);
       setPageLoading(false);
@@ -118,6 +121,15 @@ export default function TasksPage() {
       .eq('type', 'regular')
       .neq('id', '00000000-0000-0000-0000-000000000001'); // Exclude EC
     setCommittees(committeesData || []);
+
+    // Load individual assignee candidates:
+    // - EC members (for faculty/admin/executive direct assignment)
+    // - Co-heads (for head -> co-head delegation)
+    const { data: membersData } = await supabase
+      .from('committee_members')
+      .select('user_id, committee_id, position, profiles(id, name), committees(name)')
+      .or(`committee_id.eq.${EC_COMMITTEE_ID},position.eq.co_head`);
+    setAssignmentMembers((membersData || []).filter((m: any) => m?.profiles?.id && m?.profiles?.name));
     setPageLoading(false);
   }
 
@@ -135,6 +147,10 @@ export default function TasksPage() {
       if (!userCommittee && !userProfile?.is_faculty && !userProfile?.is_admin) {
         throw new Error('You must be part of a committee to assign tasks');
       }
+      const assigneeCommitteeId = assignmentMembers.find((m: any) => m.user_id === selectedAssignee)?.committee_id || null;
+      if (!selectedCommittee && !assigneeCommitteeId) {
+        throw new Error('Please select a committee or choose an individual assignee');
+      }
 
       const { error } = await supabase
         .from('task_assignments')
@@ -142,8 +158,9 @@ export default function TasksPage() {
           event_id: taskKind === 'event' ? selectedEvent : null,
           title: taskTitle,
           description: taskDescription,
-          assigned_to_committee: selectedCommittee,
-          assigned_by_committee: userCommittee?.committee_id || selectedCommittee,
+          assigned_to_committee: assigneeCommitteeId || selectedCommittee || null,
+          assigned_to_user: selectedAssignee || null,
+          assigned_by_committee: userCommittee?.committee_id || selectedCommittee || assigneeCommitteeId,
           assigned_by_user: user.id,
           status: (userProfile?.is_faculty || userProfile?.is_admin || isExecutive) ? 'approved' : 'pending_ec_approval'
         });
@@ -157,6 +174,7 @@ export default function TasksPage() {
       setTaskKind('event');
       setSelectedEvent('');
       setSelectedCommittee('');
+      setSelectedAssignee('');
       loadData();
     } catch (error: any) {
       toast.error(error.message);
@@ -356,10 +374,15 @@ export default function TasksPage() {
   }
 
   function canUpdateTask(task: any) {
-    // Only members of the assigned committee can start/update/complete the task
+    // If a task is assigned to a specific person, only they can update it.
+    if (task.assigned_to_user) return task.assigned_to_user === userProfile?.id;
+    // Otherwise, members of the assigned committee can start/update/complete the task.
     // EC/admin/faculty can only approve/reject (handled separately), not start/complete
     return userCommittees.includes(task.assigned_to_committee);
   }
+
+  const selectedAssigneeMember =
+    assignmentMembers.find((m: any) => m.user_id === selectedAssignee) || null;
 
   return (
     <div className="min-h-screen bg-mesh">
@@ -443,6 +466,29 @@ export default function TasksPage() {
                         <option key={c.id} value={c.id}>{c.name}</option>
                       ))}
                     </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Assign to Individual (Optional)</label>
+                    <select
+                      value={selectedAssignee}
+                      onChange={(e) => setSelectedAssignee(e.target.value)}
+                      className="w-full px-4 py-2 border rounded-lg"
+                    >
+                      <option value="">No individual assignee (committee-wide)</option>
+                      {assignmentMembers.map((m) => (
+                        <option key={m.user_id} value={m.user_id}>
+                          {m.profiles?.name} - {m.committees?.name} ({m.position === 'co_head' ? 'Co-Head' : 'EC'})
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Faculty can assign directly to a single EC member. Committee heads can assign directly to co-heads.
+                    </p>
+                    {selectedAssigneeMember?.committees?.name ? (
+                      <p className="text-xs text-indigo-700 mt-1 font-medium">
+                        Selected member committee: {selectedAssigneeMember.committees.name}
+                      </p>
+                    ) : null}
                   </div>
                   <div>
                     <label className="block text-sm font-medium mb-2">Task Title *</label>
@@ -551,6 +597,11 @@ export default function TasksPage() {
                         <h3 className="text-xl font-bold text-gray-900">{task.title}</h3>
                         <p className="text-sm text-gray-600">
                           Assigned to: <span className="font-semibold">{task.assigned_to?.name}</span>
+                          {task.assignee?.name ? (
+                            <span className="ml-2 text-xs text-indigo-700 font-semibold">
+                              (Individual: {task.assignee.name})
+                            </span>
+                          ) : null}
                           {isExecutive && task.status !== 'completed' && (
                             <select
                               className="ml-2 text-xs border border-gray-200 rounded-lg px-2 py-0.5 bg-white"
