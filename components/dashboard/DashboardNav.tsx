@@ -6,6 +6,7 @@ import { LogOut, Moon, Sun, User } from 'lucide-react';
 import { motion } from 'framer-motion';
 import DynamicLogo from '@/components/DynamicLogo';
 import NotificationBell from '@/components/dashboard/NotificationBell';
+import AdminOnlinePresenceControls from '@/components/dashboard/AdminOnlinePresenceControls';
 import { motionTokens } from '@/lib/ui/motion';
 
 interface DashboardNavProps {
@@ -54,6 +55,7 @@ export default function DashboardNav({ userName, userRole }: DashboardNavProps) 
                         <h1 className="text-base sm:text-2xl font-bold text-gradient portal-header-brand truncate">IIChE AVVU SC</h1>
                     </Link>
                     <div className="flex items-center gap-1.5 sm:gap-4">
+                        <AdminOnlinePresenceControls />
                         <NotificationBell />
                         <button
                             type="button"

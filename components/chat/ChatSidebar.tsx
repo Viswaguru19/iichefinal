@@ -10,13 +10,15 @@ interface Props {
     allUsers: UserProfile[];
     activeChat: ChatItem | null;
     onlineUsers: Set<string>;
+    /** When false, online dots and the "Online now" list are hidden (portal admins only). */
+    showOnlinePresence: boolean;
     onSelectChat: (chat: ChatItem) => void;
     onNewChat: (user: UserProfile) => void;
     onCreateGroup: (name: string, description: string, memberIds: string[]) => Promise<void>;
     onBack: () => void;
 }
 
-export default function ChatSidebar({ chats, allUsers, activeChat, onlineUsers, onSelectChat, onNewChat, onCreateGroup, onBack }: Props) {
+export default function ChatSidebar({ chats, allUsers, activeChat, onlineUsers, showOnlinePresence, onSelectChat, onNewChat, onCreateGroup, onBack }: Props) {
     const [search, setSearch] = useState('');
     const [filter, setFilter] = useState<'all' | 'unread' | 'groups'>('all');
     const [showNewChat, setShowNewChat] = useState(false);
@@ -76,6 +78,19 @@ export default function ChatSidebar({ chats, allUsers, activeChat, onlineUsers, 
                 ))}
             </div>
 
+            {showOnlinePresence && onlineUsers.size > 0 && (
+                <div className="px-3 py-2 border-b border-gray-100 bg-emerald-50/40">
+                    <p className="text-[11px] font-semibold text-emerald-800 uppercase tracking-wide mb-1.5">Online now</p>
+                    <div className="flex flex-wrap gap-1.5 max-h-16 overflow-y-auto">
+                        {allUsers.filter((u) => onlineUsers.has(u.id)).map((u) => (
+                            <span key={u.id} className="text-[11px] px-2 py-0.5 rounded-full bg-white border border-emerald-200 text-emerald-900 truncate max-w-[140px]" title={u.name}>
+                                {u.name}
+                            </span>
+                        ))}
+                    </div>
+                </div>
+            )}
+
             {/* Chat List */}
             <div className="flex-1 overflow-y-auto">
                 {filtered.length === 0 ? (
@@ -86,7 +101,7 @@ export default function ChatSidebar({ chats, allUsers, activeChat, onlineUsers, 
                 ) : (
                     filtered.map(chat => {
                         const isActive = activeChat?.id === chat.id && activeChat?.type === chat.type;
-                        const isOnline = chat.type === 'direct' && onlineUsers.has(chat.id);
+                        const isOnline = showOnlinePresence && chat.type === 'direct' && onlineUsers.has(chat.id);
                         return (
                             <motion.div key={`${chat.type}-${chat.id}`} whileHover={{ backgroundColor: 'rgba(0,0,0,0.04)' }}
                                 onClick={() => onSelectChat(chat)}
@@ -151,7 +166,7 @@ export default function ChatSidebar({ chats, allUsers, activeChat, onlineUsers, 
                                                 {(user.name || '?')[0]?.toUpperCase()}
                                             </div>
                                         )}
-                                        {onlineUsers.has(user.id) && <div className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 rounded-full border-2 border-white" />}
+                                        {showOnlinePresence && onlineUsers.has(user.id) && <div className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 rounded-full border-2 border-white" />}
                                     </div>
                                     <div>
                                         <p className="font-medium text-gray-900 text-sm">{user.name}</p>

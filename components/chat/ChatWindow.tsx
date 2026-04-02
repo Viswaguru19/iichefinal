@@ -13,6 +13,7 @@ interface Props {
     chat: ChatItem;
     currentUser: UserProfile;
     onlineUsers: Set<string>;
+    showOnlinePresence: boolean;
     onOpenProfile: (userId: string) => void;
     onMessageSent: () => void;
     onBack?: () => void;
@@ -20,7 +21,9 @@ interface Props {
 
 const EMOJIS = ['😀', '😂', '😊', '😍', '🤝', '👍', '🔥', '🙌', '🙏', '🎉', '❤️', '😎', '🤔', '😢', '😡', '🥳', '💯', '👏', '🫡', '✨', '😅', '🥰', '😤', '🤩', '😴', '🤗', '😇', '🤣', '💪', '🎊'];
 
-export default function ChatWindow({ chat, currentUser, onlineUsers, onOpenProfile, onMessageSent, onBack }: Props) {
+type ParticipantRow = { id: string; name: string; avatar_url: string | null; is_group_admin: boolean };
+
+export default function ChatWindow({ chat, currentUser, onlineUsers, showOnlinePresence, onOpenProfile, onMessageSent, onBack }: Props) {
     const [messages, setMessages] = useState<any[]>([]);
     const [newMessage, setNewMessage] = useState('');
     const [loading, setLoading] = useState(true);
@@ -31,6 +34,11 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, onOpenProfi
     const [pollMultiple, setPollMultiple] = useState(false);
     const [typing, setTyping] = useState<string | null>(null);
     const [menuMsgId, setMenuMsgId] = useState<string | null>(null);
+    const [showParticipants, setShowParticipants] = useState(false);
+    const [participantsLoading, setParticipantsLoading] = useState(false);
+    const [participants, setParticipants] = useState<ParticipantRow[]>([]);
+    const [iAmGroupAdmin, setIAmGroupAdmin] = useState(false);
+    const [removingId, setRemovingId] = useState<string | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const fileRef = useRef<HTMLInputElement>(null);
     const supabase = createClient();
@@ -38,13 +46,56 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, onOpenProfi
     const isSendingRef = useRef(false);
 
     const isDirect = chat.type === 'direct';
-    const isOnline = isDirect && onlineUsers.has(chat.id);
+    const isOnline = showOnlinePresence && isDirect && onlineUsers.has(chat.id);
+    const canManageGroupMembers = !isDirect && chat.groupChatType === 'custom_group' && iAmGroupAdmin;
+
+    useEffect(() => {
+        setShowParticipants(false);
+        setIAmGroupAdmin(false);
+    }, [chat.id, chat.type]);
 
     useEffect(() => {
         loadMessages();
         setupChannel();
         return () => { if (channelRef.current) supabase.removeChannel(channelRef.current); };
     }, [chat.id, chat.type]);
+
+    useEffect(() => {
+        if (!showParticipants || isDirect || !chat.participantGroupId) return;
+        let cancelled = false;
+        (async () => {
+            setParticipantsLoading(true);
+            const { data: rows, error: pErr } = await supabase
+                .from('chat_participants')
+                .select('user_id, is_admin')
+                .eq('group_id', chat.participantGroupId!);
+            if (pErr) {
+                console.error('participants load:', pErr);
+                if (!cancelled) setParticipantsLoading(false);
+                return;
+            }
+            const adminMap = Object.fromEntries((rows || []).map((r: { user_id: string; is_admin: boolean }) => [r.user_id, r.is_admin]));
+            const myAdmin = !!(rows || []).find((r: { user_id: string; is_admin: boolean }) => r.user_id === currentUser.id)?.is_admin;
+            if (!cancelled) setIAmGroupAdmin(myAdmin);
+            const ids = [...new Set((rows || []).map((r: { user_id: string }) => r.user_id))];
+            if (ids.length === 0) {
+                if (!cancelled) { setParticipants([]); setParticipantsLoading(false); }
+                return;
+            }
+            const { data: profs } = await supabase.from('profiles').select('id, name, avatar_url').in('id', ids);
+            const list: ParticipantRow[] = (profs || []).map((p: { id: string; name: string; avatar_url: string | null }) => ({
+                id: p.id,
+                name: p.name,
+                avatar_url: p.avatar_url,
+                is_group_admin: !!adminMap[p.id],
+            })).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+            if (!cancelled) {
+                setParticipants(list);
+                setParticipantsLoading(false);
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [showParticipants, isDirect, chat.participantGroupId, currentUser.id]);
 
     useEffect(() => { scrollToBottom(); }, [messages]);
 
@@ -92,7 +143,6 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, onOpenProfi
                     .update({ read: true } as any)
                     .eq('receiver_id', currentUser.id)
                     .eq('sender_id', chat.id)
-                    .eq('read', false)
                     .select('id');
                 if (markErr) console.error('DM read update error:', markErr);
                 else if ((marked?.length || 0) > 0) onMessageSent();
@@ -255,6 +305,29 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, onOpenProfi
         isSendingRef.current = false;
     }
 
+    async function removeGroupMember(userId: string) {
+        if (!chat.participantGroupId || userId === currentUser.id) return;
+        setRemovingId(userId);
+        const { error, data } = await supabase
+            .from('chat_participants')
+            .delete()
+            .eq('group_id', chat.participantGroupId)
+            .eq('user_id', userId)
+            .select('user_id');
+        setRemovingId(null);
+        if (error) {
+            toast.error(error.message || 'Could not remove member');
+            return;
+        }
+        if (!data?.length) {
+            toast.error('Remove was not allowed (only custom group admins can remove others).');
+            return;
+        }
+        toast.success('Member removed');
+        setParticipants((prev) => prev.filter((p) => p.id !== userId));
+        onMessageSent();
+    }
+
     async function deleteMessage(msgId: string) {
         const table = isDirect ? 'direct_messages' : 'group_messages';
         const { data, error } = await supabase
@@ -297,13 +370,29 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, onOpenProfi
                         )}
                         {isOnline && <div className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 rounded-full border-2 border-[#202c33]" />}
                     </div>
-                    <div className="flex-1">
-                        <h2 className="font-semibold text-white text-base">{chat.name || 'Chat'}</h2>
+                    <div className="flex-1 min-w-0">
+                        <h2 className="font-semibold text-white text-base truncate">{chat.name || 'Chat'}</h2>
                         <p className="text-xs text-gray-400">
-                            {typing ? <span className="text-emerald-400 italic">{typing} is typing...</span> : isOnline ? 'Online' : chat.type === 'group' ? 'Group chat' : 'Offline'}
+                            {typing ? (
+                                <span className="text-emerald-400 italic">{typing} is typing...</span>
+                            ) : isDirect ? (
+                                showOnlinePresence ? (isOnline ? 'Online' : 'Offline') : 'Direct message'
+                            ) : (
+                                'Group chat'
+                            )}
                         </p>
                     </div>
                 </div>
+                {!isDirect && chat.participantGroupId && (
+                    <button
+                        type="button"
+                        onClick={() => setShowParticipants(true)}
+                        className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-[#2a3942] shrink-0"
+                        title="View participants"
+                    >
+                        <Users className="w-5 h-5" />
+                    </button>
+                )}
             </div>
 
             {/* Messages */}
@@ -464,6 +553,99 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, onOpenProfi
                                         className="flex-1 bg-gray-100 text-gray-600 px-4 py-2.5 rounded-xl text-sm hover:bg-gray-200 transition-colors">Cancel</button>
                                 </div>
                             </div>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            <AnimatePresence>
+                {showParticipants && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: motionTokens.modal.duration }}
+                        className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[55] p-4"
+                        onClick={() => setShowParticipants(false)}
+                    >
+                        <motion.div
+                            initial={{ scale: 0.96, y: 16 }}
+                            animate={{ scale: 1, y: 0 }}
+                            exit={{ scale: 0.96, y: 16 }}
+                            transition={{ duration: motionTokens.modal.duration, ease: motionTokens.easing }}
+                            className="bg-[#233138] rounded-2xl max-w-md w-full max-h-[75vh] shadow-2xl border border-[#2a3942] flex flex-col overflow-hidden"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            <div className="px-4 py-3 border-b border-[#2a3942] flex items-center justify-between gap-2">
+                                <h2 className="text-white font-semibold text-lg">Participants</h2>
+                                <button type="button" onClick={() => setShowParticipants(false)} className="text-gray-400 hover:text-white p-1 text-xl leading-none" aria-label="Close">
+                                    ✕
+                                </button>
+                            </div>
+                            <div className="overflow-y-auto flex-1 p-3 min-h-[120px]">
+                                {participantsLoading ? (
+                                    <p className="text-sm text-gray-500 text-center py-6">Loading…</p>
+                                ) : participants.length === 0 ? (
+                                    <p className="text-sm text-gray-500 text-center py-6">No members found.</p>
+                                ) : (
+                                    <ul className="space-y-1">
+                                        {participants.map((p) => (
+                                            <li
+                                                key={p.id}
+                                                className="flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-[#2a3942]/80"
+                                            >
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        if (p.id !== currentUser.id) {
+                                                            setShowParticipants(false);
+                                                            onOpenProfile(p.id);
+                                                        }
+                                                    }}
+                                                    className="flex items-center gap-3 flex-1 min-w-0 text-left"
+                                                >
+                                                    <div className="relative flex-shrink-0">
+                                                        {p.avatar_url ? (
+                                                            <img src={p.avatar_url} alt="" className="w-9 h-9 rounded-full object-cover" />
+                                                        ) : (
+                                                            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-white text-xs font-semibold">
+                                                                {(p.name || '?')[0]?.toUpperCase()}
+                                                            </div>
+                                                        )}
+                                                        {showOnlinePresence && onlineUsers.has(p.id) && (
+                                                            <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 rounded-full border-2 border-[#233138]" />
+                                                        )}
+                                                    </div>
+                                                    <div className="flex-1 min-w-0">
+                                                        <p className="text-sm text-white font-medium truncate">
+                                                            {p.name}
+                                                            {p.id === currentUser.id ? ' (you)' : ''}
+                                                        </p>
+                                                        {p.is_group_admin && (
+                                                            <p className="text-[10px] text-emerald-400 font-semibold uppercase tracking-wide">Group admin</p>
+                                                        )}
+                                                    </div>
+                                                </button>
+                                                {canManageGroupMembers && p.id !== currentUser.id && (
+                                                    <button
+                                                        type="button"
+                                                        disabled={removingId === p.id}
+                                                        onClick={() => void removeGroupMember(p.id)}
+                                                        className="text-xs font-medium text-red-400 hover:text-red-300 px-2 py-1 rounded disabled:opacity-40 shrink-0"
+                                                    >
+                                                        {removingId === p.id ? '…' : 'Remove'}
+                                                    </button>
+                                                )}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                )}
+                            </div>
+                            {chat.groupChatType !== 'custom_group' && (
+                                <p className="text-[11px] text-gray-500 px-4 pb-3 pt-0">
+                                    This is an organization or committee chat. Members are managed automatically; you can view the list here.
+                                </p>
+                            )}
                         </motion.div>
                     </motion.div>
                 )}

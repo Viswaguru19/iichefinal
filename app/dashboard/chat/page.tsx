@@ -10,6 +10,7 @@ import { MessageSquare } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
 import { groupMessagesChannelId } from '@/lib/chat-group-keys';
+import { usePortalPresence } from '@/components/dashboard/PortalPresenceContext';
 
 export interface ChatItem {
   id: string;
@@ -21,6 +22,8 @@ export interface ChatItem {
   unreadCount: number;
   /** chat_groups.id — use for chat_participants.last_read_at (differs from id for committee chats where id is committee_id) */
   participantGroupId?: string;
+  /** chat_groups.chat_type — set for group rows */
+  groupChatType?: string | null;
 }
 
 /** Fixed UUID from migration 031 — Whole Organization group */
@@ -54,6 +57,7 @@ export interface UserProfile {
   role: string;
   executive_role: string | null;
   is_faculty: boolean;
+  is_admin?: boolean;
   department: string | null;
   phone: string | null;
   created_at: string;
@@ -62,6 +66,7 @@ export interface UserProfile {
 }
 
 export default function ChatPage() {
+  const { onlineUserIds, showOnlinePresence } = usePortalPresence();
   const [chats, setChats] = useState<ChatItem[]>([]);
   const [allUsers, setAllUsers] = useState<UserProfile[]>([]);
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
@@ -69,7 +74,6 @@ export default function ChatPage() {
   const [profileUser, setProfileUser] = useState<UserProfile | null>(null);
   const [showProfile, setShowProfile] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
   const supabase = createClient();
   const router = useRouter();
 
@@ -128,7 +132,6 @@ export default function ChatPage() {
     await loadChats(user.id);
     setLoading(false);
     setupRealtime(user.id);
-    setupPresence(user.id);
   }
 
   async function loadChats(userId: string) {
@@ -258,6 +261,7 @@ export default function ChatPage() {
       return {
         id: chId,
         participantGroupId: String(r.group.id),
+        groupChatType: r.group.chat_type,
         name: displayGroupName(r.group),
         avatar: null,
         lastMessage: latest?.message ?? 'No messages yet',
@@ -302,28 +306,17 @@ export default function ChatPage() {
     return () => { supabase.removeChannel(ch); };
   }
 
-  function setupPresence(userId: string) {
-    const ch = supabase.channel('online-users', { config: { presence: { key: userId } } });
-    ch.on('presence', { event: 'sync' }, () => {
-      const state = ch.presenceState();
-      setOnlineUsers(new Set(Object.keys(state)));
-    }).subscribe(async (status) => {
-      if (status === 'SUBSCRIBED') await ch.track({ user_id: userId, online_at: new Date().toISOString() });
-    });
-    return () => { supabase.removeChannel(ch); };
-  }
-
   async function openChat(chat: ChatItem) {
     setActiveChat(chat);
     setShowProfile(false);
     if (!currentUser) return;
     if (chat.type === 'direct') {
+      // Mark all received messages from this sender as read (include read IS NULL — .eq(false) misses NULL and leaves badge stuck)
       const { data, error } = await supabase
         .from('direct_messages')
         .update({ read: true } as any)
         .eq('receiver_id', currentUser.id)
         .eq('sender_id', chat.id)
-        .eq('read', false)
         .select('id');
       if (error) console.error('DM mark read:', error);
       else if (!data?.length && chat.unreadCount > 0) console.warn('DM mark read affected 0 rows for unread chat', chat.id);
@@ -370,6 +363,7 @@ export default function ChatPage() {
       const newChat: ChatItem = {
         id: String(group.id),
         participantGroupId: String(group.id),
+        groupChatType: 'custom_group',
         name,
         avatar: null,
         lastMessage: 'Group created',
@@ -414,7 +408,8 @@ export default function ChatPage() {
           chats={chats}
           allUsers={allUsers}
           activeChat={activeChat}
-          onlineUsers={onlineUsers}
+          onlineUsers={onlineUserIds}
+          showOnlinePresence={showOnlinePresence}
           onSelectChat={(c) => void openChat(c)}
           onNewChat={startNewChat}
           onCreateGroup={createGroup}
@@ -428,7 +423,8 @@ export default function ChatPage() {
           <ChatWindow
             chat={activeChat}
             currentUser={currentUser!}
-            onlineUsers={onlineUsers}
+            onlineUsers={onlineUserIds}
+            showOnlinePresence={showOnlinePresence}
             onOpenProfile={openProfile}
             onMessageSent={refreshChats}
             onBack={() => setActiveChat(null)}
@@ -451,7 +447,7 @@ export default function ChatPage() {
         {/* Profile Panel */}
         <AnimatePresence>
           {showProfile && profileUser && (
-            <ProfilePanel user={profileUser} isOnline={onlineUsers.has(profileUser.id)} onClose={() => setShowProfile(false)} />
+            <ProfilePanel user={profileUser} isOnline={showOnlinePresence && onlineUserIds.has(profileUser.id)} onClose={() => setShowProfile(false)} />
           )}
         </AnimatePresence>
       </div>

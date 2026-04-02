@@ -6,6 +6,7 @@ import { ArrowLeft, LayoutDashboard } from 'lucide-react';
 import DynamicLogo from '@/components/DynamicLogo';
 import { motion } from 'framer-motion';
 import { motionTokens } from '@/lib/ui/motion';
+import AdminOnlinePresenceControls from '@/components/dashboard/AdminOnlinePresenceControls';
 
 interface PageHeaderProps {
     title: string;
@@ -36,6 +37,7 @@ export default function PageHeader({ title, showBack = true, rightContent }: Pag
                         <h1 className="text-base sm:text-xl font-bold text-gray-900 truncate portal-header-title">{title}</h1>
                     </div>
                     <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+                        <AdminOnlinePresenceControls />
                         {rightContent}
                         {showBack && (
                             <button onClick={() => router.back()} className="flex items-center gap-1 text-[11px] sm:text-xs text-gray-600 hover:text-indigo-700 transition-colors font-semibold px-2.5 sm:px-3 py-1.5 rounded-lg hover:bg-indigo-50 portal-header-link">

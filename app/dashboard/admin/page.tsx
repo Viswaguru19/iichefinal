@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { hasAdminAccess } from '@/lib/permissions';
 import { Users, Calendar, Trophy, DollarSign, UserCheck, MessageSquare, FileText, Power, Settings, Image as ImageIcon, ArrowUpCircle } from 'lucide-react';
 import TestEmailCard from '@/components/TestEmailCard';
+import AdminOnlinePresenceControls from '@/components/dashboard/AdminOnlinePresenceControls';
 import { adminEventWorkflowLabel, adminEventStatusBadgeClass } from '@/lib/admin-event-status';
 
 export default async function AdminDashboard() {
@@ -31,9 +32,12 @@ export default async function AdminDashboard() {
     <div className="min-h-screen bg-mesh">
       <nav className="premium-panel shadow-lg shadow-indigo-500/5">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16 items-center">
+          <div className="flex justify-between h-16 items-center gap-3">
             <h1 className="text-2xl font-bold text-gradient">Admin Panel</h1>
-            <Link href="/dashboard" className="text-gray-500 hover:text-indigo-600 transition">← Back to Dashboard</Link>
+            <div className="flex items-center gap-3 shrink-0">
+              <AdminOnlinePresenceControls />
+              <Link href="/dashboard" className="text-gray-500 hover:text-indigo-600 transition whitespace-nowrap">← Back to Dashboard</Link>
+            </div>
           </div>
         </div>
       </nav>
