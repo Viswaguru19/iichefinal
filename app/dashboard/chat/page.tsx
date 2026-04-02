@@ -299,23 +299,38 @@ export default function ChatPage() {
   }
 
   function setupRealtime(userId: string) {
-    const ch = supabase.channel('chat-live')
+    const ch = supabase
+      .channel('chat-live')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'direct_messages' }, () => loadChats(userId))
+      // Mark-as-read uses UPDATE; without this, sidebar badges stay wrong until a new message arrives
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'direct_messages' }, () => loadChats(userId))
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'group_messages' }, () => loadChats(userId))
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'chat_participants',
+        filter: `user_id=eq.${userId}`,
+      }, () => loadChats(userId))
       .subscribe();
-    return () => { supabase.removeChannel(ch); };
+    return () => {
+      supabase.removeChannel(ch);
+    };
   }
 
   async function openChat(chat: ChatItem) {
     setActiveChat(chat);
     setShowProfile(false);
-    if (!currentUser) return;
+    let uid = currentUser?.id ?? null;
+    if (!uid) {
+      const { data: { user } } = await supabase.auth.getUser();
+      uid = user?.id ?? null;
+    }
+    if (!uid) return;
     if (chat.type === 'direct') {
-      // Mark all received messages from this sender as read (include read IS NULL — .eq(false) misses NULL and leaves badge stuck)
       const { data, error } = await supabase
         .from('direct_messages')
         .update({ read: true } as any)
-        .eq('receiver_id', currentUser.id)
+        .eq('receiver_id', uid)
         .eq('sender_id', chat.id)
         .select('id');
       if (error) console.error('DM mark read:', error);
@@ -328,7 +343,7 @@ export default function ChatPage() {
         .from('chat_participants')
         .update({ last_read_at: ts })
         .eq('group_id', chat.participantGroupId)
-        .eq('user_id', currentUser.id)
+        .eq('user_id', uid)
         .select('group_id');
       if (error) console.error('last_read_at update:', error);
       else if (data?.length) {
@@ -339,7 +354,7 @@ export default function ChatPage() {
         );
       }
     }
-    await loadChats(currentUser.id);
+    await loadChats(uid);
   }
 
   function startNewChat(user: UserProfile) {

@@ -23,6 +23,29 @@ const EMOJIS = ['😀', '😂', '😊', '😍', '🤝', '👍', '🔥', '🙌', 
 
 type ParticipantRow = { id: string; name: string; avatar_url: string | null; is_group_admin: boolean };
 
+/** WhatsApp-style group receipts from per-member last_read_at vs message time */
+type GroupReceiptLevel = 'sent' | 'delivered' | 'read';
+
+function groupReceiptLevel(
+    msg: { sender_id: string; created_at: string },
+    memberLastRead: Record<string, string | null>,
+    currentUserId: string,
+): GroupReceiptLevel {
+    if (msg.sender_id !== currentUserId) return 'sent';
+    if (Object.keys(memberLastRead).length === 0) return 'sent';
+    const msgT = new Date(msg.created_at).getTime();
+    const otherIds = Object.keys(memberLastRead).filter((id) => id !== msg.sender_id);
+    if (otherIds.length === 0) return 'read';
+    let readBy = 0;
+    for (const id of otherIds) {
+        const lr = memberLastRead[id];
+        if (lr && new Date(lr).getTime() >= msgT) readBy += 1;
+    }
+    if (readBy === 0) return 'sent';
+    if (readBy < otherIds.length) return 'delivered';
+    return 'read';
+}
+
 export default function ChatWindow({ chat, currentUser, onlineUsers, showOnlinePresence, onOpenProfile, onMessageSent, onBack }: Props) {
     const [messages, setMessages] = useState<any[]>([]);
     const [newMessage, setNewMessage] = useState('');
@@ -39,6 +62,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, showOnlineP
     const [participants, setParticipants] = useState<ParticipantRow[]>([]);
     const [iAmGroupAdmin, setIAmGroupAdmin] = useState(false);
     const [removingId, setRemovingId] = useState<string | null>(null);
+    const [groupMemberLastRead, setGroupMemberLastRead] = useState<Record<string, string | null>>({});
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const fileRef = useRef<HTMLInputElement>(null);
     const supabase = createClient();
@@ -52,6 +76,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, showOnlineP
     useEffect(() => {
         setShowParticipants(false);
         setIAmGroupAdmin(false);
+        setGroupMemberLastRead({});
     }, [chat.id, chat.type]);
 
     useEffect(() => {
@@ -100,6 +125,24 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, showOnlineP
     useEffect(() => { scrollToBottom(); }, [messages]);
 
     function scrollToBottom() { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }
+
+    async function loadGroupMemberReads() {
+        if (!chat.participantGroupId || isDirect) return;
+        const { data, error } = await supabase
+            .from('chat_participants')
+            .select('user_id, last_read_at')
+            .eq('group_id', chat.participantGroupId);
+        if (error) {
+            console.error('Group member reads load error:', error);
+            return;
+        }
+        const map: Record<string, string | null> = {};
+        for (const row of data || []) {
+            const r = row as { user_id: string; last_read_at: string | null };
+            map[r.user_id] = r.last_read_at;
+        }
+        setGroupMemberLastRead(map);
+    }
 
     async function loadMessages() {
         setLoading(true);
@@ -175,6 +218,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, showOnlineP
                     .select('group_id');
                 if (lrErr) console.error('last_read_at update:', lrErr);
                 else onMessageSent();
+                await loadGroupMemberReads();
             }
         }
         setLoading(false);
@@ -183,25 +227,42 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, showOnlineP
     function setupChannel() {
         if (channelRef.current) supabase.removeChannel(channelRef.current);
         const table = isDirect ? 'direct_messages' : 'group_messages';
-        const ch = supabase.channel(`chat-${chat.type}-${chat.id}`)
-            .on('postgres_changes', { event: 'INSERT', schema: 'public', table }, (payload) => {
-                const msg = payload.new as any;
-                // Only reload for messages from OTHER users
-                if (msg.sender_id === currentUser.id) return;
-                const isRelevant = isDirect
-                    ? (msg.sender_id === chat.id && msg.receiver_id === currentUser.id)
-                    : msg.group_id === chat.id;
-                if (isRelevant) loadMessages();
-            })
-            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table }, (payload) => {
-                const msg = payload.new as any;
-                // Only reload for poll votes (poll_data changes), ignore read status updates entirely
-                if (msg.poll_data && !isDirect) loadMessages();
-            })
-            .on('broadcast', { event: 'typing' }, ({ payload }) => {
-                if (payload.user_id !== currentUser.id) { setTyping(payload.name); setTimeout(() => setTyping(null), 3000); }
-            })
-            .subscribe();
+        const ch = supabase.channel(`chat-${chat.type}-${chat.id}`);
+        ch.on('postgres_changes', { event: 'INSERT', schema: 'public', table }, (payload) => {
+            const msg = payload.new as any;
+            if (msg.sender_id === currentUser.id) return;
+            const isRelevant = isDirect
+                ? (msg.sender_id === chat.id && msg.receiver_id === currentUser.id)
+                : msg.group_id === chat.id;
+            if (isRelevant) loadMessages();
+        });
+        ch.on('postgres_changes', { event: 'UPDATE', schema: 'public', table }, (payload) => {
+            const msg = payload.new as any;
+            if (isDirect) {
+                const inThread =
+                    (msg.sender_id === chat.id && msg.receiver_id === currentUser.id) ||
+                    (msg.sender_id === currentUser.id && msg.receiver_id === chat.id);
+                if (inThread) loadMessages();
+                return;
+            }
+            if (msg.poll_data) loadMessages();
+        });
+        ch.on('broadcast', { event: 'typing' }, ({ payload }) => {
+            if (payload.user_id !== currentUser.id) { setTyping(payload.name); setTimeout(() => setTyping(null), 3000); }
+        });
+        if (!isDirect && chat.participantGroupId) {
+            ch.on(
+                'postgres_changes',
+                {
+                    event: 'UPDATE',
+                    schema: 'public',
+                    table: 'chat_participants',
+                    filter: `group_id=eq.${chat.participantGroupId}`,
+                },
+                () => { void loadGroupMemberReads(); },
+            );
+        }
+        ch.subscribe();
         channelRef.current = ch;
     }
 
@@ -329,6 +390,11 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, showOnlineP
     }
 
     async function deleteMessage(msgId: string) {
+        if (String(msgId).startsWith('temp-')) {
+            setMessages((prev) => prev.filter((m) => m.id !== msgId));
+            setMenuMsgId(null);
+            return;
+        }
         const table = isDirect ? 'direct_messages' : 'group_messages';
         const { data, error } = await supabase
             .from(table)
@@ -341,7 +407,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, showOnlineP
             return;
         }
         if (!data || data.length === 0) {
-            toast.error('Delete was not applied. You can delete only your own message.');
+            toast.error('Could not delete this message. If it persists, refresh the page and try again.');
             return;
         }
         setMessages(prev => prev.filter(m => m.id !== msgId));
@@ -454,8 +520,23 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, showOnlineP
 
                                             <div className="flex items-center justify-end gap-1 -mb-0.5 mt-0.5">
                                                 <span className="text-[10.5px] text-gray-500">{new Date(msg.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
-                                                {isSent && isDirect && (msg.read ? <CheckCheck className="w-3.5 h-3.5 text-blue-400" /> : <CheckCheck className="w-3.5 h-3.5 text-gray-500" />)}
-                                                {isSent && !isDirect && <Check className="w-3.5 h-3.5 text-gray-500" />}
+                                                {isSent && (() => {
+                                                    if (isDirect) {
+                                                        return msg.read ? (
+                                                            <span title="Read"><CheckCheck className="w-3.5 h-3.5 text-blue-400" /></span>
+                                                        ) : (
+                                                            <span title="Sent · not read yet"><CheckCheck className="w-3.5 h-3.5 text-gray-500" /></span>
+                                                        );
+                                                    }
+                                                    const lvl = groupReceiptLevel(msg, groupMemberLastRead, currentUser.id);
+                                                    if (lvl === 'sent') {
+                                                        return <span title="Sent · no one else has read yet"><Check className="w-3.5 h-3.5 text-gray-500" /></span>;
+                                                    }
+                                                    if (lvl === 'delivered') {
+                                                        return <span title="Read by some members"><CheckCheck className="w-3.5 h-3.5 text-gray-500" /></span>;
+                                                    }
+                                                    return <span title="Read by everyone in the group"><CheckCheck className="w-3.5 h-3.5 text-blue-400" /></span>;
+                                                })()}
                                             </div>
 
                                             {/* Delete menu */}

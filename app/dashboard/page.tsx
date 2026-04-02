@@ -84,7 +84,8 @@ export default async function DashboardPage() {
       .from('direct_messages')
       .select('id', { count: 'exact', head: true })
       .eq('receiver_id', user.id)
-      .eq('read', false),
+      // Unread = not explicitly true (NULL read must count — .eq(false) misses those rows)
+      .or('read.is.null,read.eq.false'),
     supabase
       .from('chat_participants')
       .select('group_id, last_read_at')
