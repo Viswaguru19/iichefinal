@@ -79,10 +79,10 @@ export default function EditFormPage() {
         setBannerUrl(s.banner_url || '');
         setStatus(form.is_active ? 'active' : 'draft');
         setAllowMultiple(s.allow_multiple || false);
-        setRequireLogin(s.require_login ?? true);
+        setRequireLogin(s.require_login ?? false);
         setStartDate(s.start_date || '');
         setEndDate(s.end_date || '');
-        setAccessType(s.access_type || 'internal');
+        setAccessType((s.access_type || s.accessType || 'public') as 'public' | 'internal');
         setFormType((form.form_type as 'normal' | 'event_registration') || 'normal');
         const qrOn = s.show_attendance_qr_after_submit !== false && s.showAttendanceQrAfterSubmit !== false;
         setShowAttendanceQrAfterSubmit(form.form_type === 'event_registration' ? qrOn : true);

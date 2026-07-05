@@ -8,6 +8,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { EVENT_REGISTRATION_ELIGIBLE_STATUSES } from '@/lib/event-registration';
+import { publicFormUrl } from '@/lib/form-public-access';
 
 interface FormField {
   id: string;
@@ -291,12 +292,9 @@ export default function CreateFormPage() {
 
     if (error) { toast.error('Failed to create form: ' + error.message); setLoading(false); return; }
 
-    const link =
-      formType === 'event_registration'
-        ? `${window.location.origin}/forms/${form.id}`
-        : `${window.location.origin}/dashboard/forms/${form.id}`;
+    const link = publicFormUrl(window.location.origin, form.id);
     navigator.clipboard.writeText(link);
-    toast.success(formType === 'event_registration' ? 'Public registration link copied (works for QR & guests).' : 'Form created! Link copied.');
+    toast.success('Public form link copied — anyone with the link can respond (no login).');
     router.push(`/dashboard/forms/${form.id}`);
   }
 

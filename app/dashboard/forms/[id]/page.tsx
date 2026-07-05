@@ -5,10 +5,11 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { createClient } from '@/lib/supabase/client';
 import { ArrowLeft, Share2, Check, Lock, AlertTriangle, Upload } from 'lucide-react';
 import Link from 'next/link';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, usePathname } from 'next/navigation';
 import toast from 'react-hot-toast';
 import QRCode from 'qrcode';
 import { isEventOpenForRegistration } from '@/lib/event-registration';
+import { formAllowsPublicAccess, publicFormUrl } from '@/lib/form-public-access';
 
 interface FormField {
   id: string;
@@ -124,6 +125,8 @@ export default function FormSubmitPage() {
   const [submittedWasOnSite, setSubmittedWasOnSite] = useState(false);
   const params = useParams();
   const router = useRouter();
+  const pathname = usePathname();
+  const isPublicFormRoute = pathname?.startsWith('/forms/');
   const supabase = createClient();
 
   useEffect(() => { fetchForm(); }, []);
@@ -154,10 +157,10 @@ export default function FormSubmitPage() {
     } else if (settings.start_date && new Date(settings.start_date) > new Date()) {
       closed = true;
       closedReasonLocal = `This form opens on ${new Date(settings.start_date).toLocaleDateString()}.`;
-    } else if ((settings.require_login ?? settings.requireLogin) && !authUser) {
+    } else if ((settings.require_login ?? settings.requireLogin ?? false) && !authUser) {
       closed = true;
       closedReasonLocal = 'You must be logged in to fill this form.';
-    } else if ((settings.access_type ?? settings.accessType) === 'internal' && !authUser) {
+    } else if ((settings.access_type ?? settings.accessType ?? 'public') === 'internal' && !authUser) {
       closed = true;
       closedReasonLocal = 'This form is only available to portal members.';
     }
@@ -257,19 +260,17 @@ export default function FormSubmitPage() {
   }
 
   async function hasExternalEmailAlreadySubmitted(email: string): Promise<boolean> {
-    const normalized = email.trim().toLowerCase();
+    const normalized = email.trim();
     if (!normalized) return false;
-    const { data, error } = await supabase
-      .from('form_responses')
-      .select('responses')
-      .eq('form_id', params.id)
-      .is('user_id', null);
-    if (error || !data) return false;
-    return data.some((row: any) => {
-      const responses = row?.responses || {};
-      if (typeof responses !== 'object' || responses === null) return false;
-      return Object.entries(responses).some(([k, v]) => /email/i.test(k) && String(v || '').trim().toLowerCase() === normalized);
+    const { data, error } = await supabase.rpc('form_email_already_submitted', {
+      p_form_id: params.id,
+      p_email: normalized,
     });
+    if (error) {
+      console.error('form_email_already_submitted', error);
+      return false;
+    }
+    return data === true;
   }
 
   async function handleSubmit() {
@@ -361,6 +362,40 @@ export default function FormSubmitPage() {
       return;
     }
 
+    if (!user) {
+      const { data: rpcData, error: rpcError } = await supabase.rpc('submit_public_form_response', {
+        p_form_id: params.id,
+        p_responses: responses,
+      });
+      if (rpcError) {
+        toast.error(rpcError.message || 'Failed to submit');
+        setSubmitting(false);
+        return;
+      }
+      const row = rpcData as { response_id?: string } | null;
+      setSubmittedWasOnSite(false);
+      if (emailVal && row?.response_id) {
+        const participantId = crypto.randomUUID();
+        const payload = {
+          participant_id: participantId,
+          event_id: form?.event_id || null,
+          response_id: row.response_id,
+          form_id: params.id,
+          participant_name: nameVal,
+          participant_email: emailVal,
+          submitted_at: new Date().toISOString(),
+        };
+        setParticipantQrPayload(payload);
+        setParticipantQrImage(await QRCode.toDataURL(JSON.stringify(payload), { width: 260, margin: 1 }));
+      } else {
+        setParticipantQrPayload(null);
+        setParticipantQrImage(null);
+      }
+      setSubmitted(true);
+      setSubmitting(false);
+      return;
+    }
+
     const { data: inserted, error } = await supabase
       .from('form_responses')
       .insert({ form_id: params.id, user_id: user?.id || null, responses })
@@ -401,15 +436,14 @@ export default function FormSubmitPage() {
   }
 
   function copyLink() {
-    const href =
-      form?.form_type === 'event_registration'
-        ? `${typeof window !== 'undefined' ? window.location.origin : ''}/forms/${params.id}`
-        : window.location.href;
+    const href = publicFormUrl(typeof window !== 'undefined' ? window.location.origin : '', String(params.id));
     navigator.clipboard.writeText(href);
     setCopied(true);
-    toast.success(form?.form_type === 'event_registration' ? 'Public registration link copied' : 'Link copied');
+    toast.success('Public link copied — no login needed to respond');
     setTimeout(() => setCopied(false), 2000);
   }
+
+  const backHref = user ? '/dashboard/forms' : isPublicFormRoute ? '/' : '/dashboard/forms';
 
   if (loading) {
     return (
@@ -468,7 +502,7 @@ export default function FormSubmitPage() {
           )}
           <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.97 }}>
             <Link
-              href={user ? '/dashboard/forms' : '/'}
+              href={backHref}
               className="btn-gradient-purple px-6 py-2.5 rounded-2xl text-sm font-semibold shadow-lg shadow-purple-500/20"
             >
               {user ? 'Back to Forms' : 'Home'}
@@ -498,7 +532,7 @@ export default function FormSubmitPage() {
           <p className="text-gray-400 mb-8">{closedReason}</p>
           <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.97 }}>
             <Link
-              href={user ? '/dashboard/forms' : '/'}
+              href={backHref}
               className="btn-gradient-blue px-6 py-2.5 rounded-2xl text-sm font-semibold shadow-lg shadow-blue-500/20"
             >
               {user ? 'Back to Forms' : 'Home'}
@@ -527,7 +561,7 @@ export default function FormSubmitPage() {
           {(form?.banner_url || form?.settings?.banner_url) && <img src={form.banner_url || form.settings.banner_url} alt="" className="w-full h-48 object-cover" />}
           <div className="p-8">
             <div className="flex items-center justify-between mb-5">
-              <Link href="/dashboard/forms" className="text-indigo-400 hover:text-indigo-600 transition-colors">
+              <Link href={backHref} className="text-indigo-400 hover:text-indigo-600 transition-colors">
                 <ArrowLeft className="w-5 h-5" />
               </Link>
               <div className="flex gap-3">
@@ -543,6 +577,11 @@ export default function FormSubmitPage() {
             </div>
             <h1 className="text-3xl font-extrabold text-gradient tracking-tight mb-2">{form?.title}</h1>
             {form?.description && <p className="text-gray-400">{form.description}</p>}
+            {isPublicFormRoute && !user && formAllowsPublicAccess(form?.settings) && (
+              <p className="text-xs text-emerald-700 mt-3 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
+                No login required — enter your name and email once; duplicate emails are blocked unless the form allows multiple responses.
+              </p>
+            )}
             {form?.form_type === 'event_registration' && eventDetails && (
               <div className="mt-5 rounded-2xl border border-indigo-100 bg-indigo-50/70 p-4">
                 <p className="text-xs font-semibold text-indigo-600 mb-2">Event Registration</p>

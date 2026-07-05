@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client';
 import { Plus, FileText, BarChart3, Edit, Eye, Clock, CheckCircle, XCircle, Copy, Trash2, PauseCircle, PlayCircle, Pencil } from 'lucide-react';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
+import { publicFormUrl } from '@/lib/form-public-access';
 import PageHeader from '@/components/PageHeader';
 
 const container = {
@@ -63,8 +64,8 @@ export default function FormsPage() {
   }
 
   function copyLink(formId: string) {
-    navigator.clipboard.writeText(`${window.location.origin}/dashboard/forms/${formId}`);
-    toast.success('Link copied');
+    navigator.clipboard.writeText(publicFormUrl(window.location.origin, formId));
+    toast.success('Public link copied (no login required to respond)');
   }
 
   async function deleteForm(formId: string) {
@@ -242,7 +243,7 @@ export default function FormsPage() {
                             </Link>
                           </motion.div>
                           <motion.div whileHover={{ scale: 1.15 }} whileTap={{ scale: 0.9 }}>
-                            <Link href={`/dashboard/forms/${form.id}`} className="p-2 rounded-xl hover:bg-indigo-50 text-gray-400 hover:text-indigo-600 transition-all" title="View">
+                            <Link href={`/forms/${form.id}`} className="p-2 rounded-xl hover:bg-indigo-50 text-gray-400 hover:text-indigo-600 transition-all" title="Open public form">
                               <Eye className="w-4 h-4" />
                             </Link>
                           </motion.div>
