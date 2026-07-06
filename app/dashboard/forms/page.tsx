@@ -8,6 +8,7 @@ import Link from 'next/link';
 import toast from 'react-hot-toast';
 import { publicFormUrl } from '@/lib/form-public-access';
 import PageHeader from '@/components/PageHeader';
+import { canManageForm } from '@/lib/form-access';
 
 const container = {
   hidden: { opacity: 0 },
@@ -24,6 +25,8 @@ export default function FormsPage() {
   const [filter, setFilter] = useState<'all' | 'active' | 'draft' | 'closed'>('all');
   const [deleting, setDeleting] = useState<string | null>(null);
   const [toggling, setToggling] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [profile, setProfile] = useState<{ is_admin?: boolean; is_faculty?: boolean; executive_role?: string | null } | null>(null);
   const supabase = createClient();
 
   useEffect(() => { fetchForms(); }, []);
@@ -31,6 +34,15 @@ export default function FormsPage() {
   async function fetchForms() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
+    setCurrentUserId(user.id);
+
+    const { data: userProfile } = await supabase
+      .from('profiles')
+      .select('is_admin, is_faculty, executive_role')
+      .eq('id', user.id)
+      .maybeSingle();
+    setProfile(userProfile);
+
     const { data: formsData } = await supabase
       .from('forms')
       .select('*, creator:profiles!forms_created_by_fkey(name)')
@@ -71,26 +83,47 @@ export default function FormsPage() {
   async function deleteForm(formId: string) {
     if (!confirm('Delete this form and all its responses?')) return;
     setDeleting(formId);
-    const { error: formErr } = await supabase.from('forms').delete().eq('id', formId);
-    if (formErr) { toast.error('Failed to delete form: ' + formErr.message); setDeleting(null); return; }
+    const { data: deleted, error: formErr } = await supabase
+      .from('forms')
+      .delete()
+      .eq('id', formId)
+      .select('id');
+    if (formErr) {
+      toast.error('Failed to delete form: ' + formErr.message);
+      setDeleting(null);
+      return;
+    }
+    if (!deleted?.length) {
+      toast.error('Could not delete this form — only the creator can delete it.');
+      setDeleting(null);
+      return;
+    }
     setForms(prev => prev.filter(f => f.id !== formId));
     toast.success('Form deleted');
     setDeleting(null);
   }
 
   async function toggleAccepting(form: any) {
+    if (!canManageForm(form, currentUserId, profile)) {
+      toast.error('Only the form creator can change this form.');
+      return;
+    }
     setToggling(form.id);
     const isCurrentlyActive = form.is_active && (form.settings?.status !== 'draft');
     const newActive = !isCurrentlyActive;
     const newSettings = { ...(form.settings || {}), status: newActive ? 'active' : 'draft' };
 
-    const { error } = await supabase
+    const { data: updated, error } = await supabase
       .from('forms')
       .update({ is_active: newActive, settings: newSettings })
-      .eq('id', form.id);
+      .eq('id', form.id)
+      .select('id')
+      .maybeSingle();
 
     if (error) {
       toast.error('Failed to update form');
+    } else if (!updated) {
+      toast.error('Could not update this form — only the creator can change it.');
     } else {
       setForms(prev => prev.map(f => {
         if (f.id !== form.id) return f;
@@ -187,6 +220,7 @@ export default function FormsPage() {
                 const cfg = statusConfig[form.computed_status] || statusConfig.draft;
                 const StatusIcon = cfg.icon;
                 const isActive = form.computed_status === 'active';
+                const manageable = canManageForm(form, currentUserId, profile);
                 return (
                   <motion.div key={form.id} variants={item} whileHover={{ y: -6, transition: { duration: 0.2 } }} className="group relative">
                     <div className="premium-panel rounded-2xl overflow-hidden shadow-md hover:shadow-2xl transition-all duration-300 relative">
@@ -214,6 +248,7 @@ export default function FormsPage() {
                         </div>
 
                         {/* Stop / Start collecting toggle */}
+                        {manageable && (
                         <button
                           onClick={() => toggleAccepting(form)}
                           disabled={toggling === form.id}
@@ -228,6 +263,7 @@ export default function FormsPage() {
                             <><PlayCircle className="w-3.5 h-3.5" /> Start Collecting</>
                           )}
                         </button>
+                        )}
 
                         <div className="flex items-center gap-2 pt-4 border-t border-gray-100">
                           <motion.div whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.97 }} className="flex-1">
@@ -235,11 +271,13 @@ export default function FormsPage() {
                               <span className="flex items-center justify-center gap-1.5"><BarChart3 className="w-3.5 h-3.5" /> Responses</span>
                             </Link>
                           </motion.div>
+                          {manageable && (
                           <motion.div whileHover={{ scale: 1.15 }} whileTap={{ scale: 0.9 }}>
                             <Link href={`/dashboard/forms/${form.id}/edit`} className="p-2 rounded-xl hover:bg-indigo-50 text-gray-400 hover:text-indigo-600 transition-all" title="Edit Form">
                               <Pencil className="w-4 h-4" />
                             </Link>
                           </motion.div>
+                          )}
                           <motion.div whileHover={{ scale: 1.15 }} whileTap={{ scale: 0.9 }}>
                             <Link href={`/forms/${form.id}`} className="p-2 rounded-xl hover:bg-indigo-50 text-gray-400 hover:text-indigo-600 transition-all" title="Open public form">
                               <Eye className="w-4 h-4" />
@@ -250,11 +288,13 @@ export default function FormsPage() {
                               <Copy className="w-4 h-4" />
                             </button>
                           </motion.div>
+                          {manageable && (
                           <motion.div whileHover={{ scale: 1.15 }} whileTap={{ scale: 0.9 }}>
                             <button onClick={() => deleteForm(form.id)} disabled={deleting === form.id} className="p-2 rounded-xl hover:bg-red-50 text-gray-400 hover:text-red-500 transition-all" title="Delete">
                               <Trash2 className="w-4 h-4" />
                             </button>
                           </motion.div>
+                          )}
                         </div>
                       </div>
                     </div>

@@ -202,6 +202,9 @@ export default function FormSubmitPage() {
         if (v.minLength && typeof val === 'string' && val.length < v.minLength) newErrors[field.id] = `Minimum ${v.minLength} characters`;
         if (v.maxLength && typeof val === 'string' && val.length > v.maxLength) newErrors[field.id] = `Maximum ${v.maxLength} characters`;
         if (v.email && typeof val === 'string' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)) newErrors[field.id] = 'Enter a valid email';
+        if (field.field_type === 'mobile' && typeof val === 'string' && !/^[\d\s+\-()]{7,15}$/.test(val.trim())) {
+          newErrors[field.id] = 'Enter a valid mobile number';
+        }
       }
     }
     setErrors(newErrors);
@@ -583,6 +586,11 @@ export default function FormSubmitPage() {
                 {field.field_type === 'number' && (
                   <input type="number" value={answers[field.id] || ''} onChange={e => updateAnswer(field.id, e.target.value ? Number(e.target.value) : '')} placeholder="0"
                     min={field.validation?.minValue} max={field.validation?.maxValue}
+                    className="w-full border-b-2 border-gray-200 focus:border-indigo-500 outline-none py-2 text-gray-800 bg-transparent transition-colors placeholder-gray-300" />
+                )}
+                {field.field_type === 'mobile' && (
+                  <input type="tel" value={answers[field.id] || ''} onChange={e => updateAnswer(field.id, e.target.value)} placeholder="9876543210"
+                    maxLength={field.validation?.maxLength || 15}
                     className="w-full border-b-2 border-gray-200 focus:border-indigo-500 outline-none py-2 text-gray-800 bg-transparent transition-colors placeholder-gray-300" />
                 )}
                 {field.field_type === 'date' && (

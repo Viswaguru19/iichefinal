@@ -3,13 +3,14 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { createClient } from '@/lib/supabase/client';
-import { ArrowLeft, Plus, X, GripVertical, Copy, Eye, Settings, ChevronDown, ChevronUp, Upload, Type, AlignLeft, List, CheckSquare, ChevronRight, Calendar, Hash, Mail, FileUp, Image as ImageIcon, Save } from 'lucide-react';
+import { ArrowLeft, Plus, X, GripVertical, Copy, Eye, Settings, ChevronDown, ChevronUp, Upload, Type, AlignLeft, List, CheckSquare, ChevronRight, Calendar, Hash, Mail, FileUp, Image as ImageIcon, Save, Phone } from 'lucide-react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import {
   hasNameAndEmailFields,
 } from '@/lib/form-responder-fields';
+import { canManageForm } from '@/lib/form-access';
 
 interface FormField {
     id: string;
@@ -40,6 +41,7 @@ const FIELD_TYPES = [
     { value: 'file', label: 'File Upload', icon: FileUp },
     { value: 'date', label: 'Date', icon: Calendar },
     { value: 'number', label: 'Number', icon: Hash },
+    { value: 'mobile', label: 'Mobile Number', icon: Phone },
     { value: 'email', label: 'Email', icon: Mail },
 ];
 
@@ -65,6 +67,7 @@ export default function EditFormPage() {
     const [formType, setFormType] = useState<'normal' | 'event_registration'>('normal');
     const [showAttendanceQrAfterSubmit, setShowAttendanceQrAfterSubmit] = useState(true);
     const [baseSettings, setBaseSettings] = useState<Record<string, unknown>>({});
+    const [canEdit, setCanEdit] = useState(false);
 
     const params = useParams();
     const formId = String(params.id);
@@ -75,8 +78,30 @@ export default function EditFormPage() {
     useEffect(() => { loadForm(); }, []);
 
     async function loadForm() {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+            toast.error('You must be logged in to edit forms');
+            router.push('/login');
+            return;
+        }
+
+        const { data: profile } = await supabase
+            .from('profiles')
+            .select('is_admin, is_faculty, executive_role')
+            .eq('id', user.id)
+            .maybeSingle();
+
         const { data: form, error } = await supabase.from('forms').select('*').eq('id', formId).single();
         if (error || !form) { toast.error('Form not found'); router.push('/dashboard/forms'); return; }
+
+        const allowed = canManageForm(form, user.id, profile);
+        setCanEdit(allowed);
+        if (!allowed) {
+            toast.error('Only the form creator can edit this form');
+            setLoading(false);
+            return;
+        }
+
         setTitle(form.title || '');
         setDescription(form.description || '');
         setFields(form.fields || []);
@@ -164,6 +189,10 @@ export default function EditFormPage() {
     }
 
     async function handleSave() {
+        if (!canEdit) {
+            toast.error('Only the form creator can edit this form');
+            return;
+        }
         if (!title.trim()) { toast.error('Form title is required'); return; }
         if (fields.length === 0) { toast.error('Add at least one question'); return; }
         const emptyLabels = fields.filter(f => !f.label.trim());
@@ -198,17 +227,15 @@ export default function EditFormPage() {
             })
             .eq('id', formId)
             .select('id, description')
-            .single();
+            .maybeSingle();
 
-        if (error || !updated) {
-            toast.error('Failed to save: ' + (error?.message || 'No rows updated'));
+        if (error) {
+            toast.error('Failed to save: ' + error.message);
+        } else if (!updated) {
+            toast.error('Failed to save — you may not have permission to edit this form.');
         } else {
             setBaseSettings(nextSettings);
-            if ((updated.description || '') !== (trimmedDescription || '')) {
-                toast.error('Description may not have saved — check database permissions.');
-            } else {
-                toast.success('Form saved');
-            }
+            toast.success('Form saved');
             router.push('/dashboard/forms');
         }
         setSaving(false);
@@ -220,6 +247,20 @@ export default function EditFormPage() {
                 <motion.div initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} className="text-center">
                     <div className="w-16 h-16 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 mx-auto mb-4 animate-pulse-glow" />
                     <p className="text-gray-400">Loading form...</p>
+                </motion.div>
+            </div>
+        );
+    }
+
+    if (!canEdit) {
+        return (
+            <div className="min-h-screen bg-mesh flex items-center justify-center px-4">
+                <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="premium-panel rounded-3xl p-12 text-center max-w-md shadow-2xl">
+                    <h2 className="text-2xl font-extrabold text-gray-800 mb-2">Cannot Edit Form</h2>
+                    <p className="text-gray-400 mb-8">Only the person who created this form can edit it.</p>
+                    <Link href="/dashboard/forms" className="btn-gradient-blue px-6 py-2.5 rounded-2xl text-sm font-semibold">
+                        Back to Forms
+                    </Link>
                 </motion.div>
             </div>
         );

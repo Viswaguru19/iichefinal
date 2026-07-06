@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { createClient } from '@/lib/supabase/client';
-import { ArrowLeft, Plus, X, GripVertical, Copy, Eye, Settings, ChevronDown, ChevronUp, Upload, Type, AlignLeft, List, CheckSquare, ChevronRight, Calendar, Hash, Mail, FileUp, Image as ImageIcon } from 'lucide-react';
+import { ArrowLeft, Plus, X, GripVertical, Copy, Eye, Settings, ChevronDown, ChevronUp, Upload, Type, AlignLeft, List, CheckSquare, ChevronRight, Calendar, Hash, Mail, FileUp, Image as ImageIcon, Phone } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
@@ -40,6 +40,7 @@ const FIELD_TYPES = [
   { value: 'file', label: 'File Upload', icon: FileUp },
   { value: 'date', label: 'Date', icon: Calendar },
   { value: 'number', label: 'Number', icon: Hash },
+  { value: 'mobile', label: 'Mobile Number', icon: Phone },
   { value: 'email', label: 'Email', icon: Mail },
 ];
 
@@ -292,6 +293,7 @@ export default function CreateFormPage() {
               {field.field_type === 'textarea' && <div className="border-b-2 border-gray-200 py-2 text-gray-300 h-20">Long answer text</div>}
               {field.field_type === 'email' && <div className="border-b-2 border-gray-200 py-2 text-gray-300">email@example.com</div>}
               {field.field_type === 'number' && <div className="border-b-2 border-gray-200 py-2 text-gray-300">0</div>}
+              {field.field_type === 'mobile' && <div className="border-b-2 border-gray-200 py-2 text-gray-300">9876543210</div>}
               {field.field_type === 'date' && <div className="border-b-2 border-gray-200 py-2 text-gray-300">DD/MM/YYYY</div>}
               {field.field_type === 'file' && <div className="border-2 border-dashed border-gray-200 rounded-2xl p-6 text-center text-gray-300"><Upload className="w-8 h-8 mx-auto mb-2" />Click to upload</div>}
               {field.field_type === 'radio' && field.options.map((opt, j) => (
@@ -546,7 +548,7 @@ export default function CreateFormPage() {
                       )}
 
                       {/* Validation for text/number */}
-                      {isActive && ['text', 'textarea'].includes(field.field_type) && (
+                      {isActive && ['text', 'textarea', 'mobile'].includes(field.field_type) && (
                         <div className="bg-gray-50 rounded-xl p-4 space-y-2 mt-2">
                           <p className="text-xs font-medium text-gray-500">Validation (optional)</p>
                           <div className="grid grid-cols-2 gap-3">
