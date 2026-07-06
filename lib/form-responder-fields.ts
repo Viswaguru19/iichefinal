@@ -6,13 +6,17 @@ export const LEGACY_ER_FIELD_EMAIL_ID = 'f_er_email';
 
 const EMAIL_LIKE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-export interface ResponderFormField {
+/** Minimum shape needed to locate Name/Email questions in a form. */
+export type ResponderFieldLike = {
   id: string;
   field_type: string;
   label: string;
+};
+
+export interface ResponderFormField extends ResponderFieldLike {
   description?: string;
   options?: string[];
-  required: boolean;
+  required?: boolean;
   validation?: Record<string, unknown>;
   order_index?: number;
 }
@@ -31,7 +35,7 @@ export function isResponderFieldId(id: string | undefined): boolean {
   );
 }
 
-export function pickNameField<T extends ResponderFormField>(fields: T[]): T | undefined {
+export function pickNameField<T extends ResponderFieldLike>(fields: T[]): T | undefined {
   return fields.find(
     (f) =>
       f.id === RESPONDER_FIELD_NAME_ID ||
@@ -40,7 +44,7 @@ export function pickNameField<T extends ResponderFormField>(fields: T[]): T | un
   );
 }
 
-export function pickEmailField<T extends ResponderFormField>(fields: T[]): T | undefined {
+export function pickEmailField<T extends ResponderFieldLike>(fields: T[]): T | undefined {
   return fields.find(
     (f) =>
       f.id === RESPONDER_FIELD_EMAIL_ID ||
@@ -50,13 +54,13 @@ export function pickEmailField<T extends ResponderFormField>(fields: T[]): T | u
   );
 }
 
-export function hasNameAndEmailFields<T extends ResponderFormField>(fields: T[]): boolean {
+export function hasNameAndEmailFields<T extends ResponderFieldLike>(fields: T[]): boolean {
   return !!pickNameField(fields) && !!pickEmailField(fields);
 }
 
 export function extractResponderEmail(
   responses: Record<string, unknown>,
-  fields: ResponderFormField[],
+  fields: ResponderFieldLike[],
   profile?: { email?: string | null } | null,
   user?: { email?: string | null } | null,
 ): string | null {
@@ -85,7 +89,7 @@ export function extractResponderEmail(
 
 export function extractResponderName(
   responses: Record<string, unknown>,
-  fields: ResponderFormField[],
+  fields: ResponderFieldLike[],
   profile?: { name?: string | null } | null,
 ): string {
   const nameField = pickNameField(fields);
@@ -107,7 +111,7 @@ export function extractResponderName(
 
 export function getResponderDisplayName(
   responses: Record<string, unknown> | null | undefined,
-  fields: ResponderFormField[],
+  fields: ResponderFieldLike[],
   profile?: { name?: string | null } | null,
 ): string {
   const fromForm = extractResponderName(responses || {}, fields, profile);
@@ -118,7 +122,7 @@ export function getResponderDisplayName(
 
 export function getResponderDisplayEmail(
   responses: Record<string, unknown> | null | undefined,
-  fields: ResponderFormField[],
+  fields: ResponderFieldLike[],
   profile?: { email?: string | null } | null,
 ): string {
   return extractResponderEmail(responses || {}, fields, profile) || '';
