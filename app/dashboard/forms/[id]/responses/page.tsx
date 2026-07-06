@@ -7,6 +7,10 @@ import { ArrowLeft, Download, BarChart3, Users, FileText, Search, ChevronDown, E
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import toast from 'react-hot-toast';
+import {
+  getResponderDisplayEmail,
+  getResponderDisplayName,
+} from '@/lib/form-responder-fields';
 
 interface FormField {
   id: string;
@@ -129,7 +133,8 @@ export default function FormResponsesPage() {
     const headers = ['Submitted At', 'Name', 'Email', ...fields.map(f => f.label)];
     const rows = responses.map(r => [
       new Date(r.submitted_at || r.created_at).toLocaleString(),
-      r.user?.name || 'Anonymous', r.user?.email || '-',
+      getResponderDisplayName(r.responses, fields, r.user),
+      getResponderDisplayEmail(r.responses, fields, r.user) || '-',
       ...fields.map(f => { const val = r.responses?.[f.label]; return Array.isArray(val) ? val.join('; ') : val ?? ''; }),
     ]);
     const csv = [headers, ...rows].map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
@@ -143,7 +148,9 @@ export default function FormResponsesPage() {
   const filteredResponses = searchTerm
     ? responses.filter(r => {
       const t = searchTerm.toLowerCase();
-      return (r.user?.name?.toLowerCase() || '').includes(t) || (r.user?.email?.toLowerCase() || '').includes(t);
+      const name = getResponderDisplayName(r.responses, fields, r.user).toLowerCase();
+      const email = getResponderDisplayEmail(r.responses, fields, r.user).toLowerCase();
+      return name.includes(t) || email.includes(t);
     })
     : responses;
 
@@ -357,6 +364,8 @@ export default function FormResponsesPage() {
             <motion.div variants={container} initial="hidden" animate="show" className="space-y-4">
               {filteredResponses.map((response) => {
                 const isExpanded = expandedResponse === response.id;
+                const displayName = getResponderDisplayName(response.responses, fields, response.user);
+                const displayEmail = getResponderDisplayEmail(response.responses, fields, response.user);
                 return (
                   <motion.div key={response.id} variants={item} className="premium-panel rounded-2xl overflow-hidden shadow-md hover:shadow-xl transition-shadow">
                     <button
@@ -365,11 +374,11 @@ export default function FormResponsesPage() {
                     >
                       <div className="flex items-center gap-4">
                         <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center text-white font-bold text-sm shadow-md">
-                          {(response.user?.name || 'A')[0].toUpperCase()}
+                          {(displayName || 'A')[0].toUpperCase()}
                         </div>
                         <div>
-                          <p className="font-semibold text-gray-800">{response.user?.name || 'Anonymous'}</p>
-                          <p className="text-xs text-gray-400">{response.user?.email || 'No email'} · {new Date(response.submitted_at || response.created_at).toLocaleString()}</p>
+                          <p className="font-semibold text-gray-800">{displayName}</p>
+                          <p className="text-xs text-gray-400">{displayEmail || 'No email'} · {new Date(response.submitted_at || response.created_at).toLocaleString()}</p>
                         </div>
                       </div>
                       <motion.div animate={{ rotate: isExpanded ? 180 : 0 }} transition={{ duration: 0.2 }}>

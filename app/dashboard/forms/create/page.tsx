@@ -9,6 +9,7 @@ import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { EVENT_REGISTRATION_ELIGIBLE_STATUSES } from '@/lib/event-registration';
 import { publicFormUrl } from '@/lib/form-public-access';
+import { hasNameAndEmailFields } from '@/lib/form-responder-fields';
 
 interface FormField {
   id: string;
@@ -44,35 +45,6 @@ const FIELD_TYPES = [
 
 function generateId() {
   return 'f_' + Math.random().toString(36).substring(2, 9);
-}
-
-/** Fixed ids so we can enforce Name + Email for event registration forms. */
-const ER_FIELD_NAME = 'f_er_name';
-const ER_FIELD_EMAIL = 'f_er_email';
-
-function defaultEventRegistrationFields(): FormField[] {
-  return [
-    {
-      id: ER_FIELD_NAME,
-      field_type: 'text',
-      label: 'Name',
-      description: '',
-      options: [],
-      required: true,
-      validation: {},
-      order_index: 0,
-    },
-    {
-      id: ER_FIELD_EMAIL,
-      field_type: 'email',
-      label: 'Email',
-      description: '',
-      options: [],
-      required: true,
-      validation: { email: true },
-      order_index: 1,
-    },
-  ];
 }
 
 /** Event row may use `event_date` and/or legacy `date` from different code paths. */
@@ -119,22 +91,13 @@ export default function CreateFormPage() {
     void loadActiveEvents();
   }, [formType]);
 
-  /** Public /forms/[id] + QR: guests must be able to submit; seed required Name & Email questions. */
+  /** Event registration defaults: public link + attendance QR. */
   useEffect(() => {
     const prev = prevFormTypeRef.current;
     if (formType === 'event_registration' && prev !== 'event_registration') {
       setRequireLogin(false);
       setAccessType('public');
       setShowAttendanceQrAfterSubmit(true);
-      setFields((prevFields) => {
-        const rest = prevFields.filter((f) => f.id !== ER_FIELD_NAME && f.id !== ER_FIELD_EMAIL);
-        return [...defaultEventRegistrationFields(), ...rest].map((f, i) => ({ ...f, order_index: i }));
-      });
-    }
-    if (formType !== 'event_registration' && prev === 'event_registration') {
-      setFields((prevFields) =>
-        prevFields.filter((f) => f.id !== ER_FIELD_NAME && f.id !== ER_FIELD_EMAIL).map((f, i) => ({ ...f, order_index: i })),
-      );
     }
     prevFormTypeRef.current = formType;
   }, [formType]);
@@ -199,11 +162,6 @@ export default function CreateFormPage() {
   }
 
   function removeField(index: number) {
-    const f = fields[index];
-    if (formType === 'event_registration' && (f.id === ER_FIELD_NAME || f.id === ER_FIELD_EMAIL)) {
-      toast.error('Name and Email cannot be removed from event registration forms.');
-      return;
-    }
     setFields(fields.filter((_, i) => i !== index).map((f, i) => ({ ...f, order_index: i })));
     setActiveField(null);
   }
@@ -261,6 +219,10 @@ export default function CreateFormPage() {
     }
     const emptyLabels = fields.filter(f => !f.label.trim());
     if (emptyLabels.length > 0) { toast.error('All questions must have labels'); return; }
+    if (!hasNameAndEmailFields(fields)) {
+      toast.error('Add Name (short answer) and Email questions to the form.');
+      return;
+    }
 
     setLoading(true);
     const { data: { user } } = await supabase.auth.getUser();
@@ -270,7 +232,7 @@ export default function CreateFormPage() {
       .from('forms')
       .insert({
         title: title.trim(),
-        description: description.trim(),
+        description: description.trim() || null,
         fields,
         created_by: user.id,
         is_active: status === 'active',
@@ -294,7 +256,7 @@ export default function CreateFormPage() {
 
     const link = publicFormUrl(window.location.origin, form.id);
     navigator.clipboard.writeText(link);
-    toast.success('Public form link copied — anyone with the link can respond (no login).');
+    toast.success('Form created — share link copied to clipboard.');
     router.push(`/dashboard/forms/${form.id}`);
   }
 
@@ -496,9 +458,6 @@ export default function CreateFormPage() {
                   </div>
                   {formType === 'event_registration' && (
                     <div>
-                      <p className="text-xs text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-xl px-3 py-2 mb-2">
-                        Share link and QR use <strong>/forms/…</strong> (no dashboard). Access defaults to <strong>Public</strong> with <strong>Require login</strong> off so anyone can register; change in Settings only if you intend members-only sign-up.
-                      </p>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Active Event</label>
                       {eventsLoading ? (
                         <div className="w-full border border-gray-200 rounded-xl px-3 py-2 bg-white/80 text-gray-500 text-sm">Loading active events...</div>

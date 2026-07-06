@@ -9,7 +9,13 @@ import { useParams, useRouter, usePathname } from 'next/navigation';
 import toast from 'react-hot-toast';
 import QRCode from 'qrcode';
 import { isEventOpenForRegistration } from '@/lib/event-registration';
-import { formAllowsPublicAccess, publicFormUrl } from '@/lib/form-public-access';
+import { publicFormUrl } from '@/lib/form-public-access';
+import {
+  extractResponderEmail,
+  extractResponderName,
+  pickEmailField,
+  pickNameField,
+} from '@/lib/form-responder-fields';
 
 interface FormField {
   id: string;
@@ -38,8 +44,6 @@ const fieldAnim = {
   }),
 };
 
-const EMAIL_LIKE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
 /** Personal attendance QR after submit (event registration only); default on if unset. */
 function isAttendanceQrAfterSubmitEnabled(settings: Record<string, unknown> | null | undefined, formType: string | undefined) {
   if (formType !== 'event_registration') return false;
@@ -51,55 +55,6 @@ function isAttendanceQrAfterSubmitEnabled(settings: Record<string, unknown> | nu
 
 function trimStr(v: unknown): string {
   return typeof v === 'string' ? v.trim() : '';
-}
-
-/** Resolves email from field labels (including "E-mail"), values, profile, or auth user. */
-function extractResponderEmail(
-  responses: Record<string, unknown>,
-  answers: Record<string, unknown>,
-  profile: { email?: string | null } | null | undefined,
-  user: { email?: string | null } | null | undefined,
-  externalEmail: string,
-): string | null {
-  for (const [k, raw] of Object.entries(responses)) {
-    const v = trimStr(raw);
-    if (!v || !EMAIL_LIKE.test(v)) continue;
-    const kl = k.toLowerCase().replace(/\s+/g, ' ');
-    if (/\b(e-?mail|correo)\b/.test(kl) || kl.includes('email')) return v;
-  }
-  for (const [, raw] of Object.entries(responses)) {
-    const v = trimStr(raw);
-    if (v && EMAIL_LIKE.test(v)) return v;
-  }
-  for (const val of Object.values(answers)) {
-    const v = trimStr(val);
-    if (v && EMAIL_LIKE.test(v)) return v;
-  }
-  const ext = externalEmail.trim();
-  if (ext && EMAIL_LIKE.test(ext)) return ext;
-  const pe = trimStr(profile?.email);
-  if (pe && EMAIL_LIKE.test(pe)) return pe;
-  const ue = trimStr(user?.email);
-  if (ue && EMAIL_LIKE.test(ue)) return ue;
-  return null;
-}
-
-function extractResponderName(
-  responses: Record<string, unknown>,
-  profile: { name?: string | null } | null | undefined,
-  externalName: string,
-): string {
-  for (const [k, raw] of Object.entries(responses)) {
-    const v = trimStr(raw);
-    if (!v) continue;
-    const kl = k.toLowerCase();
-    if (/name/.test(kl) && !/user\s*name|username|company|team|branch|if\s*name|domain/.test(kl)) return v;
-  }
-  const ext = externalName.trim();
-  if (ext) return ext;
-  const pn = trimStr(profile?.name);
-  if (pn) return pn;
-  return 'Participant';
 }
 
 export default function FormSubmitPage() {
@@ -119,8 +74,6 @@ export default function FormSubmitPage() {
   const [participantQrImage, setParticipantQrImage] = useState<string | null>(null);
   const [participantQrPayload, setParticipantQrPayload] = useState<any>(null);
   const [eventDetails, setEventDetails] = useState<any>(null);
-  const [externalName, setExternalName] = useState('');
-  const [externalEmail, setExternalEmail] = useState('');
   /** Set after successful event registration submit (venue QR uses source=onsite). */
   const [submittedWasOnSite, setSubmittedWasOnSite] = useState(false);
   const params = useParams();
@@ -173,7 +126,8 @@ export default function FormSubmitPage() {
     }
 
     setForm(formData);
-    setFields(formData.fields || []);
+    const formFields = formData.fields || [];
+    setFields(formFields);
 
     if (!closed && formData.form_type === 'event_registration' && formData.event_id) {
       const { data: ev } = await supabase
@@ -213,15 +167,15 @@ export default function FormSubmitPage() {
       setFormClosed(false);
       setClosedReason('');
     }
-    if (authUser && profileForPrefill) {
-      const emailField = (formData.fields || []).find((f: FormField) =>
-        f.field_type === 'email' || /email/i.test(f.label || '')
-      );
-      const nameField = (formData.fields || []).find((f: FormField) =>
-        /name/i.test(f.label || '')
-      );
-      if (emailField) setAnswers(prev => ({ ...prev, [emailField.id]: profileForPrefill?.email || '' }));
-      if (nameField) setAnswers(prev => ({ ...prev, [nameField.id]: profileForPrefill?.name || '' }));
+    if (authUser && profileForPrefill && formFields.length > 0) {
+      const nameField = pickNameField(formFields);
+      const emailField = pickEmailField(formFields);
+      const prefill: Record<string, string> = {};
+      if (nameField) prefill[nameField.id] = profileForPrefill?.name || '';
+      if (emailField) prefill[emailField.id] = profileForPrefill?.email || '';
+      if (Object.keys(prefill).length > 0) {
+        setAnswers((prev) => ({ ...prev, ...prefill }));
+      }
     }
     setLoading(false);
   }
@@ -240,11 +194,6 @@ export default function FormSubmitPage() {
 
   function validate(): boolean {
     const newErrors: Record<string, string> = {};
-    if (!user) {
-      if (!externalName.trim()) newErrors.__external_name = 'Name is required';
-      if (!externalEmail.trim()) newErrors.__external_email = 'Email is required';
-      else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(externalEmail.trim())) newErrors.__external_email = 'Enter a valid email';
-    }
     for (const field of fields) {
       const val = answers[field.id];
       if (field.required && (!val || (Array.isArray(val) && val.length === 0))) { newErrors[field.id] = 'This field is required'; continue; }
@@ -286,8 +235,10 @@ export default function FormSubmitPage() {
     }
     const settings = form?.settings || {};
     const allowMultiple = !!(settings.allow_multiple ?? settings.allowMultiple);
-    if (!user && !allowMultiple) {
-      const exists = await hasExternalEmailAlreadySubmitted(externalEmail);
+    const emailField = pickEmailField(fields);
+    const emailForDedupe = emailField ? trimStr(answers[emailField.id]) : '';
+    if (!user && !allowMultiple && emailForDedupe) {
+      const exists = await hasExternalEmailAlreadySubmitted(emailForDedupe);
       if (exists) {
         setSubmitting(false);
         toast.error('This email has already submitted this form.');
@@ -295,10 +246,6 @@ export default function FormSubmitPage() {
       }
     }
     const responses: Record<string, any> = {};
-    if (!user) {
-      responses.Name = externalName.trim();
-      responses.Email = externalEmail.trim();
-    }
     for (const field of fields) {
       const val = answers[field.id];
       if (field.field_type === 'file' && val instanceof File) {
@@ -310,8 +257,8 @@ export default function FormSubmitPage() {
       } else { responses[field.label] = val ?? null; }
     }
 
-    const emailVal = extractResponderEmail(responses, answers, profile, user, externalEmail);
-    const nameVal = extractResponderName(responses, profile, externalName);
+    const emailVal = extractResponderEmail(responses, fields, profile, user);
+    const nameVal = extractResponderName(responses, fields, profile);
     /** Venue on-spot QR (?source=onsite) or legacy ?source=qr → on_site (present + labeled). Public link has no param → advance. */
     const srcParam =
       typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('source') : null;
@@ -439,7 +386,7 @@ export default function FormSubmitPage() {
     const href = publicFormUrl(typeof window !== 'undefined' ? window.location.origin : '', String(params.id));
     navigator.clipboard.writeText(href);
     setCopied(true);
-    toast.success('Public link copied — no login needed to respond');
+    toast.success('Form link copied');
     setTimeout(() => setCopied(false), 2000);
   }
 
@@ -576,12 +523,7 @@ export default function FormSubmitPage() {
               </div>
             </div>
             <h1 className="text-3xl font-extrabold text-gradient tracking-tight mb-2">{form?.title}</h1>
-            {form?.description && <p className="text-gray-400">{form.description}</p>}
-            {isPublicFormRoute && !user && formAllowsPublicAccess(form?.settings) && (
-              <p className="text-xs text-emerald-700 mt-3 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
-                No login required — enter your name and email once; duplicate emails are blocked unless the form allows multiple responses.
-              </p>
-            )}
+            {form?.description?.trim() && <p className="text-gray-400">{form.description}</p>}
             {form?.form_type === 'event_registration' && eventDetails && (
               <div className="mt-5 rounded-2xl border border-indigo-100 bg-indigo-50/70 p-4">
                 <p className="text-xs font-semibold text-indigo-600 mb-2">Event Registration</p>
@@ -611,51 +553,6 @@ export default function FormSubmitPage() {
           </motion.div>
         ) : (
           <div className="space-y-1">
-            {!user && (
-              <motion.div
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="premium-panel p-6 border border-amber-200/50"
-              >
-                <p className="text-sm font-semibold text-amber-700 mb-4">
-                  External User Details (Required)
-                </p>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div>
-                    <label className="block text-base font-semibold text-gray-800 mb-1">
-                      Name <span className="text-red-400 ml-1">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={externalName}
-                      onChange={(e) => {
-                        setExternalName(e.target.value);
-                        setErrors((prev) => { const n = { ...prev }; delete n.__external_name; return n; });
-                      }}
-                      placeholder="Your name"
-                      className="w-full border-b-2 border-gray-200 focus:border-indigo-500 outline-none py-2 text-gray-800 bg-transparent transition-colors placeholder-gray-300"
-                    />
-                    {errors.__external_name && <p className="text-red-400 text-sm mt-2 flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5" /> {errors.__external_name}</p>}
-                  </div>
-                  <div>
-                    <label className="block text-base font-semibold text-gray-800 mb-1">
-                      Email <span className="text-red-400 ml-1">*</span>
-                    </label>
-                    <input
-                      type="email"
-                      value={externalEmail}
-                      onChange={(e) => {
-                        setExternalEmail(e.target.value);
-                        setErrors((prev) => { const n = { ...prev }; delete n.__external_email; return n; });
-                      }}
-                      placeholder="email@example.com"
-                      className="w-full border-b-2 border-gray-200 focus:border-indigo-500 outline-none py-2 text-gray-800 bg-transparent transition-colors placeholder-gray-300"
-                    />
-                    {errors.__external_email && <p className="text-red-400 text-sm mt-2 flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5" /> {errors.__external_email}</p>}
-                  </div>
-                </div>
-              </motion.div>
-            )}
             {fields.map((field, i) => (
               <motion.div
                 key={field.id}

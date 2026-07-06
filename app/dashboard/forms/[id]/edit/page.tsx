@@ -7,6 +7,9 @@ import { ArrowLeft, Plus, X, GripVertical, Copy, Eye, Settings, ChevronDown, Che
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
+import {
+  hasNameAndEmailFields,
+} from '@/lib/form-responder-fields';
 
 interface FormField {
     id: string;
@@ -61,8 +64,10 @@ export default function EditFormPage() {
     const [accessType, setAccessType] = useState<'public' | 'internal'>('internal');
     const [formType, setFormType] = useState<'normal' | 'event_registration'>('normal');
     const [showAttendanceQrAfterSubmit, setShowAttendanceQrAfterSubmit] = useState(true);
+    const [baseSettings, setBaseSettings] = useState<Record<string, unknown>>({});
 
     const params = useParams();
+    const formId = String(params.id);
     const router = useRouter();
     const supabase = createClient();
     const bannerInputRef = useRef<HTMLInputElement>(null);
@@ -70,12 +75,13 @@ export default function EditFormPage() {
     useEffect(() => { loadForm(); }, []);
 
     async function loadForm() {
-        const { data: form, error } = await supabase.from('forms').select('*').eq('id', params.id).single();
+        const { data: form, error } = await supabase.from('forms').select('*').eq('id', formId).single();
         if (error || !form) { toast.error('Form not found'); router.push('/dashboard/forms'); return; }
         setTitle(form.title || '');
         setDescription(form.description || '');
         setFields(form.fields || []);
         const s = form.settings || {};
+        setBaseSettings(s);
         setBannerUrl(s.banner_url || '');
         setStatus(form.is_active ? 'active' : 'draft');
         setAllowMultiple(s.allow_multiple || false);
@@ -162,25 +168,49 @@ export default function EditFormPage() {
         if (fields.length === 0) { toast.error('Add at least one question'); return; }
         const emptyLabels = fields.filter(f => !f.label.trim());
         if (emptyLabels.length > 0) { toast.error('All questions must have labels'); return; }
+        if (!hasNameAndEmailFields(fields)) {
+            toast.error('Add Name (short answer) and Email questions to the form.');
+            return;
+        }
 
         setSaving(true);
-        const { error } = await supabase
+        const trimmedDescription = description.trim();
+        const nextSettings = {
+            ...baseSettings,
+            banner_url: bannerUrl,
+            allow_multiple: allowMultiple,
+            require_login: requireLogin,
+            start_date: startDate || null,
+            end_date: endDate || null,
+            access_type: accessType,
+            status,
+            ...(formType === 'event_registration' ? { show_attendance_qr_after_submit: showAttendanceQrAfterSubmit } : {}),
+        };
+
+        const { data: updated, error } = await supabase
             .from('forms')
             .update({
                 title: title.trim(),
-                description: description.trim(),
+                description: trimmedDescription || null,
                 fields,
                 is_active: status === 'active',
-                settings: {
-                    banner_url: bannerUrl, allow_multiple: allowMultiple, require_login: requireLogin,
-                    start_date: startDate || null, end_date: endDate || null, access_type: accessType, status,
-                    ...(formType === 'event_registration' ? { show_attendance_qr_after_submit: showAttendanceQrAfterSubmit } : {}),
-                },
+                settings: nextSettings,
             })
-            .eq('id', params.id);
+            .eq('id', formId)
+            .select('id, description')
+            .single();
 
-        if (error) { toast.error('Failed to save: ' + error.message); }
-        else { toast.success('Form saved'); router.push('/dashboard/forms'); }
+        if (error || !updated) {
+            toast.error('Failed to save: ' + (error?.message || 'No rows updated'));
+        } else {
+            setBaseSettings(nextSettings);
+            if ((updated.description || '') !== (trimmedDescription || '')) {
+                toast.error('Description may not have saved — check database permissions.');
+            } else {
+                toast.success('Form saved');
+            }
+            router.push('/dashboard/forms');
+        }
         setSaving(false);
     }
 

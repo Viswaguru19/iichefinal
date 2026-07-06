@@ -65,14 +65,12 @@ export default function FormsPage() {
 
   function copyLink(formId: string) {
     navigator.clipboard.writeText(publicFormUrl(window.location.origin, formId));
-    toast.success('Public link copied (no login required to respond)');
+    toast.success('Public link copied!');
   }
 
   async function deleteForm(formId: string) {
     if (!confirm('Delete this form and all its responses?')) return;
     setDeleting(formId);
-    const { error: respErr } = await supabase.from('form_responses').delete().eq('form_id', formId);
-    if (respErr) { toast.error('Failed to delete responses: ' + respErr.message); setDeleting(null); return; }
     const { error: formErr } = await supabase.from('forms').delete().eq('id', formId);
     if (formErr) { toast.error('Failed to delete form: ' + formErr.message); setDeleting(null); return; }
     setForms(prev => prev.filter(f => f.id !== formId));
