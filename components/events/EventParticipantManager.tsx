@@ -298,7 +298,7 @@ export default function EventParticipantManager({
                   {groupLabel}
                 </span>
               )}
-              {sourceLabel && (
+              {sourceLabel && p.registration_source !== 'bulk_import' && (
                 <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-violet-100 text-violet-800">
                   {sourceLabel}
                 </span>

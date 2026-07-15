@@ -1460,7 +1460,8 @@ export default function EventDetailPage() {
                 <div className="rounded-xl border border-gray-200 bg-white/70 p-4 min-h-[240px]">
                   {selectedParticipant ? (
                     <>
-                      {registrationSourceLabel(selectedParticipant.registration_source) && (
+                      {registrationSourceLabel(selectedParticipant.registration_source) &&
+                        selectedParticipant.registration_source !== 'bulk_import' && (
                         <p className="text-xs font-medium text-violet-800 mb-2">
                           {registrationSourceLabel(selectedParticipant.registration_source)}
                           {selectedParticipant.registration_source === 'on_site' ? ' — marked present on submit.' : '.'}
