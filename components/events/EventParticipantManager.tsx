@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { Plus, Upload, Trash2, Users, ChevronDown, ChevronUp, FolderPlus, Download, RotateCcw } from 'lucide-react';
+import { Plus, Upload, Trash2, Users, ChevronDown, ChevronUp, FolderPlus, Download, RotateCcw, CheckCircle2, XCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import {
   type EventParticipantGroup,
@@ -263,14 +263,40 @@ export default function EventParticipantManager({
   function rowSurfaceClass(p: any, isSelected: boolean): string {
     if (mode === 'attendance') {
       if (p.attendance_status === 'present') {
-        return 'border-emerald-200 bg-emerald-50/90 hover:bg-emerald-50';
+        return 'border-l-[5px] border-l-emerald-600 border-y border-r border-emerald-300 bg-emerald-100 shadow-sm shadow-emerald-200/60 hover:bg-emerald-100';
       }
       if (p.attendance_status === 'absent') {
-        return 'border-rose-200 bg-rose-50/90 hover:bg-rose-50';
+        return 'border-l-[5px] border-l-rose-600 border-y border-r border-rose-300 bg-rose-100 shadow-sm shadow-rose-200/60 hover:bg-rose-100';
       }
-      return 'border-gray-200 bg-white/70 hover:bg-gray-50';
+      return 'border-l-[5px] border-l-slate-300 border-y border-r border-gray-200 bg-white/80 hover:bg-gray-50';
     }
     return isSelected ? 'border-indigo-300 bg-indigo-50/80' : 'border-gray-200 bg-white/70 hover:bg-gray-50';
+  }
+
+  function attendanceStatusUi(status: string | null | undefined) {
+    const s = status || 'registered';
+    if (s === 'present') {
+      return {
+        label: 'Present',
+        rowNameClass: 'text-emerald-950',
+        badgeClass: 'bg-emerald-600 text-white ring-2 ring-emerald-300',
+        Icon: CheckCircle2,
+      };
+    }
+    if (s === 'absent') {
+      return {
+        label: 'Absent',
+        rowNameClass: 'text-rose-950',
+        badgeClass: 'bg-rose-600 text-white ring-2 ring-rose-300',
+        Icon: XCircle,
+      };
+    }
+    return {
+      label: 'Not marked',
+      rowNameClass: 'text-gray-900',
+      badgeClass: 'bg-amber-100 text-amber-900 border border-amber-300',
+      Icon: null,
+    };
   }
 
   function renderParticipantRow(p: any) {
@@ -278,11 +304,13 @@ export default function EventParticipantManager({
     const isSelected = selectedParticipantId === p.id;
     const groupLabel = participantGroupLabel(p.participant_group);
     const isMarking = markingId === p.id;
+    const statusUi = attendanceStatusUi(p.attendance_status);
+    const StatusIcon = statusUi.Icon;
 
     return (
       <div
         key={p.id}
-        className={`rounded-xl border px-4 py-3 transition-colors duration-200 ${rowSurfaceClass(p, isSelected)}`}
+        className={`rounded-xl px-4 py-3 transition-colors duration-200 ${rowSurfaceClass(p, isSelected)}`}
       >
         <div className="flex items-start justify-between gap-3">
           <button
@@ -290,7 +318,17 @@ export default function EventParticipantManager({
             onClick={() => onSelectParticipant?.(p)}
             className="flex-1 text-left min-w-0"
           >
-            <p className="font-semibold text-gray-900 truncate">{p.participant_name || 'Participant'}</p>
+            <div className="flex items-center gap-2 flex-wrap">
+              <p className={`font-semibold truncate ${mode === 'attendance' ? statusUi.rowNameClass : 'text-gray-900'}`}>
+                {p.participant_name || 'Participant'}
+              </p>
+              {mode === 'attendance' && (
+                <span className={`inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-wide px-2.5 py-0.5 rounded-full ${statusUi.badgeClass}`}>
+                  {StatusIcon && <StatusIcon className="w-3.5 h-3.5" />}
+                  {statusUi.label}
+                </span>
+              )}
+            </div>
             <p className="text-xs text-gray-500 truncate">{p.participant_email || 'No email'}</p>
             <div className="flex flex-wrap gap-1 mt-1.5">
               {groupLabel !== 'Unassigned' && (
@@ -303,9 +341,11 @@ export default function EventParticipantManager({
                   {sourceLabel}
                 </span>
               )}
-              <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${p.attendance_status === 'present' ? 'bg-emerald-100 text-emerald-800' : p.attendance_status === 'absent' ? 'bg-rose-100 text-rose-800' : 'bg-amber-50 text-amber-800'}`}>
-                {(p.attendance_status || 'registered').replace('_', ' ')}
-              </span>
+              {mode !== 'attendance' && (
+                <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${p.attendance_status === 'present' ? 'bg-emerald-100 text-emerald-800' : p.attendance_status === 'absent' ? 'bg-rose-100 text-rose-800' : 'bg-amber-50 text-amber-800'}`}>
+                  {(p.attendance_status || 'registered').replace('_', ' ')}
+                </span>
+              )}
             </div>
           </button>
           <div className="flex items-center gap-2 shrink-0">
@@ -315,7 +355,11 @@ export default function EventParticipantManager({
                   type="button"
                   onClick={() => onMarkAttendance(p.id, 'present')}
                   disabled={isMarking}
-                  className={`text-xs px-3 py-1.5 rounded-lg font-semibold transition-colors disabled:opacity-60 ${p.attendance_status === 'present' ? 'bg-emerald-700 text-white' : 'bg-emerald-600 text-white hover:bg-emerald-700'}`}
+                  className={`text-xs px-3 py-1.5 rounded-lg font-bold transition-all disabled:opacity-60 ${
+                    p.attendance_status === 'present'
+                      ? 'bg-emerald-700 text-white ring-2 ring-emerald-400 shadow-md scale-105'
+                      : 'bg-white text-emerald-700 border-2 border-emerald-400 hover:bg-emerald-50'
+                  }`}
                 >
                   {isMarking ? '...' : 'Present'}
                 </button>
@@ -323,7 +367,11 @@ export default function EventParticipantManager({
                   type="button"
                   onClick={() => onMarkAttendance(p.id, 'absent')}
                   disabled={isMarking}
-                  className={`text-xs px-3 py-1.5 rounded-lg font-semibold transition-colors disabled:opacity-60 ${p.attendance_status === 'absent' ? 'bg-rose-700 text-white' : 'bg-rose-600 text-white hover:bg-rose-700'}`}
+                  className={`text-xs px-3 py-1.5 rounded-lg font-bold transition-all disabled:opacity-60 ${
+                    p.attendance_status === 'absent'
+                      ? 'bg-rose-700 text-white ring-2 ring-rose-400 shadow-md scale-105'
+                      : 'bg-white text-rose-700 border-2 border-rose-400 hover:bg-rose-50'
+                  }`}
                 >
                   {isMarking ? '...' : 'Absent'}
                 </button>
