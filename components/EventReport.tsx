@@ -10,6 +10,7 @@ import {
   FORMAL_ORG_LINE,
   FORMAL_CHAPTER_LINE,
 } from '@/lib/formal-doc-export';
+import { participantGroupLabel } from '@/lib/event-participant-groups';
 
 interface EventReportProps {
     event: any;
@@ -114,9 +115,9 @@ export default function EventReport({ event, tasks, eventPhotos = [], canEdit }:
     const loadParticipantsForReport = useCallback(async () => {
         const { data } = await supabase
             .from('event_participants')
-            .select('participant_name, participant_email, attendance_status, submitted_at')
+            .select('participant_name, participant_email, participant_group, attendance_status, created_at')
             .eq('event_id', event.id)
-            .order('submitted_at', { ascending: true });
+            .order('created_at', { ascending: true });
         setParticipantsForReport(data || []);
     }, [event.id, supabase]);
 
@@ -130,7 +131,7 @@ export default function EventReport({ event, tasks, eventPhotos = [], canEdit }:
         if (!includeParticipants) return [] as any[];
         const { data, error } = await supabase
             .from('event_participants')
-            .select('participant_name, participant_email, attendance_status, submitted_at, created_at')
+            .select('participant_name, participant_email, participant_group, attendance_status, created_at')
             .eq('event_id', event.id)
             .order('created_at', { ascending: true });
         if (error) return participantsForReport || [];
@@ -146,8 +147,9 @@ export default function EventReport({ event, tasks, eventPhotos = [], canEdit }:
                     serial: idx + 1,
                     name: p.participant_name || 'Participant',
                     email: p.participant_email || '-',
+                    group: participantGroupLabel(p.participant_group),
                     attendance: (p.attendance_status || 'registered').toUpperCase(),
-                    submitted_at: (p.submitted_at || p.created_at) ? new Date(p.submitted_at || p.created_at).toLocaleString('en-IN') : '-',
+                    submitted_at: p.created_at ? new Date(p.created_at).toLocaleString('en-IN') : '-',
                 })),
             );
         }
@@ -191,8 +193,9 @@ export default function EventReport({ event, tasks, eventPhotos = [], canEdit }:
                     serial: idx + 1,
                     name: p.participant_name || 'Participant',
                     email: p.participant_email || '-',
+                    group: participantGroupLabel(p.participant_group),
                     attendance: (p.attendance_status || 'registered').toUpperCase(),
-                    submitted_at: (p.submitted_at || p.created_at) ? new Date(p.submitted_at || p.created_at).toLocaleString('en-IN') : '-',
+                    submitted_at: p.created_at ? new Date(p.created_at).toLocaleString('en-IN') : '-',
                 }))
                 : [],
             poster_url: posterUrl,
@@ -314,7 +317,7 @@ ${'─'.repeat(56)}
 ${data.description || '—'}
 
 ${hasImages ? `3. VISUAL RECORDS\n${'─'.repeat(56)}\nOfficial poster and event photographs are embedded in the PDF / Word export and displayed in the portal.\n` : ''}
-${data.include_participants ? `\n4. PARTICIPANT REGISTER\n${'─'.repeat(56)}\n${(data.participants || []).map((p: any) => `  ${p.serial}. ${p.name}  |  ${p.email}  |  ${p.attendance}`).join('\n') || '  (No records.)'}\n` : ''}
+${data.include_participants ? `\n4. PARTICIPANT REGISTER\n${'─'.repeat(56)}\n${(data.participants || []).map((p: any) => `  ${p.serial}. ${p.name}  |  ${p.email}  |  ${p.group}  |  ${p.attendance}`).join('\n') || '  (No records.)'}\n` : ''}
 ${report.additional_notes ? `\n5. ADDITIONAL REMARKS\n${'─'.repeat(56)}\n${report.additional_notes}\n` : ''}
 
 ${'═'.repeat(56)}
@@ -363,10 +366,10 @@ This document is generated from the IIChE AVVU Student Chapter portal.`;
                 const rows = (data.participants as any[])
                     .map(
                         (p) =>
-                            `<tr><td>${escapeHtml(String(p.serial))}</td><td>${escapeHtml(p.name)}</td><td>${escapeHtml(p.email)}</td><td>${escapeHtml(p.attendance)}</td><td>${escapeHtml(p.submitted_at || '—')}</td></tr>`,
+                            `<tr><td>${escapeHtml(String(p.serial))}</td><td>${escapeHtml(p.name)}</td><td>${escapeHtml(p.email)}</td><td>${escapeHtml(p.group)}</td><td>${escapeHtml(p.attendance)}</td><td>${escapeHtml(p.submitted_at || '—')}</td></tr>`,
                     )
                     .join('');
-                participantTable = `<p class="section">Participant register</p><table class="grid"><thead><tr><th>#</th><th>Name</th><th>Email</th><th>Attendance</th><th>Submitted</th></tr></thead><tbody>${rows}</tbody></table>`;
+                participantTable = `<p class="section">Participant register</p><table class="grid"><thead><tr><th>#</th><th>Name</th><th>Email</th><th>Group</th><th>Attendance</th><th>Submitted</th></tr></thead><tbody>${rows}</tbody></table>`;
             } else if (data.include_participants) {
                 participantTable = `<p class="section">Participant register</p><p class="body-text">No participant records on file.</p>`;
             }
@@ -542,9 +545,8 @@ ${report.additional_notes ? `<p class="section">Additional remarks</p><p class="
                     doc.setTextColor(71, 85, 105);
                     doc.text('#', col[0], y);
                     doc.text('Name', col[1], y);
-                    doc.text('Email', col[2], y);
-                    doc.text('Attendance', col[3], y);
-                    doc.text('Submitted', col[4], y);
+                    doc.text('Group', col[2], y);
+                    doc.text('Attend.', col[3], y);
                     y += 14;
                     doc.setDrawColor(226, 232, 240);
                     doc.line(margin, y - 4, W - margin, y - 4);
@@ -554,10 +556,9 @@ ${report.additional_notes ? `<p class="section">Additional remarks</p><p class="
                         need(rowH);
                         doc.setTextColor(55, 65, 81);
                         doc.text(String(p.serial), col[0], y);
-                        doc.text(doc.splitTextToSize(String(p.name), 110)[0] || '', col[1], y);
-                        doc.text(doc.splitTextToSize(String(p.email), 155)[0] || '', col[2], y);
+                        doc.text(doc.splitTextToSize(String(p.name), 95)[0] || '', col[1], y);
+                        doc.text(doc.splitTextToSize(String(p.group || '—'), 70)[0] || '', col[2], y);
                         doc.text(String(p.attendance), col[3], y);
-                        doc.text(doc.splitTextToSize(String(p.submitted_at || '—'), 95)[0] || '', col[4], y);
                         y += rowH;
                     }
                 }
@@ -829,6 +830,7 @@ ${report.additional_notes ? `<p class="section">Additional remarks</p><p class="
                                             <th className="px-3 py-2 text-left font-semibold text-gray-600">#</th>
                                             <th className="px-3 py-2 text-left font-semibold text-gray-600">Name</th>
                                             <th className="px-3 py-2 text-left font-semibold text-gray-600">Email</th>
+                                            <th className="px-3 py-2 text-left font-semibold text-gray-600">Group</th>
                                             <th className="px-3 py-2 text-left font-semibold text-gray-600">Attendance</th>
                                             <th className="px-3 py-2 text-left font-semibold text-gray-600">Submitted At</th>
                                         </tr>
@@ -836,7 +838,7 @@ ${report.additional_notes ? `<p class="section">Additional remarks</p><p class="
                                     <tbody>
                                         {participantsForDisplay.length === 0 ? (
                                             <tr>
-                                                <td colSpan={5} className="px-3 py-3 text-center text-gray-500">No participants found.</td>
+                                                <td colSpan={6} className="px-3 py-3 text-center text-gray-500">No participants found.</td>
                                             </tr>
                                         ) : (
                                             participantsForDisplay.map((p: any) => (
@@ -844,6 +846,7 @@ ${report.additional_notes ? `<p class="section">Additional remarks</p><p class="
                                                     <td className="px-3 py-2 text-gray-700">{p.serial}</td>
                                                     <td className="px-3 py-2 text-gray-800 font-medium">{p.name}</td>
                                                     <td className="px-3 py-2 text-gray-700">{p.email}</td>
+                                                    <td className="px-3 py-2 text-gray-700">{p.group || 'Unassigned'}</td>
                                                     <td className="px-3 py-2 text-gray-700">{p.attendance}</td>
                                                     <td className="px-3 py-2 text-gray-600">{p.submitted_at || '-'}</td>
                                                 </tr>

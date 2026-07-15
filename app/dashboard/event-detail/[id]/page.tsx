@@ -12,6 +12,8 @@ import StatusIndicator from '@/components/StatusIndicator';
 import EventReport from '@/components/EventReport';
 import QRCode from 'qrcode';
 import EventQrScanner from '@/components/events/EventQrScanner';
+import EventParticipantManager from '@/components/events/EventParticipantManager';
+import { registrationSourceLabel } from '@/lib/event-participant-groups';
 
 function taskSupportingDocHref(fileUrl: string) {
   const base = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -718,6 +720,12 @@ export default function EventDetailPage() {
   }
 
   const isAdminUser = userProfile?.is_admin === true;
+  const canManageParticipants = !!(
+    isEC ||
+    isFaculty ||
+    isAdminUser ||
+    (userProfile?.id && event?.created_by && userProfile.id === event.created_by)
+  );
   const posterPublished =
     !!event.poster_url &&
     (event.poster_status === 'approved' ||
@@ -1376,43 +1384,42 @@ export default function EventDetailPage() {
             </h3>
             {participantsLoading ? (
               <p className="text-gray-500">Loading participants...</p>
-            ) : participants.length === 0 ? (
-              <p className="text-gray-500">No participants registered yet.</p>
             ) : (
               <div className="grid md:grid-cols-2 gap-4">
-                <div className="space-y-2 max-h-[540px] overflow-y-auto pr-2">
-                  {participants.map((p: any) => (
-                    <button
-                      key={p.id}
-                      onClick={() => setSelectedParticipant(p)}
-                      className={`w-full text-left rounded-xl border px-4 py-3 transition ${selectedParticipant?.id === p.id ? 'border-indigo-300 bg-indigo-50/80' : 'border-gray-200 bg-white/70 hover:bg-gray-50'}`}
-                    >
-                      <p className="font-semibold text-gray-900">{p.participant_name || 'Participant'}</p>
-                      <p className="text-xs text-gray-500">{p.participant_email || 'No email'}</p>
-                      <div className="flex flex-wrap gap-1 mt-1.5">
-                        {p.registration_source === 'on_site' && (
-                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-violet-100 text-violet-800">On-site registration</span>
-                        )}
-                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${p.attendance_status === 'present' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-50 text-amber-800'}`}>
-                          {(p.attendance_status || 'registered').replace('_', ' ')}
-                        </span>
-                      </div>
-                    </button>
-                  ))}
+                <div className="max-h-[640px] overflow-y-auto pr-2">
+                  <EventParticipantManager
+                    eventId={event.id}
+                    participants={participants}
+                    canManage={canManageParticipants}
+                    onRefresh={loadParticipants}
+                    selectedParticipantId={selectedParticipant?.id}
+                    onSelectParticipant={setSelectedParticipant}
+                  />
                 </div>
-                <div className="rounded-xl border border-gray-200 bg-white/70 p-4">
+                <div className="rounded-xl border border-gray-200 bg-white/70 p-4 min-h-[240px]">
                   {selectedParticipant ? (
                     <>
-                      {selectedParticipant.registration_source === 'on_site' && (
-                        <p className="text-xs font-medium text-violet-800 mb-2">Registered on-site at the event (marked present on submit).</p>
+                      {registrationSourceLabel(selectedParticipant.registration_source) && (
+                        <p className="text-xs font-medium text-violet-800 mb-2">
+                          {registrationSourceLabel(selectedParticipant.registration_source)}
+                          {selectedParticipant.registration_source === 'on_site' ? ' — marked present on submit.' : '.'}
+                        </p>
                       )}
-                      <h4 className="font-semibold text-gray-900 mb-2">Submitted Form Details</h4>
-                      <pre className="text-xs text-gray-700 whitespace-pre-wrap break-words">
-                        {JSON.stringify(sanitizeParticipantFormData(selectedParticipant.form_data || {}), null, 2)}
-                      </pre>
+                      <h4 className="font-semibold text-gray-900 mb-1">{selectedParticipant.participant_name}</h4>
+                      <p className="text-sm text-gray-500 mb-3">{selectedParticipant.participant_email || 'No email'}</p>
+                      {Object.keys(sanitizeParticipantFormData(selectedParticipant.form_data || {}) || {}).length > 0 ? (
+                        <>
+                          <h4 className="font-semibold text-gray-900 mb-2">Form / extra details</h4>
+                          <pre className="text-xs text-gray-700 whitespace-pre-wrap break-words">
+                            {JSON.stringify(sanitizeParticipantFormData(selectedParticipant.form_data || {}), null, 2)}
+                          </pre>
+                        </>
+                      ) : (
+                        <p className="text-sm text-gray-500">No additional form responses for this participant.</p>
+                      )}
                     </>
                   ) : (
-                    <p className="text-sm text-gray-500">Select a participant to view complete response details.</p>
+                    <p className="text-sm text-gray-500">Select a participant to view details.</p>
                   )}
                 </div>
               </div>
@@ -1461,29 +1468,17 @@ export default function EventDetailPage() {
                 </button>
               </div>
             </div>
-            {participants.length === 0 ? (
-              <p className="text-gray-500">No participants available for attendance.</p>
+            {participantsLoading ? (
+              <p className="text-gray-500">Loading participants...</p>
             ) : (
-              <div className="space-y-2">
-                {participants.map((p: any) => (
-                  <div key={p.id} className="rounded-xl border border-gray-200 bg-white/70 p-3 flex items-center justify-between gap-3">
-                    <div>
-                      <p className="font-semibold text-gray-900">{p.participant_name || 'Participant'}</p>
-                      <p className="text-xs text-gray-500">{p.participant_email || 'No email'}</p>
-                      {p.registration_source === 'on_site' && (
-                        <span className="inline-block mt-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-violet-100 text-violet-800">On-site registration</span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${p.attendance_status === 'present' ? 'bg-emerald-100 text-emerald-700' : p.attendance_status === 'absent' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700'}`}>
-                        {(p.attendance_status || 'registered').toUpperCase()}
-                      </span>
-                      <button onClick={() => markAttendance(p.id, 'present')} className="text-xs px-3 py-1.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700">Present</button>
-                      <button onClick={() => markAttendance(p.id, 'absent')} className="text-xs px-3 py-1.5 rounded-lg bg-gray-600 text-white hover:bg-gray-700">Absent</button>
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <EventParticipantManager
+                eventId={event.id}
+                participants={participants}
+                canManage={canManageParticipants}
+                onRefresh={loadParticipants}
+                showAttendanceActions
+                onMarkAttendance={markAttendance}
+              />
             )}
             <EventQrScanner
               open={scannerOpen}
