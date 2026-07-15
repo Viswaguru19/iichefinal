@@ -11,6 +11,7 @@ import {
   hasNameAndEmailFields,
 } from '@/lib/form-responder-fields';
 import { canManageForm } from '@/lib/form-access';
+import { EVENT_REGISTRATION_ELIGIBLE_STATUSES } from '@/lib/event-registration';
 
 interface FormField {
     id: string;
@@ -49,6 +50,16 @@ function generateId() {
     return 'f_' + Math.random().toString(36).substring(2, 9);
 }
 
+function formatEventListDate(ev: { event_date?: string | null; date?: string | null }) {
+    const raw = ev.event_date || ev.date;
+    if (!raw) return 'Date TBA';
+    try {
+        return new Date(raw).toLocaleDateString('en-IN');
+    } catch {
+        return 'Date TBA';
+    }
+}
+
 export default function EditFormPage() {
     const [title, setTitle] = useState('');
     const [description, setDescription] = useState('');
@@ -65,9 +76,16 @@ export default function EditFormPage() {
     const [endDate, setEndDate] = useState('');
     const [accessType, setAccessType] = useState<'public' | 'internal'>('internal');
     const [formType, setFormType] = useState<'normal' | 'event_registration'>('normal');
+    const [initialFormType, setInitialFormType] = useState<'normal' | 'event_registration'>('normal');
+    const [selectedEventId, setSelectedEventId] = useState('');
+    const [activeEvents, setActiveEvents] = useState<any[]>([]);
+    const [eventsLoading, setEventsLoading] = useState(false);
+    const [responseCount, setResponseCount] = useState(0);
+    const [convertExistingResponses, setConvertExistingResponses] = useState(true);
     const [showAttendanceQrAfterSubmit, setShowAttendanceQrAfterSubmit] = useState(true);
     const [baseSettings, setBaseSettings] = useState<Record<string, unknown>>({});
     const [canEdit, setCanEdit] = useState(false);
+    const prevFormTypeRef = useRef<string | null>(null);
 
     const params = useParams();
     const formId = String(params.id);
@@ -76,6 +94,21 @@ export default function EditFormPage() {
     const bannerInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => { loadForm(); }, []);
+
+    useEffect(() => {
+        if (formType !== 'event_registration') return;
+        void loadActiveEvents();
+    }, [formType]);
+
+    useEffect(() => {
+        const prev = prevFormTypeRef.current;
+        if (formType === 'event_registration' && prev !== 'event_registration') {
+            setRequireLogin(false);
+            setAccessType('public');
+            setShowAttendanceQrAfterSubmit(true);
+        }
+        prevFormTypeRef.current = formType;
+    }, [formType]);
 
     async function loadForm() {
         const { data: { user } } = await supabase.auth.getUser();
@@ -114,10 +147,71 @@ export default function EditFormPage() {
         setStartDate(s.start_date || '');
         setEndDate(s.end_date || '');
         setAccessType((s.access_type || s.accessType || 'public') as 'public' | 'internal');
-        setFormType((form.form_type as 'normal' | 'event_registration') || 'normal');
+        const loadedType = (form.form_type as 'normal' | 'event_registration') || 'normal';
+        setFormType(loadedType);
+        setInitialFormType(loadedType);
+        setSelectedEventId(form.event_id || '');
         const qrOn = s.show_attendance_qr_after_submit !== false && s.showAttendanceQrAfterSubmit !== false;
-        setShowAttendanceQrAfterSubmit(form.form_type === 'event_registration' ? qrOn : true);
+        setShowAttendanceQrAfterSubmit(loadedType === 'event_registration' ? qrOn : true);
+
+        const { count } = await supabase
+            .from('form_responses')
+            .select('id', { count: 'exact', head: true })
+            .eq('form_id', formId);
+        setResponseCount(count || 0);
+        if (loadedType === 'event_registration') {
+            await loadActiveEvents(form.event_id || '');
+        }
         setLoading(false);
+    }
+
+    async function loadActiveEvents(linkedEventId = selectedEventId) {
+        setEventsLoading(true);
+        const wide = await supabase
+            .from('events')
+            .select('id, title, location, event_date, date, status, created_at')
+            .in('status', [...EVENT_REGISTRATION_ELIGIBLE_STATUSES])
+            .order('created_at', { ascending: false });
+
+        let rows: any[] | null = wide.data;
+        let error = wide.error;
+
+        if (
+            error &&
+            (error.message?.toLowerCase().includes('column') ||
+                error.message?.includes('date') ||
+                (error as { code?: string }).code === '42703')
+        ) {
+            const narrow = await supabase
+                .from('events')
+                .select('id, title, location, event_date, status, created_at')
+                .in('status', [...EVENT_REGISTRATION_ELIGIBLE_STATUSES])
+                .order('created_at', { ascending: false });
+            rows = narrow.data;
+            error = narrow.error;
+        }
+
+        if (error) {
+            console.error('loadActiveEvents', error);
+            toast.error(error.message || 'Failed to load events');
+            setActiveEvents([]);
+            setEventsLoading(false);
+            return;
+        }
+
+        const list = rows || [];
+        if (linkedEventId && !list.some((ev) => ev.id === linkedEventId)) {
+            const { data: linked } = await supabase
+                .from('events')
+                .select('id, title, location, event_date, date, status, created_at')
+                .eq('id', linkedEventId)
+                .maybeSingle();
+            if (linked) {
+                list.unshift(linked);
+            }
+        }
+        setActiveEvents(list);
+        setEventsLoading(false);
     }
 
     function addField(type: string) {
@@ -201,6 +295,26 @@ export default function EditFormPage() {
             toast.error('Add Name (short answer) and Email questions to the form.');
             return;
         }
+        if (formType === 'event_registration' && !selectedEventId) {
+            toast.error('Select an event for event registration form');
+            return;
+        }
+
+        const isConvertingToEvent =
+            initialFormType === 'normal' && formType === 'event_registration';
+        const willBackfill = isConvertingToEvent && convertExistingResponses && responseCount > 0;
+
+        if (willBackfill) {
+            const ok = confirm(
+                `Convert this form to event registration and add ${responseCount} existing response(s) as event participants?`,
+            );
+            if (!ok) return;
+        } else if (isConvertingToEvent && responseCount > 0 && !convertExistingResponses) {
+            const ok = confirm(
+                'Save as event registration without converting existing responses to participants?',
+            );
+            if (!ok) return;
+        }
 
         setSaving(true);
         const trimmedDescription = description.trim();
@@ -224,6 +338,8 @@ export default function EditFormPage() {
                 fields,
                 is_active: status === 'active',
                 settings: nextSettings,
+                form_type: formType,
+                event_id: formType === 'event_registration' ? selectedEventId : null,
             })
             .eq('id', formId)
             .select('id, description')
@@ -235,7 +351,26 @@ export default function EditFormPage() {
             toast.error('Failed to save — you may not have permission to edit this form.');
         } else {
             setBaseSettings(nextSettings);
-            toast.success('Form saved');
+            setInitialFormType(formType);
+
+            if (willBackfill) {
+                const { data: backfill, error: backfillError } = await supabase.rpc(
+                    'backfill_event_participants_from_form',
+                    { p_form_id: formId },
+                );
+                if (backfillError) {
+                    toast.error('Form saved, but participant conversion failed: ' + backfillError.message);
+                } else {
+                    const result = backfill as { inserted?: number; skipped?: number };
+                    const inserted = result.inserted ?? 0;
+                    const skipped = result.skipped ?? 0;
+                    toast.success(
+                        `Form saved — ${inserted} participant(s) created${skipped ? `, ${skipped} skipped` : ''}`,
+                    );
+                }
+            } else {
+                toast.success('Form saved');
+            }
             router.push('/dashboard/forms');
         }
         setSaving(false);
@@ -373,6 +508,58 @@ export default function EditFormPage() {
                                 <input ref={bannerInputRef} type="file" accept="image/*" className="hidden" onChange={e => e.target.files?.[0] && handleBannerUpload(e.target.files[0])} />
                                 <input type="text" value={title} onChange={e => setTitle(e.target.value)} placeholder="Form Title *" className="w-full text-2xl font-bold bg-transparent border-b-2 border-gray-200 focus:border-indigo-500 outline-none py-2 placeholder-gray-300" />
                                 <input type="text" value={description} onChange={e => setDescription(e.target.value)} placeholder="Form description (optional)" className="w-full text-gray-500 bg-transparent border-b border-gray-100 focus:border-indigo-400 outline-none py-1 placeholder-gray-300" />
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">Form Type</label>
+                                        <select
+                                            value={formType}
+                                            onChange={e => setFormType(e.target.value as 'normal' | 'event_registration')}
+                                            disabled={initialFormType === 'event_registration'}
+                                            className="w-full border border-gray-200 rounded-xl px-3 py-2 bg-white/80 disabled:bg-gray-50 disabled:text-gray-500"
+                                        >
+                                            <option value="normal">Normal Form</option>
+                                            <option value="event_registration">Event Registration Form</option>
+                                        </select>
+                                        {initialFormType === 'event_registration' && (
+                                            <p className="text-xs text-gray-500 mt-1">Event registration type cannot be changed back to normal.</p>
+                                        )}
+                                    </div>
+                                    {formType === 'event_registration' && (
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-700 mb-1">Event</label>
+                                            {eventsLoading ? (
+                                                <div className="w-full border border-gray-200 rounded-xl px-3 py-2 bg-white/80 text-gray-500 text-sm">Loading events...</div>
+                                            ) : activeEvents.length === 0 ? (
+                                                <div className="w-full border border-amber-200 rounded-xl px-3 py-2 bg-amber-50 text-amber-700 text-sm">No eligible events found. Approve the event in Proposals first.</div>
+                                            ) : (
+                                                <select value={selectedEventId} onChange={e => setSelectedEventId(e.target.value)} className="w-full border border-gray-200 rounded-xl px-3 py-2 bg-white/80">
+                                                    <option value="">Select an event</option>
+                                                    {activeEvents.map((ev) => (
+                                                        <option key={ev.id} value={ev.id}>
+                                                            {ev.title} · {formatEventListDate(ev)} · {ev.location || 'Venue TBA'}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                                {initialFormType === 'normal' && formType === 'event_registration' && responseCount > 0 && (
+                                    <div className="rounded-xl border border-amber-200 bg-amber-50/80 px-4 py-3 space-y-2">
+                                        <p className="text-sm font-medium text-amber-900">
+                                            {responseCount} existing response{responseCount !== 1 ? 's' : ''} can be added as event participants.
+                                        </p>
+                                        <label className="flex items-center gap-2 text-sm text-amber-900">
+                                            <input
+                                                type="checkbox"
+                                                checked={convertExistingResponses}
+                                                onChange={e => setConvertExistingResponses(e.target.checked)}
+                                                className="rounded text-amber-600"
+                                            />
+                                            Convert existing responses to event participants on save
+                                        </label>
+                                    </div>
+                                )}
                             </div>
                         </motion.div>
 

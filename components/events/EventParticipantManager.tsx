@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { Plus, Upload, Trash2, Users, ChevronDown, ChevronUp, FolderPlus } from 'lucide-react';
+import { Plus, Upload, Trash2, Users, ChevronDown, ChevronUp, FolderPlus, Download, RotateCcw } from 'lucide-react';
 import toast from 'react-hot-toast';
 import {
   type EventParticipantGroup,
@@ -21,7 +21,12 @@ interface EventParticipantManagerProps {
   selectedParticipantId?: string | null;
   onSelectParticipant?: (participant: any) => void;
   showAttendanceActions?: boolean;
-  onMarkAttendance?: (participantId: string, status: 'present' | 'absent') => void;
+  onMarkAttendance?: (participantId: string, status: 'present' | 'absent') => void | Promise<void>;
+  /** manage = add groups/participants; attendance = mark present/absent only */
+  mode?: 'manage' | 'attendance';
+  markingId?: string | null;
+  onResetAttendance?: () => void | Promise<void>;
+  resettingAttendance?: boolean;
 }
 
 export default function EventParticipantManager({
@@ -33,6 +38,10 @@ export default function EventParticipantManager({
   onSelectParticipant,
   showAttendanceActions = false,
   onMarkAttendance,
+  mode = 'manage',
+  markingId = null,
+  onResetAttendance,
+  resettingAttendance = false,
 }: EventParticipantManagerProps) {
   const supabase = createClient();
   const [groups, setGroups] = useState<EventParticipantGroup[]>([]);
@@ -42,6 +51,7 @@ export default function EventParticipantManager({
   const [showAddPanel, setShowAddPanel] = useState(false);
   const [showBulkPanel, setShowBulkPanel] = useState(false);
   const [groupFilter, setGroupFilter] = useState<string>('all');
+  const [attendanceFilter, setAttendanceFilter] = useState<string>('all');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [selectedGroupId, setSelectedGroupId] = useState<string>(NO_GROUP_VALUE);
@@ -91,9 +101,46 @@ export default function EventParticipantManager({
   }, [groupNames, participants]);
 
   const filteredParticipants = useMemo(() => {
-    if (groupFilter === 'all') return participants;
-    return participants.filter((p) => participantGroupLabel(p.participant_group) === groupFilter);
-  }, [participants, groupFilter]);
+    let list = participants;
+    if (groupFilter !== 'all') {
+      list = list.filter((p) => participantGroupLabel(p.participant_group) === groupFilter);
+    }
+    if (mode === 'attendance' && attendanceFilter !== 'all') {
+      list = list.filter((p) => (p.attendance_status || 'registered') === attendanceFilter);
+    }
+    return list;
+  }, [participants, groupFilter, attendanceFilter, mode]);
+
+  const attendanceCounts = useMemo(() => ({
+    present: participants.filter((p) => p.attendance_status === 'present').length,
+    absent: participants.filter((p) => p.attendance_status === 'absent').length,
+    registered: participants.filter((p) => !p.attendance_status || p.attendance_status === 'registered').length,
+  }), [participants]);
+
+  function downloadAttendanceReport() {
+    const rows = participants.map((p, i) => ({
+      serial: i + 1,
+      name: p.participant_name || 'Participant',
+      email: p.participant_email || '',
+      group: participantGroupLabel(p.participant_group),
+      status: (p.attendance_status || 'registered').replace('_', ' '),
+      attended_at: p.attended_at ? new Date(p.attended_at).toLocaleString('en-IN') : '',
+    }));
+    const header = 'Serial,Name,Email,Group,Attendance,Marked At';
+    const body = rows.map((r) =>
+      [r.serial, r.name, r.email, r.group, r.status, r.attended_at]
+        .map((v) => `"${String(v).replace(/"/g, '""')}"`)
+        .join(','),
+    ).join('\n');
+    const blob = new Blob([`${header}\n${body}`], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `attendance_report_${eventId.slice(0, 8)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success('Attendance report downloaded');
+  }
 
   const grouped = useMemo(
     () => groupParticipants(filteredParticipants, groupNames),
@@ -213,15 +260,29 @@ export default function EventParticipantManager({
     await onRefresh();
   }
 
+  function rowSurfaceClass(p: any, isSelected: boolean): string {
+    if (mode === 'attendance') {
+      if (p.attendance_status === 'present') {
+        return 'border-emerald-200 bg-emerald-50/90 hover:bg-emerald-50';
+      }
+      if (p.attendance_status === 'absent') {
+        return 'border-rose-200 bg-rose-50/90 hover:bg-rose-50';
+      }
+      return 'border-gray-200 bg-white/70 hover:bg-gray-50';
+    }
+    return isSelected ? 'border-indigo-300 bg-indigo-50/80' : 'border-gray-200 bg-white/70 hover:bg-gray-50';
+  }
+
   function renderParticipantRow(p: any) {
     const sourceLabel = registrationSourceLabel(p.registration_source);
     const isSelected = selectedParticipantId === p.id;
     const groupLabel = participantGroupLabel(p.participant_group);
+    const isMarking = markingId === p.id;
 
     return (
       <div
         key={p.id}
-        className={`rounded-xl border px-4 py-3 transition ${isSelected ? 'border-indigo-300 bg-indigo-50/80' : 'border-gray-200 bg-white/70 hover:bg-gray-50'}`}
+        className={`rounded-xl border px-4 py-3 transition-colors duration-200 ${rowSurfaceClass(p, isSelected)}`}
       >
         <div className="flex items-start justify-between gap-3">
           <button
@@ -250,11 +311,25 @@ export default function EventParticipantManager({
           <div className="flex items-center gap-2 shrink-0">
             {showAttendanceActions && onMarkAttendance && (
               <>
-                <button type="button" onClick={() => onMarkAttendance(p.id, 'present')} className="text-xs px-3 py-1.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700">Present</button>
-                <button type="button" onClick={() => onMarkAttendance(p.id, 'absent')} className="text-xs px-3 py-1.5 rounded-lg bg-gray-600 text-white hover:bg-gray-700">Absent</button>
+                <button
+                  type="button"
+                  onClick={() => onMarkAttendance(p.id, 'present')}
+                  disabled={isMarking}
+                  className={`text-xs px-3 py-1.5 rounded-lg font-semibold transition-colors disabled:opacity-60 ${p.attendance_status === 'present' ? 'bg-emerald-700 text-white' : 'bg-emerald-600 text-white hover:bg-emerald-700'}`}
+                >
+                  {isMarking ? '...' : 'Present'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onMarkAttendance(p.id, 'absent')}
+                  disabled={isMarking}
+                  className={`text-xs px-3 py-1.5 rounded-lg font-semibold transition-colors disabled:opacity-60 ${p.attendance_status === 'absent' ? 'bg-rose-700 text-white' : 'bg-rose-600 text-white hover:bg-rose-700'}`}
+                >
+                  {isMarking ? '...' : 'Absent'}
+                </button>
               </>
             )}
-            {canManage && (p.registration_source === 'manual' || p.registration_source === 'bulk_import') && (
+            {canManage && mode === 'manage' && (p.registration_source === 'manual' || p.registration_source === 'bulk_import') && (
               <button
                 type="button"
                 onClick={() => handleDelete(p.id)}
@@ -292,7 +367,7 @@ export default function EventParticipantManager({
 
   return (
     <div className="space-y-4">
-      {canManage && (
+      {canManage && mode === 'manage' && (
         <>
           {/* Step 1: Groups */}
           <div className="rounded-xl border border-sky-100 bg-sky-50/50 p-4 space-y-3">
@@ -452,11 +527,58 @@ export default function EventParticipantManager({
         </>
       )}
 
+      {mode === 'attendance' && (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-gray-200 bg-white/60 px-4 py-3">
+          <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800">
+            {attendanceCounts.present} present
+          </span>
+          <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-rose-100 text-rose-800">
+            {attendanceCounts.absent} absent
+          </span>
+          <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-50 text-amber-800">
+            {attendanceCounts.registered} not marked
+          </span>
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={downloadAttendanceReport}
+            className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700"
+          >
+            <Download className="w-3.5 h-3.5" />
+            Download attendance report
+          </button>
+          {onResetAttendance && (
+            <button
+              type="button"
+              onClick={() => onResetAttendance()}
+              disabled={resettingAttendance || (attendanceCounts.present === 0 && attendanceCounts.absent === 0)}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <RotateCcw className={`w-3.5 h-3.5 ${resettingAttendance ? 'animate-spin' : ''}`} />
+              {resettingAttendance ? 'Resetting...' : 'Reset attendance'}
+            </button>
+          )}
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-2 text-sm text-gray-600">
           <Users className="w-4 h-4 text-indigo-500" />
           <span>{filteredParticipants.length} participant{filteredParticipants.length !== 1 ? 's' : ''}</span>
         </div>
+        {mode === 'attendance' && (
+          <select
+            value={attendanceFilter}
+            onChange={(e) => setAttendanceFilter(e.target.value)}
+            className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm bg-white"
+          >
+            <option value="all">All attendance</option>
+            <option value="present">Present only</option>
+            <option value="absent">Absent only</option>
+            <option value="registered">Not marked</option>
+          </select>
+        )}
         <select
           value={groupFilter}
           onChange={(e) => setGroupFilter(e.target.value)}
@@ -470,7 +592,11 @@ export default function EventParticipantManager({
       </div>
 
       {filteredParticipants.length === 0 ? (
-        <p className="text-gray-500">No participants yet.</p>
+        <p className="text-gray-500">
+          {mode === 'attendance' && attendanceFilter !== 'all'
+            ? 'No participants match this attendance filter.'
+            : 'No participants yet.'}
+        </p>
       ) : groupFilter === 'all' ? (
         <div className="space-y-5">
           {grouped.map(({ group, items }) => (

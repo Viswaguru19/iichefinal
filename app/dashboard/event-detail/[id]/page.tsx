@@ -83,6 +83,8 @@ export default function EventDetailPage() {
   const [activeTab, setActiveTab] = useState<'info' | 'participants' | 'attendance'>('info');
   const [participants, setParticipants] = useState<any[]>([]);
   const [participantsLoading, setParticipantsLoading] = useState(false);
+  const [markingAttendanceId, setMarkingAttendanceId] = useState<string | null>(null);
+  const [resettingAttendance, setResettingAttendance] = useState(false);
   const [selectedParticipant, setSelectedParticipant] = useState<any>(null);
   const [eventQrImage, setEventQrImage] = useState<string | null>(null);
   const [scanInput, setScanInput] = useState('');
@@ -111,9 +113,9 @@ export default function EventDetailPage() {
     }
   }, [event?.id, activeTab]);
 
-  async function loadParticipants() {
+  async function loadParticipants(silent = false) {
     if (!event?.id) return;
-    setParticipantsLoading(true);
+    if (!silent) setParticipantsLoading(true);
     const { data, error } = await supabase
       .from('event_participants')
       .select('*')
@@ -121,7 +123,7 @@ export default function EventDetailPage() {
       .order('created_at', { ascending: false });
     if (error) toast.error('Failed to load participants');
     setParticipants(data || []);
-    setParticipantsLoading(false);
+    if (!silent) setParticipantsLoading(false);
   }
 
   async function loadSlideshowSelections() {
@@ -193,11 +195,82 @@ export default function EventDetailPage() {
   }
 
   async function markAttendance(participantId: string, status: 'present' | 'absent' = 'present') {
-    const updateData: any = { attendance_status: status };
-    if (status === 'present') updateData.attended_at = new Date().toISOString();
+    const attendedAt = status === 'present' ? new Date().toISOString() : null;
+    const previous = participants.find((p) => p.id === participantId);
+
+    setMarkingAttendanceId(participantId);
+    setParticipants((prev) =>
+      prev.map((p) =>
+        p.id === participantId
+          ? {
+              ...p,
+              attendance_status: status,
+              attended_at: status === 'present' ? attendedAt : null,
+            }
+          : p,
+      ),
+    );
+
+    const updateData: Record<string, unknown> = { attendance_status: status };
+    if (status === 'present') updateData.attended_at = attendedAt;
+    else updateData.attended_at = null;
+
     const { error } = await supabase.from('event_participants').update(updateData).eq('id', participantId);
-    if (error) toast.error(error.message);
-    await loadParticipants();
+    setMarkingAttendanceId(null);
+
+    if (error) {
+      toast.error(error.message);
+      if (previous) {
+        setParticipants((prev) =>
+          prev.map((p) => (p.id === participantId ? previous : p)),
+        );
+      } else {
+        await loadParticipants(true);
+      }
+      return;
+    }
+  }
+
+  async function resetAttendance() {
+    const markedCount = participants.filter(
+      (p) => p.attendance_status === 'present' || p.attendance_status === 'absent',
+    ).length;
+    if (markedCount === 0) {
+      toast.error('No attendance marks to reset');
+      return;
+    }
+    if (
+      !confirm(
+        `Reset attendance for ${markedCount} participant(s)? All present/absent marks will be cleared.`,
+      )
+    ) {
+      return;
+    }
+
+    const snapshot = participants;
+    setResettingAttendance(true);
+    setParticipants((prev) =>
+      prev.map((p) => ({
+        ...p,
+        attendance_status: 'registered',
+        attended_at: null,
+      })),
+    );
+
+    const { error } = await supabase
+      .from('event_participants')
+      .update({ attendance_status: 'registered', attended_at: null })
+      .eq('event_id', event!.id)
+      .in('attendance_status', ['present', 'absent']);
+
+    setResettingAttendance(false);
+
+    if (error) {
+      toast.error(error.message || 'Failed to reset attendance');
+      setParticipants(snapshot);
+      return;
+    }
+    toast.success(`Attendance reset for ${markedCount} participant(s)`);
   }
 
   async function processScanPayload(raw: string) {
@@ -1464,8 +1537,12 @@ export default function EventDetailPage() {
                 participants={participants}
                 canManage={canManageParticipants}
                 onRefresh={loadParticipants}
+                mode="attendance"
                 showAttendanceActions
                 onMarkAttendance={markAttendance}
+                markingId={markingAttendanceId}
+                onResetAttendance={resetAttendance}
+                resettingAttendance={resettingAttendance}
               />
             )}
             <EventQrScanner
