@@ -7,7 +7,6 @@ import { Calendar, MapPin, CheckCircle, Clock, Edit, Check, X, Palette, ImageIco
 import toast from 'react-hot-toast';
 import PageHeader from '@/components/PageHeader';
 import ReminderButton from '@/components/ReminderButton';
-import ReminderLog from '@/components/ReminderLog';
 import StatusIndicator from '@/components/StatusIndicator';
 import EventReport from '@/components/EventReport';
 import QRCode from 'qrcode';
@@ -720,12 +719,7 @@ export default function EventDetailPage() {
   }
 
   const isAdminUser = userProfile?.is_admin === true;
-  const canManageParticipants = !!(
-    isEC ||
-    isFaculty ||
-    isAdminUser ||
-    (userProfile?.id && event?.created_by && userProfile.id === event.created_by)
-  );
+  const canManageParticipants = !!userProfile;
   const posterPublished =
     !!event.poster_url &&
     (event.poster_status === 'approved' ||
@@ -1136,12 +1130,6 @@ export default function EventDetailPage() {
                 {completedTasks}/{totalTasks} tasks done
               </p>
             </div>
-          </div>
-
-          {/* Reminder Activity Log */}
-          <div className="mt-6 pt-4 border-t border-gray-200">
-            <h4 className="text-sm font-semibold text-gray-700 mb-2">Reminder Activity</h4>
-            <ReminderLog entityId={event.id} />
           </div>
         </div>
 
