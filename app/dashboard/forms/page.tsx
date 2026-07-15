@@ -94,7 +94,7 @@ export default function FormsPage() {
       return;
     }
     if (!deleted?.length) {
-      toast.error('Could not delete this form — only the creator can delete it.');
+      toast.error('Could not delete this form. Please try again.');
       setDeleting(null);
       return;
     }
@@ -105,7 +105,7 @@ export default function FormsPage() {
 
   async function toggleAccepting(form: any) {
     if (!canManageForm(form, currentUserId, profile)) {
-      toast.error('Only the form creator can change this form.');
+      toast.error('You must be logged in to change this form.');
       return;
     }
     setToggling(form.id);
@@ -115,7 +115,7 @@ export default function FormsPage() {
 
     const { data: updated, error } = await supabase
       .from('forms')
-      .update({ is_active: newActive, settings: newSettings })
+      .update({ is_active: newActive, settings: newSettings, updated_at: new Date().toISOString() })
       .eq('id', form.id)
       .select('id')
       .maybeSingle();
@@ -123,7 +123,7 @@ export default function FormsPage() {
     if (error) {
       toast.error('Failed to update form');
     } else if (!updated) {
-      toast.error('Could not update this form — only the creator can change it.');
+      toast.error('Could not update this form. Please try again.');
     } else {
       setForms(prev => prev.map(f => {
         if (f.id !== form.id) return f;

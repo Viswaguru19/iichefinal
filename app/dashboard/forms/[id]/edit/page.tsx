@@ -130,7 +130,7 @@ export default function EditFormPage() {
         const allowed = canManageForm(form, user.id, profile);
         setCanEdit(allowed);
         if (!allowed) {
-            toast.error('Only the form creator can edit this form');
+            toast.error('You must be logged in to edit forms');
             setLoading(false);
             return;
         }
@@ -284,7 +284,7 @@ export default function EditFormPage() {
 
     async function handleSave() {
         if (!canEdit) {
-            toast.error('Only the form creator can edit this form');
+            toast.error('You must be logged in to edit forms');
             return;
         }
         if (!title.trim()) { toast.error('Form title is required'); return; }
@@ -340,6 +340,7 @@ export default function EditFormPage() {
                 settings: nextSettings,
                 form_type: formType,
                 event_id: formType === 'event_registration' ? selectedEventId : null,
+                updated_at: new Date().toISOString(),
             })
             .eq('id', formId)
             .select('id, description')
@@ -348,7 +349,7 @@ export default function EditFormPage() {
         if (error) {
             toast.error('Failed to save: ' + error.message);
         } else if (!updated) {
-            toast.error('Failed to save — you may not have permission to edit this form.');
+            toast.error('Failed to save — form could not be updated.');
         } else {
             setBaseSettings(nextSettings);
             setInitialFormType(formType);
@@ -392,7 +393,7 @@ export default function EditFormPage() {
             <div className="min-h-screen bg-mesh flex items-center justify-center px-4">
                 <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="premium-panel rounded-3xl p-12 text-center max-w-md shadow-2xl">
                     <h2 className="text-2xl font-extrabold text-gray-800 mb-2">Cannot Edit Form</h2>
-                    <p className="text-gray-400 mb-8">Only the person who created this form can edit it.</p>
+                    <p className="text-gray-400 mb-8">Please log in to edit forms.</p>
                     <Link href="/dashboard/forms" className="btn-gradient-blue px-6 py-2.5 rounded-2xl text-sm font-semibold">
                         Back to Forms
                     </Link>
