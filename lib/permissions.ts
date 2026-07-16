@@ -23,3 +23,14 @@ export function isFacultyAdvisor(role: UserRole): boolean {
 export function isExecutiveMember(role: UserRole): boolean {
   return ['super_admin', 'secretary', 'program_head', 'faculty_advisor', 'committee_head', 'committee_cohead'].includes(role);
 }
+
+/** Portal admin: DB flag or super_admin / secretary role (matches dashboard & admin pages). */
+export function isPortalAdmin(profile: {
+  is_admin?: boolean | null;
+  role?: string | null;
+} | null | undefined): boolean {
+  if (!profile) return false;
+  if (profile.is_admin === true) return true;
+  const role = String(profile.role || '');
+  return role === 'super_admin' || role === 'secretary';
+}

@@ -7,6 +7,7 @@ import PageHeader from '@/components/PageHeader';
 import { Upload, Image as ImageIcon, ExternalLink } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
+import { isPortalAdmin } from '@/lib/permissions';
 
 export default function PostersPage() {
   const [events, setEvents] = useState<any[]>([]);
@@ -38,14 +39,14 @@ export default function PostersPage() {
 
     const { data: profile } = await supabase
       .from('profiles')
-      .select('is_admin')
+      .select('is_admin, role')
       .eq('id', user.id)
       .maybeSingle();
 
     const graphics = (memberships || []).some((m: any) =>
       String(m.committees?.name || '').toLowerCase().includes('graphics'),
     );
-    const admin = profile?.is_admin === true;
+    const admin = isPortalAdmin(profile);
     setIsGraphics(graphics);
     setIsAdmin(admin);
 

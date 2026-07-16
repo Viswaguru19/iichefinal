@@ -13,6 +13,7 @@ import QRCode from 'qrcode';
 import EventQrScanner from '@/components/events/EventQrScanner';
 import EventParticipantManager from '@/components/events/EventParticipantManager';
 import { registrationSourceLabel } from '@/lib/event-participant-groups';
+import { isPortalAdmin } from '@/lib/permissions';
 
 function taskSupportingDocHref(fileUrl: string) {
   const base = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -595,7 +596,7 @@ export default function EventDetailPage() {
     if (!event) return;
 
     const { data: { user } } = await supabase.auth.getUser();
-    const autoApprove = userProfile?.is_admin === true;
+    const autoApprove = isPortalAdmin(userProfile);
 
     const fileExt = file.name.split('.').pop();
     const fileName = `${event.id}-${Date.now()}.${fileExt}`;
@@ -807,7 +808,7 @@ export default function EventDetailPage() {
     posterUrl = data.publicUrl;
   }
 
-  const isAdminUser = userProfile?.is_admin === true;
+  const isAdminUser = isPortalAdmin(userProfile);
   const canManageParticipants = !!userProfile;
   const canUploadPoster = isGraphics || isAdminUser;
   const posterPublished =
