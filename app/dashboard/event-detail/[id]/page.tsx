@@ -594,6 +594,9 @@ export default function EventDetailPage() {
   async function uploadPoster(file: File) {
     if (!event) return;
 
+    const { data: { user } } = await supabase.auth.getUser();
+    const autoApprove = userProfile?.is_admin === true;
+
     const fileExt = file.name.split('.').pop();
     const fileName = `${event.id}-${Date.now()}.${fileExt}`;
     const filePath = `event-posters/${fileName}`;
@@ -607,40 +610,53 @@ export default function EventDetailPage() {
       return;
     }
 
+    const posterUpdate = autoApprove
+      ? {
+          poster_url: filePath,
+          poster_status: 'approved',
+          poster_faculty_notes: null,
+          poster_faculty_reviewed_at: new Date().toISOString(),
+          poster_faculty_reviewed_by: user?.id ?? null,
+        }
+      : {
+          poster_url: filePath,
+          poster_status: 'pending_faculty_approval',
+          poster_faculty_notes: null,
+          poster_faculty_reviewed_at: null,
+          poster_faculty_reviewed_by: null,
+        };
+
     const { error: updateError } = await supabase
       .from('events')
-      .update({
-        poster_url: filePath,
-        poster_status: 'pending_faculty_approval',
-        poster_faculty_notes: null,
-        poster_faculty_reviewed_at: null,
-        poster_faculty_reviewed_by: null,
-      })
+      .update(posterUpdate)
       .eq('id', event.id);
 
     if (updateError) {
       await supabase.from('events').update({ poster_url: filePath }).eq('id', event.id);
     }
 
-    // Notify faculty about pending poster approval
-    const { data: facultyMembers } = await supabase
-      .from('profiles')
-      .select('id')
-      .eq('is_faculty', true);
+    if (!autoApprove) {
+      const { data: facultyMembers } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('is_faculty', true);
 
-    if (facultyMembers && facultyMembers.length > 0) {
-      const notifications = facultyMembers.map((f: any) => ({
-        user_id: f.id,
-        type: 'poster_approval',
-        title: 'Poster Pending Approval 🎨',
-        message: `A poster for "${event.title}" has been uploaded by the Graphics team and needs your approval.`,
-        link: `/dashboard/event-detail/${event.id}`,
-        metadata: { event_id: event.id },
-      }));
-      await supabase.from('notifications').insert(notifications);
+      if (facultyMembers && facultyMembers.length > 0) {
+        const notifications = facultyMembers.map((f: any) => ({
+          user_id: f.id,
+          type: 'poster_approval',
+          title: 'Poster Pending Approval 🎨',
+          message: `A poster for "${event.title}" has been uploaded by the Graphics team and needs your approval.`,
+          link: `/dashboard/event-detail/${event.id}`,
+          metadata: { event_id: event.id },
+        }));
+        await supabase.from('notifications').insert(notifications);
+      }
+      toast.success('Poster uploaded! Sent to faculty for approval.');
+    } else {
+      toast.success('Poster uploaded and published — visible to everyone.');
     }
 
-    toast.success('Poster uploaded! Sent to faculty for approval.');
     loadEventDetails();
   }
 
@@ -793,6 +809,7 @@ export default function EventDetailPage() {
 
   const isAdminUser = userProfile?.is_admin === true;
   const canManageParticipants = !!userProfile;
+  const canUploadPoster = isGraphics || isAdminUser;
   const posterPublished =
     !!event.poster_url &&
     (event.poster_status === 'approved' ||
@@ -882,7 +899,7 @@ export default function EventDetailPage() {
                   </button>
                 </div>
               )}
-              {isGraphics && (
+              {canUploadPoster && (
                 <div className="mt-4 text-center">
                   <label className="inline-flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 cursor-pointer text-sm font-semibold">
                     <Palette className="w-4 h-4" />
@@ -894,6 +911,9 @@ export default function EventDetailPage() {
                       onChange={(e) => e.target.files?.[0] && uploadPoster(e.target.files[0])}
                     />
                   </label>
+                  {isAdminUser && (
+                    <p className="text-xs text-gray-500 mt-2">Admin uploads are published immediately.</p>
+                  )}
                 </div>
               )}
             </div>
@@ -906,7 +926,9 @@ export default function EventDetailPage() {
               <Palette className="w-16 h-16 text-purple-400 mx-auto mb-4" />
               <h4 className="text-lg font-bold text-purple-900 mb-2">Design in process</h4>
               <p className="text-purple-700 mb-4">
-                The graphics team can upload a poster; it is sent to faculty for approval before it is shown to everyone.
+                {isAdminUser
+                  ? 'Admins can upload a poster and it will be published immediately. Graphics uploads still go to faculty for approval.'
+                  : 'The graphics team can upload a poster; it is sent to faculty for approval before it is shown to everyone.'}
               </p>
               {event.poster_status === 'rejected' && event.poster_faculty_notes && (isGraphics || isFaculty || isAdminUser) && (
                 <div className="mb-4 text-left max-w-lg mx-auto p-3 rounded-lg bg-white/80 border border-red-100 text-sm text-gray-700 whitespace-pre-wrap">
@@ -914,7 +936,7 @@ export default function EventDetailPage() {
                   {event.poster_faculty_notes}
                 </div>
               )}
-              {isGraphics && (
+              {canUploadPoster && (
                 <label className="inline-flex items-center gap-2 bg-purple-600 text-white px-6 py-3 rounded-lg hover:bg-purple-700 cursor-pointer font-semibold">
                   <ImageIcon className="w-5 h-5" />
                   Upload poster
@@ -925,6 +947,9 @@ export default function EventDetailPage() {
                     onChange={(e) => e.target.files?.[0] && uploadPoster(e.target.files[0])}
                   />
                 </label>
+              )}
+              {isAdminUser && canUploadPoster && (
+                <p className="text-xs text-purple-600 mt-3">Your upload will be published immediately — no faculty approval needed.</p>
               )}
             </div>
           )}

@@ -183,8 +183,7 @@ export function canApprovePREmail(profile: UserProfile): boolean {
 }
 
 export function canUploadPoster(profile: UserProfile, graphicsCommitteeId: string): boolean {
-    // Only Graphics/Design committee members can upload posters
-    return Boolean(profile.committees?.includes(graphicsCommitteeId));
+    return isAdmin(profile) || Boolean(profile.committees?.includes(graphicsCommitteeId));
 }
 
 export function canApprovePoster(profile: UserProfile): boolean {

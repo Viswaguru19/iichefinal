@@ -15,6 +15,7 @@ export default function PostersPage() {
   const [loading, setLoading] = useState(false);
   const [pageLoading, setPageLoading] = useState(true);
   const [isGraphics, setIsGraphics] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const supabase = createClient();
   const router = useRouter();
 
@@ -35,13 +36,21 @@ export default function PostersPage() {
       .select('committee_id, committees(name)')
       .eq('user_id', user.id);
 
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('is_admin')
+      .eq('id', user.id)
+      .maybeSingle();
+
     const graphics = (memberships || []).some((m: any) =>
       String(m.committees?.name || '').toLowerCase().includes('graphics'),
     );
+    const admin = profile?.is_admin === true;
     setIsGraphics(graphics);
+    setIsAdmin(admin);
 
-    if (!graphics) {
-      toast.error('Only Graphics committee can upload posters');
+    if (!graphics && !admin) {
+      toast.error('Only Graphics committee or admins can upload posters');
       router.push('/dashboard');
       setPageLoading(false);
       return;
@@ -63,6 +72,9 @@ export default function PostersPage() {
 
     setLoading(true);
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const autoApprove = isAdmin;
+
       const { data: ev } = await supabase.from('events').select('id, title').eq('id', selectedEvent).single();
       if (!ev) throw new Error('Event not found');
 
@@ -73,34 +85,48 @@ export default function PostersPage() {
       const { error: uploadError } = await supabase.storage.from('event-documents').upload(filePath, posterFile);
       if (uploadError) throw uploadError;
 
+      const posterUpdate = autoApprove
+        ? {
+            poster_url: filePath,
+            poster_status: 'approved',
+            poster_faculty_notes: null,
+            poster_faculty_reviewed_at: new Date().toISOString(),
+            poster_faculty_reviewed_by: user?.id ?? null,
+          }
+        : {
+            poster_url: filePath,
+            poster_status: 'pending_faculty_approval',
+            poster_faculty_notes: null,
+            poster_faculty_reviewed_at: null,
+            poster_faculty_reviewed_by: null,
+          };
+
       const { error: updateError } = await supabase
         .from('events')
-        .update({
-          poster_url: filePath,
-          poster_status: 'pending_faculty_approval',
-          poster_faculty_notes: null,
-          poster_faculty_reviewed_at: null,
-          poster_faculty_reviewed_by: null,
-        })
+        .update(posterUpdate)
         .eq('id', selectedEvent);
 
       if (updateError) throw updateError;
 
-      const { data: facultyMembers } = await supabase.from('profiles').select('id').eq('is_faculty', true);
-      if (facultyMembers && facultyMembers.length > 0) {
-        await supabase.from('notifications').insert(
-          facultyMembers.map((f: any) => ({
-            user_id: f.id,
-            type: 'poster_approval',
-            title: 'Poster pending approval',
-            message: `A poster for "${ev.title}" was uploaded and needs your approval.`,
-            link: `/dashboard/event-detail/${selectedEvent}`,
-            metadata: { event_id: selectedEvent },
-          })),
-        );
+      if (!autoApprove) {
+        const { data: facultyMembers } = await supabase.from('profiles').select('id').eq('is_faculty', true);
+        if (facultyMembers && facultyMembers.length > 0) {
+          await supabase.from('notifications').insert(
+            facultyMembers.map((f: any) => ({
+              user_id: f.id,
+              type: 'poster_approval',
+              title: 'Poster pending approval',
+              message: `A poster for "${ev.title}" was uploaded and needs your approval.`,
+              link: `/dashboard/event-detail/${selectedEvent}`,
+              metadata: { event_id: selectedEvent },
+            })),
+          );
+        }
+        toast.success('Poster uploaded — sent to faculty for approval.');
+      } else {
+        toast.success('Poster uploaded and published — visible to everyone.');
       }
 
-      toast.success('Poster uploaded — sent to faculty for approval.');
       setPosterFile(null);
       setSelectedEvent('');
       loadData();
@@ -119,7 +145,7 @@ export default function PostersPage() {
     );
   }
 
-  if (!isGraphics) return null;
+  if (!isGraphics && !isAdmin) return null;
 
   function statusLabel(s: string | null | undefined) {
     if (!s) return null;
@@ -138,7 +164,9 @@ export default function PostersPage() {
 
       <div className="max-w-3xl mx-auto px-4 py-8">
         <p className="text-sm text-gray-600 mb-6">
-          Posters are reviewed by faculty first. After approval they are visible to everyone on event pages and forms.
+          {isAdmin
+            ? 'As an admin, your poster uploads are published immediately. Graphics uploads still require faculty approval.'
+            : 'Posters are reviewed by faculty first. After approval they are visible to everyone on event pages and forms.'}
         </p>
 
         <div className="premium-panel rounded-2xl p-8 shadow-lg">
