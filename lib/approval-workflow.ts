@@ -4,6 +4,7 @@
 // ============================================
 
 import { createClient } from '@/lib/supabase/client';
+import { dispatchPushForNotifications } from '@/lib/portal-notifications-client';
 import type { UserRole, EventStatus, TaskStatus, ApprovalStatus, FinanceApprovalStatus } from '@/types/database';
 
 interface ApprovalContext {
@@ -299,22 +300,26 @@ async function sendEventApprovalNotification(
     if (!event) return;
 
     // Create notification for the proposer
-    const { error } = await supabase
-        .from('notifications')
-        .insert({
-            user_id: proposedBy,
-            type: 'event_approved',
-            title: 'Event Approved! 🎉',
-            message: `Your event "${event.title}" has been approved by the Executive Committee and is now active. You can start assigning tasks in Event Progress.`,
-            link: `/dashboard/events/progress`,
-            metadata: {
-                event_id: eventId,
-                committee_id: committeeId,
-            },
-        });
+    const row = {
+        user_id: proposedBy,
+        type: 'event_approved',
+        title: 'Event Approved! 🎉',
+        message: `Your event "${event.title}" has been approved by the Executive Committee and is now active. You can start assigning tasks in Event Progress.`,
+        link: `/dashboard/events/progress`,
+    };
+
+    const { error } = await supabase.from('notifications').insert({
+        ...row,
+        metadata: {
+            event_id: eventId,
+            committee_id: committeeId,
+        },
+    });
 
     if (error) {
         console.error('Failed to send approval notification:', error);
+    } else {
+        void dispatchPushForNotifications([row]);
     }
 }
 
@@ -859,6 +864,8 @@ async function sendTaskAssignmentNotifications(
 
     if (error) {
         console.error('Failed to send task assignment notifications:', error);
+    } else {
+        void dispatchPushForNotifications(notifications);
     }
 }
 

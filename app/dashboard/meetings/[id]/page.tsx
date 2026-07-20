@@ -1,5 +1,6 @@
 'use client';
 
+import PortalLoadingScreen from '@/components/PortalLoadingScreen';
 import { useEffect, useState, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter, useParams } from 'next/navigation';
@@ -188,18 +189,7 @@ export default function MeetingDetailPage() {
         other: 'Other',
     };
 
-    if (loading) {
-        return (
-            <div className="min-h-screen bg-mesh flex items-center justify-center">
-                <div className="text-center">
-                    <div className="w-16 h-16 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 mx-auto mb-4 animate-pulse-glow flex items-center justify-center">
-                        <Video className="w-8 h-8 text-white" />
-                    </div>
-                    <p className="text-gray-400">Loading meeting details...</p>
-                </div>
-            </div>
-        );
-    }
+    if (loading) return <PortalLoadingScreen message="Loading meetings…" />;
 
     if (!meeting) return null;
 

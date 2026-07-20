@@ -8,6 +8,7 @@ import { Upload, Image as ImageIcon, ExternalLink } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
 import { isPortalAdmin } from '@/lib/permissions';
+import { insertPortalNotifications } from '@/lib/portal-notifications-client';
 
 export default function PostersPage() {
   const [events, setEvents] = useState<any[]>([]);
@@ -112,14 +113,14 @@ export default function PostersPage() {
       if (!autoApprove) {
         const { data: facultyMembers } = await supabase.from('profiles').select('id').eq('is_faculty', true);
         if (facultyMembers && facultyMembers.length > 0) {
-          await supabase.from('notifications').insert(
+          await insertPortalNotifications(
+            supabase,
             facultyMembers.map((f: any) => ({
               user_id: f.id,
               type: 'poster_approval',
               title: 'Poster pending approval',
               message: `A poster for "${ev.title}" was uploaded and needs your approval.`,
               link: `/dashboard/event-detail/${selectedEvent}`,
-              metadata: { event_id: selectedEvent },
             })),
           );
         }

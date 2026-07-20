@@ -1,5 +1,6 @@
 'use client';
 
+import PortalLoadingScreen from '@/components/PortalLoadingScreen';
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
@@ -136,7 +137,7 @@ export default function ProfilePage() {
     }
   };
 
-  if (!profile) return <div className="min-h-screen bg-gray-50 flex items-center justify-center">Loading...</div>;
+  if (!profile) return <PortalLoadingScreen message="Loading profile…" />;
 
   return (
     <div className="min-h-screen bg-gray-50">

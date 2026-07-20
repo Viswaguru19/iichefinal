@@ -1,5 +1,6 @@
 'use client';
 
+import PortalLoadingScreen from '@/components/PortalLoadingScreen';
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { createClient } from '@/lib/supabase/client';
@@ -228,16 +229,7 @@ export default function StatementOfAccountsPage() {
   const years = Array.from(new Set(transactions.map(t => t.year))).sort();
   const events = Array.from(new Set(transactions.map(t => t.event)));
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-mesh flex items-center justify-center">
-        <motion.div initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} className="text-center">
-          <div className="w-16 h-16 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 mx-auto mb-4 animate-pulse-glow" />
-          <p className="text-gray-400">Loading...</p>
-        </motion.div>
-      </div>
-    );
-  }
+  if (loading) return <PortalLoadingScreen message="Loading accounts…" />;
 
   return (
     <div className="min-h-screen bg-mesh py-8 px-4 relative overflow-hidden">

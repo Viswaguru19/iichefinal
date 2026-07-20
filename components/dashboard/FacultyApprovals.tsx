@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { Calendar, CheckCircle, AlertCircle, TrendingUp, ImageIcon, Check, X, Pencil } from 'lucide-react';
 import { motion } from 'framer-motion';
 import toast from 'react-hot-toast';
+import { insertPortalNotifications } from '@/lib/portal-notifications-client';
 
 export default function FacultyApprovals() {
     const [pendingApprovals, setPendingApprovals] = useState<any[]>([]);
@@ -39,14 +40,14 @@ export default function FacultyApprovals() {
         if (!comm?.id) return;
         const { data: members } = await supabase.from('committee_members').select('user_id').eq('committee_id', comm.id);
         if (!members?.length) return;
-        await supabase.from('notifications').insert(
+        await insertPortalNotifications(
+            supabase,
             members.map((m: any) => ({
                 user_id: m.user_id,
                 type: 'poster_feedback',
                 title,
                 message: body,
                 link: `/dashboard/event-detail/${eventId}`,
-                metadata: { event_id: eventId },
             })),
         );
     }

@@ -14,6 +14,8 @@ import EventQrScanner from '@/components/events/EventQrScanner';
 import EventParticipantManager from '@/components/events/EventParticipantManager';
 import { registrationSourceLabel } from '@/lib/event-participant-groups';
 import { isPortalAdmin } from '@/lib/permissions';
+import PortalLoadingScreen from '@/components/PortalLoadingScreen';
+import { insertPortalNotifications } from '@/lib/portal-notifications-client';
 
 function taskSupportingDocHref(fileUrl: string) {
   const base = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -659,7 +661,7 @@ export default function EventDetailPage() {
         },
       }));
 
-      await supabase.from('notifications').insert(notifications);
+      await insertPortalNotifications(supabase, notifications);
     } catch (error) {
       console.error('Failed to send task approval notifications:', error);
     }
@@ -748,7 +750,7 @@ export default function EventDetailPage() {
           link: `/dashboard/event-detail/${event.id}`,
           metadata: { event_id: event.id },
         }));
-        await supabase.from('notifications').insert(notifications);
+        await insertPortalNotifications(supabase, notifications);
       }
       toast.success('Poster uploaded! Sent to faculty for approval.');
     } else {
@@ -763,14 +765,14 @@ export default function EventDetailPage() {
     if (!comm?.id) return;
     const { data: members } = await supabase.from('committee_members').select('user_id').eq('committee_id', comm.id);
     if (!members?.length) return;
-    await supabase.from('notifications').insert(
+    await insertPortalNotifications(
+      supabase,
       members.map((m: any) => ({
         user_id: m.user_id,
         type: 'poster_feedback',
         title,
         message: body,
         link: `/dashboard/event-detail/${eventId}`,
-        metadata: { event_id: eventId },
       })),
     );
   }
@@ -855,14 +857,7 @@ export default function EventDetailPage() {
     }
   }
 
-  if (loading) {
-    return <div className="min-h-screen bg-mesh flex items-center justify-center">
-      <div className="text-center">
-        <div className="w-16 h-16 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 mx-auto mb-4 animate-pulse-glow"></div>
-        <p className="text-gray-400">Loading...</p>
-      </div>
-    </div>;
-  }
+  if (loading) return <PortalLoadingScreen message="Loading event…" />;
 
   if (!event) {
     return <div className="min-h-screen bg-mesh flex items-center justify-center">

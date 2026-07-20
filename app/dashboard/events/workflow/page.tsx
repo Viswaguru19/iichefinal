@@ -1,5 +1,6 @@
 'use client';
 
+import PortalLoadingScreen from '@/components/PortalLoadingScreen';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';

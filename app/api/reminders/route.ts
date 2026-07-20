@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 import { sendEmail } from '@/lib/notifications';
+import { dispatchPushForNotificationRows } from '@/lib/push/dispatch-server';
 import {
   getApprovalReminderEligibility,
   getTaskReminderEligibility,
@@ -386,6 +387,14 @@ export async function POST(request: Request) {
         related_id: entityId,
         read: false,
       });
+
+      await dispatchPushForNotificationRows([{
+        user_id: recipient.userId,
+        type: 'reminder',
+        title: notifTitle,
+        message: message || notifMessage,
+        related_id: entityId,
+      }]);
 
       // 2.5 — Send email (wrapped in try/catch)
       try {
