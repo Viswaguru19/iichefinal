@@ -10,17 +10,17 @@ export default function manifest(): MetadataRoute.Manifest {
     display: 'standalone',
     orientation: 'any',
     background_color: '#0a0a0a',
-    theme_color: '#6366f1',
+    theme_color: '#7DD3C0',
     categories: ['education', 'productivity'],
     icons: [
       {
-        src: '/icons/app-icon.svg',
+        src: '/logo.svg',
         sizes: 'any',
         type: 'image/svg+xml',
         purpose: 'any',
       },
       {
-        src: '/icons/app-icon.svg',
+        src: '/logo.svg',
         sizes: '512x512',
         type: 'image/svg+xml',
         purpose: 'maskable',

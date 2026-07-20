@@ -19,8 +19,8 @@ export const metadata: Metadata = {
     telephone: false,
   },
   icons: {
-    icon: [{ url: '/icons/app-icon.svg', type: 'image/svg+xml' }],
-    apple: [{ url: '/icons/app-icon.svg', type: 'image/svg+xml', sizes: '180x180' }],
+    icon: [{ url: '/logo.svg', type: 'image/svg+xml' }],
+    apple: [{ url: '/logo.svg', type: 'image/svg+xml', sizes: '180x180' }],
   },
 };
 
@@ -29,7 +29,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   viewportFit: "cover",
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#6366f1" },
+    { media: "(prefers-color-scheme: light)", color: "#7DD3C0" },
     { media: "(prefers-color-scheme: dark)", color: "#0a0a0a" },
   ],
 };

@@ -18,7 +18,7 @@ export async function getCurrentLogoClient(): Promise<string> {
                 return urlData.publicUrl;
             }
             if (data.logo_url === 'logo.svg') {
-                return '/logo.png';
+                return '/logo.svg';
             }
             return `/${data.logo_url}`;
         }
@@ -26,5 +26,5 @@ export async function getCurrentLogoClient(): Promise<string> {
         console.error('Error fetching logo:', error);
     }
 
-    return '/logo.png';
+    return '/logo.svg';
 }

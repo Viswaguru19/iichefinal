@@ -16,7 +16,7 @@ export default function DynamicLogo({
     className = '',
     alt = 'IIChE AVVU SC Logo'
 }: DynamicLogoProps) {
-    const [logoUrl, setLogoUrl] = useState('/logo.png');
+    const [logoUrl, setLogoUrl] = useState('/logo.svg');
 
     useEffect(() => {
         loadLogo();
@@ -35,7 +35,7 @@ export default function DynamicLogo({
             height={height}
             className={`object-contain ${className}`}
             onError={(e) => {
-                e.currentTarget.src = '/logo.png';
+                e.currentTarget.src = '/logo.svg';
             }}
         />
     );
