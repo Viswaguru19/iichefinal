@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useRef } from 'react';
 import toast from 'react-hot-toast';
 
 interface EventQrScannerProps {
@@ -27,36 +27,26 @@ async function safelyStopScanner(scanner: { stop?: () => unknown; clear?: () => 
 }
 
 export default function EventQrScanner({ open, onClose, onScanned }: EventQrScannerProps) {
-  const readerId = useMemo(
-    () => `event-qr-reader-${Math.random().toString(36).slice(2, 10)}`,
-    [],
-  );
+  const readerId = useId().replace(/:/g, '');
   const onCloseRef = useRef(onClose);
   const onScannedRef = useRef(onScanned);
-  const scannerRef = useRef<{ stop?: () => unknown; clear?: () => void } | null>(null);
-  const [sessionActive, setSessionActive] = useState(false);
 
   onCloseRef.current = onClose;
   onScannedRef.current = onScanned;
 
   useEffect(() => {
-    if (open) setSessionActive(true);
-  }, [open]);
-
-  useEffect(() => {
-    if (!sessionActive) return;
+    if (!open) return;
 
     let mounted = true;
     let handled = false;
+    let scanner: { stop?: () => unknown; clear?: () => void } | null = null;
 
     const start = async () => {
-      if (!open) return;
       try {
         const { Html5Qrcode } = await import('html5-qrcode');
-        if (!mounted || !open) return;
+        if (!mounted) return;
 
-        const scanner = new Html5Qrcode(readerId);
-        scannerRef.current = scanner;
+        scanner = new Html5Qrcode(readerId);
         const config = { fps: 10, qrbox: { width: 260, height: 260 } };
 
         const onSuccess = (decodedText: string) => {
@@ -78,7 +68,7 @@ export default function EventQrScanner({ open, onClose, onScanned }: EventQrScan
           await scanner.start({ facingMode: { exact: 'environment' } }, config, onSuccess, onError);
         } catch {
           const cameras = await Html5Qrcode.getCameras();
-          if (!mounted || !open) return;
+          if (!mounted) return;
           if (!cameras || cameras.length === 0) throw new Error('No camera found');
           await scanner.start(cameras[0].id, config, onSuccess, onError);
         }
@@ -89,22 +79,18 @@ export default function EventQrScanner({ open, onClose, onScanned }: EventQrScan
       }
     };
 
-    if (open) void start();
+    void start();
 
     return () => {
       mounted = false;
-      const scanner = scannerRef.current;
-      scannerRef.current = null;
-      void safelyStopScanner(scanner).finally(() => {
-        if (!open) setSessionActive(false);
-      });
+      void safelyStopScanner(scanner);
     };
-  }, [sessionActive, open, readerId]);
+  }, [open, readerId]);
 
-  if (!sessionActive) return null;
+  if (!open) return null;
 
   return (
-    <div className={`fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 ${open ? '' : 'invisible pointer-events-none'}`}>
+    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
       <div className="w-full max-w-md rounded-2xl bg-white p-4">
         <div className="flex items-center justify-between mb-3">
           <h4 className="text-sm font-semibold text-gray-900">Scan Participant QR</h4>

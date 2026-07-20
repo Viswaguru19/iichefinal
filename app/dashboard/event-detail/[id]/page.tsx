@@ -90,6 +90,7 @@ export default function EventDetailPage() {
   const [eventQrImage, setEventQrImage] = useState<string | null>(null);
   const [scanInput, setScanInput] = useState('');
   const [scannerOpen, setScannerOpen] = useState(false);
+  const [scannerKey, setScannerKey] = useState(0);
   const [slideshowUrls, setSlideshowUrls] = useState<Set<string>>(new Set());
   /** Faculty poster review: reject or request changes (with notes). */
   const [posterReviewOpen, setPosterReviewOpen] = useState(false);
@@ -195,7 +196,10 @@ export default function EventDetailPage() {
     toast.success('On-spot registration QR ready — scan to open the event form; submitters are added as participants and marked present.');
   }
 
-  async function markAttendance(participantId: string, status: 'present' | 'absent' = 'present') {
+  async function markAttendance(
+    participantId: string,
+    status: 'present' | 'absent' = 'present',
+  ): Promise<boolean> {
     const attendedAt = status === 'present' ? new Date().toISOString() : null;
     const previous = participants.find((p) => p.id === participantId);
 
@@ -216,7 +220,13 @@ export default function EventDetailPage() {
     if (status === 'present') updateData.attended_at = attendedAt;
     else updateData.attended_at = null;
 
-    const { error } = await supabase.from('event_participants').update(updateData).eq('id', participantId);
+    const { data, error } = await supabase
+      .from('event_participants')
+      .update(updateData)
+      .eq('id', participantId)
+      .eq('event_id', event!.id)
+      .select('*')
+      .maybeSingle();
     setMarkingAttendanceId(null);
 
     if (error) {
@@ -228,8 +238,30 @@ export default function EventDetailPage() {
       } else {
         await loadParticipants(true);
       }
-      return;
+      return false;
     }
+
+    if (!data) {
+      toast.error('Participant not found for this event');
+      if (previous) {
+        setParticipants((prev) =>
+          prev.map((p) => (p.id === participantId ? previous : p)),
+        );
+      } else {
+        await loadParticipants(true);
+      }
+      return false;
+    }
+
+    setParticipants((prev) => {
+      const exists = prev.some((p) => p.id === data.id);
+      if (exists) {
+        return prev.map((p) => (p.id === data.id ? { ...p, ...data } : p));
+      }
+      return [data, ...prev];
+    });
+
+    return true;
   }
 
   async function resetAttendance() {
@@ -353,37 +385,67 @@ export default function EventDetailPage() {
       }
 
       let participantId = String(pid);
-      const known = participants.some((p) => p.id === participantId);
-      if (!known) {
-        const { data: byId } = await supabase
+      const responseId = payload?.response_id;
+      let resolved = false;
+
+      const { data: byId } = await supabase
+        .from('event_participants')
+        .select('id')
+        .eq('id', participantId)
+        .eq('event_id', event!.id)
+        .maybeSingle();
+
+      if (byId?.id) {
+        participantId = byId.id;
+        resolved = true;
+      } else if (responseId) {
+        const { data: byResponse } = await supabase
           .from('event_participants')
           .select('id')
-          .eq('id', participantId)
+          .eq('form_response_id', String(responseId))
           .eq('event_id', event!.id)
           .maybeSingle();
-        if (byId?.id) {
-          participantId = byId.id;
-        } else {
-          const qrCandidates = [trimmed, decoded || '', unescaped, JSON.stringify(payload)].filter(
-            (v, i, arr) => Boolean(v) && arr.indexOf(v) === i,
-          );
-          for (const qrText of qrCandidates) {
-            const { data: byQr } = await supabase
-              .from('event_participants')
-              .select('id')
-              .eq('event_id', event!.id)
-              .eq('qr_data', qrText)
-              .maybeSingle();
-            if (byQr?.id) {
-              participantId = byQr.id;
-              break;
-            }
+        if (byResponse?.id) {
+          participantId = byResponse.id;
+          resolved = true;
+        }
+      }
+
+      if (!resolved) {
+        const qrCandidates = [trimmed, decoded || '', unescaped, JSON.stringify(payload)].filter(
+          (v, i, arr) => Boolean(v) && arr.indexOf(v) === i,
+        );
+        for (const qrText of qrCandidates) {
+          const { data: byQr } = await supabase
+            .from('event_participants')
+            .select('id')
+            .eq('event_id', event!.id)
+            .eq('qr_data', qrText)
+            .maybeSingle();
+          if (byQr?.id) {
+            participantId = byQr.id;
+            resolved = true;
+            break;
           }
         }
       }
 
-      await markAttendance(participantId, 'present');
-      toast.success('Attendance marked present');
+      const { data: participantRow } = await supabase
+        .from('event_participants')
+        .select('id, participant_name')
+        .eq('id', participantId)
+        .eq('event_id', event!.id)
+        .maybeSingle();
+
+      if (!participantRow?.id) {
+        toast.error('Participant not found — use the check-in QR from event registration');
+        return;
+      }
+
+      const marked = await markAttendance(participantRow.id, 'present');
+      if (marked) {
+        toast.success(`Marked present: ${participantRow.participant_name || 'Participant'}`);
+      }
     } catch (err) {
       console.error('processScanPayload failed:', err);
       toast.error('Failed to process QR scan');
@@ -1575,7 +1637,14 @@ export default function EventDetailPage() {
               </p>
               <div className="flex items-center justify-between gap-2 mb-2">
                 <p className="text-sm font-medium text-gray-800">Scan participant check-in QR</p>
-                <button type="button" onClick={() => setScannerOpen(true)} className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setScannerKey((k) => k + 1);
+                    setScannerOpen(true);
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700"
+                >
                   Scan QR (Camera)
                 </button>
               </div>
@@ -1611,6 +1680,7 @@ export default function EventDetailPage() {
         )}
       </div>
       <EventQrScanner
+        key={scannerKey}
         open={scannerOpen}
         onClose={() => setScannerOpen(false)}
         onScanned={handleQrScanned}
