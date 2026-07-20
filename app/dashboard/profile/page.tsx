@@ -1,6 +1,7 @@
 'use client';
 
 import PortalLoadingScreen from '@/components/PortalLoadingScreen';
+import ProfileAppSettings from '@/components/ProfileAppSettings';
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
@@ -225,6 +226,8 @@ export default function ProfilePage() {
                 </button>
               </div>
             </div>
+
+            <ProfileAppSettings />
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Description / Bio</label>

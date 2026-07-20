@@ -7,6 +7,11 @@ import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { Send } from 'lucide-react';
+import {
+  notifyCommitteeHeads,
+  notifyEC,
+  notifyFaculty,
+} from '@/lib/portal-notify-helpers';
 
 export default function ProposeEventPage() {
   const [title, setTitle] = useState('');
@@ -96,7 +101,7 @@ export default function ProposeEventPage() {
       // ensures the proposal appears in the proposals screen (which only
       // queries `events`) and routes to the committee head for approval.
       const when = new Date(eventDate).toISOString();
-      const { error } = await supabase
+      const { data: inserted, error } = await supabase
         .from('events')
         .insert({
           title,
@@ -115,9 +120,31 @@ export default function ProposeEventPage() {
           status: initialStatus,
           created_by: user.id,
           documents: uploadedDocs
-        });
+        })
+        .select('id, title, committee_id')
+        .single();
 
       if (error) throw error;
+
+      if (inserted?.id) {
+        if (initialStatus === 'pending_head_approval' && inserted.committee_id) {
+          await notifyCommitteeHeads(supabase, inserted.committee_id, {
+            type: 'proposal',
+            title: 'New event proposal',
+            message: `"${inserted.title}" was submitted and needs head approval.`,
+            link: `/dashboard/proposals`,
+            related_id: inserted.id,
+          });
+        } else if (initialStatus === 'pending_faculty_approval') {
+          await notifyFaculty(supabase, {
+            type: 'proposal',
+            title: 'New event proposal',
+            message: `"${inserted.title}" needs faculty approval.`,
+            link: `/dashboard/proposals`,
+            related_id: inserted.id,
+          });
+        }
+      }
 
       toast.success('Event proposal submitted!');
       router.push('/dashboard/proposals');

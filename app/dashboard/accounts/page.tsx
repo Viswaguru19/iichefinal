@@ -8,6 +8,7 @@ import { useRouter } from 'next/navigation';
 import { ArrowLeft, Plus, Filter, Upload, FileText, ExternalLink, X, Pencil, Trash2, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
+import { notifyFaculty } from '@/lib/portal-notify-helpers';
 
 interface Transaction {
   id: string;
@@ -159,7 +160,17 @@ export default function StatementOfAccountsPage() {
     } as any);
 
     if (error) toast.error('Failed to add transaction');
-    else { toast.success('Transaction added'); setShowAddModal(false); void reloadAfterMutation(); }
+    else {
+      toast.success('Transaction added');
+      await notifyFaculty(supabase, {
+        type: 'finance',
+        title: 'New finance entry',
+        message: `Finance updated: ${formData.get('item') || 'New transaction'}.`,
+        link: '/dashboard/accounts',
+      });
+      setShowAddModal(false);
+      void reloadAfterMutation();
+    }
   }
 
   async function handleEditTransaction(e: React.FormEvent<HTMLFormElement>) {

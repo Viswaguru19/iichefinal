@@ -10,6 +10,7 @@ import toast from 'react-hot-toast';
 import { EVENT_REGISTRATION_ELIGIBLE_STATUSES } from '@/lib/event-registration';
 import { publicFormUrl } from '@/lib/form-public-access';
 import { hasNameAndEmailFields } from '@/lib/form-responder-fields';
+import { notifyEC } from '@/lib/portal-notify-helpers';
 
 interface FormField {
   id: string;
@@ -254,6 +255,14 @@ export default function CreateFormPage() {
       .single();
 
     if (error) { toast.error('Failed to create form: ' + error.message); setLoading(false); return; }
+
+    await notifyEC(supabase, {
+      type: 'form',
+      title: 'New form created',
+      message: `"${title.trim()}" was created on the portal.`,
+      link: `/dashboard/forms/${form.id}`,
+      related_id: form.id,
+    });
 
     const link = publicFormUrl(window.location.origin, form.id);
     navigator.clipboard.writeText(link);

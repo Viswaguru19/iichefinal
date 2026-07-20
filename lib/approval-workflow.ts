@@ -4,7 +4,15 @@
 // ============================================
 
 import { createClient } from '@/lib/supabase/client';
-import { dispatchPushForNotifications } from '@/lib/portal-notifications-client';
+import { dispatchPushForNotifications, insertPortalNotifications } from '@/lib/portal-notifications-client';
+import {
+    notifyEC,
+    notifyFaculty,
+    notifyEventProposer,
+    notifyCommitteeHeads,
+    notifyCommittee,
+    notifyUsers,
+} from '@/lib/portal-notify-helpers';
 import type { UserRole, EventStatus, TaskStatus, ApprovalStatus, FinanceApprovalStatus } from '@/types/database';
 
 interface ApprovalContext {
@@ -166,6 +174,14 @@ export async function approveEventAsHead(eventId: string, userId: string, userRo
         previousStatus: event.status,
         newStatus: 'pending_ec_approval',
     });
+
+    await notifyEC(supabase, {
+        type: 'proposal',
+        title: 'Proposal needs EC approval',
+        message: `"${event.title}" was approved by the committee head and needs EC review.`,
+        link: `/dashboard/proposals`,
+        related_id: eventId,
+    });
 }
 
 // ============================================
@@ -268,6 +284,14 @@ export async function approveEventAsEC(eventId: string, userId: string, userRole
         previousStatus: event.status,
         newStatus: 'pending_faculty_approval',
         metadata: { approvalCount: 1, threshold: 1, note: 'Single EC approval sufficient, moving to faculty' },
+    });
+
+    await notifyFaculty(supabase, {
+        type: 'proposal',
+        title: 'Proposal needs faculty approval',
+        message: `"${event.title}" was EC-approved and needs faculty approval.`,
+        link: `/dashboard/proposals`,
+        related_id: eventId,
     });
 
     return { approvalCount: 1, thresholdReached: true };
@@ -394,6 +418,14 @@ export async function approveEventAsFaculty(eventId: string, userId: string, use
         previousStatus: event.status,
         newStatus: 'active',
     });
+
+    await notifyEventProposer(supabase, eventId, {
+        type: 'proposal',
+        title: 'Event approved and active',
+        message: `"${event.title}" is now active. You can manage tasks and participants.`,
+        link: `/dashboard/event-detail/${eventId}`,
+        related_id: eventId,
+    });
 }
 
 /**
@@ -515,6 +547,20 @@ export async function sendEventForReview(
         newStatus,
         reason: note,
     });
+
+    const reviewPayload = {
+        type: 'proposal',
+        title: 'Proposal sent for review',
+        message: `"${event.title}" was sent for your review${note ? `: ${note}` : '.'}`,
+        link: `/dashboard/proposals`,
+        related_id: eventId,
+    };
+
+    if (targetRole === 'ec') {
+        await notifyEC(supabase, reviewPayload);
+    } else if (event.committee_id) {
+        await notifyCommitteeHeads(supabase, event.committee_id, reviewPayload);
+    }
 }
 
 // ============================================
@@ -1167,6 +1213,17 @@ export async function approvePoster(posterId: string, userId: string, userRole: 
         previousStatus: 'pending_faculty',
         newStatus: 'published',
     });
+
+    const { data: comm } = await supabase.from('committees').select('id').ilike('name', '%graphics%').limit(1).maybeSingle();
+    if (comm?.id) {
+        await notifyCommittee(supabase, comm.id, {
+            type: 'poster',
+            title: 'Poster approved and published',
+            message: 'A poster was faculty-approved and is now published.',
+            link: '/dashboard/posters',
+            related_id: posterId,
+        });
+    }
 }
 
 export async function rejectPoster(
@@ -1230,6 +1287,14 @@ export async function submitFinanceTransaction(
         action: 'submit_transaction',
         previousStatus: 'none',
         newStatus: 'pending',
+    });
+
+    await notifyFaculty(supabase, {
+        type: 'finance',
+        title: 'New finance entry pending',
+        message: 'A finance transaction was submitted and needs approval.',
+        link: '/dashboard/faculty/finance',
+        related_id: transaction.id,
     });
 
     return transaction;

@@ -16,6 +16,7 @@ import { registrationSourceLabel } from '@/lib/event-participant-groups';
 import { isPortalAdmin } from '@/lib/permissions';
 import PortalLoadingScreen from '@/components/PortalLoadingScreen';
 import { insertPortalNotifications } from '@/lib/portal-notifications-client';
+import { notifyAllPortalUsers } from '@/lib/portal-notify-helpers';
 
 function taskSupportingDocHref(fileUrl: string) {
   const base = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -754,6 +755,13 @@ export default function EventDetailPage() {
       }
       toast.success('Poster uploaded! Sent to faculty for approval.');
     } else {
+      await notifyAllPortalUsers(supabase, {
+        type: 'poster',
+        title: 'Event poster published',
+        message: `Poster for "${event.title}" is now live after approval.`,
+        link: `/dashboard/event-detail/${event.id}`,
+        related_id: event.id,
+      });
       toast.success('Poster uploaded and published — visible to everyone.');
     }
 

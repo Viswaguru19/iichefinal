@@ -11,6 +11,7 @@ import {
   FORMAL_CHAPTER_LINE,
 } from '@/lib/formal-doc-export';
 import { participantGroupLabel } from '@/lib/event-participant-groups';
+import { notifyCommittee } from '@/lib/portal-notify-helpers';
 
 interface EventReportProps {
     event: any;
@@ -244,6 +245,14 @@ export default function EventReport({ event, tasks, eventPhotos = [], canEdit }:
                     year: new Date().getFullYear(),
                     month: new Date().getMonth() + 1,
                     metadata: { event_id: event.id, event_title: event.title },
+                });
+
+                await notifyCommittee(supabase, editComm.id, {
+                    type: 'event_report',
+                    title: 'Event report created',
+                    message: `Report for "${event.title}" was submitted.`,
+                    link: `/dashboard/event-detail/${event.id}`,
+                    related_id: event.id,
                 });
             }
 

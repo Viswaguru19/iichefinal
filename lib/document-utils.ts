@@ -6,6 +6,7 @@
 import { createClient } from '@/lib/supabase/client';
 import type { DocumentType, DocumentFilters } from '@/types/database';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { notifyCommittee } from '@/lib/portal-notify-helpers';
 
 const DOCUMENTS_BUCKET = 'documents';
 
@@ -164,6 +165,16 @@ export async function uploadDocument(
             return cdDoc;
         }
         throw docError;
+    }
+
+    if (metadata.committee_id) {
+        await notifyCommittee(supabase, metadata.committee_id, {
+            type: 'document',
+            title: 'New document uploaded',
+            message: `"${metadata.title}" was submitted to your committee.`,
+            link: '/dashboard/documents',
+            related_id: document?.id,
+        });
     }
 
     return document;

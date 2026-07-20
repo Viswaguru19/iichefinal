@@ -19,8 +19,8 @@ self.addEventListener('push', (event) => {
   event.waitUntil(
     self.registration.showNotification(payload.title, {
       body: payload.body,
-      icon: '/logo.svg',
-      badge: '/logo.svg',
+      icon: '/icons/iiche-app-icon.svg',
+      badge: '/icons/iiche-app-icon.svg',
       tag: payload.tag || 'iiche-portal',
       data: { url: payload.url || '/dashboard' },
     }),

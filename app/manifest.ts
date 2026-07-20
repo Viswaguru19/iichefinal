@@ -14,13 +14,13 @@ export default function manifest(): MetadataRoute.Manifest {
     categories: ['education', 'productivity'],
     icons: [
       {
-        src: '/logo.svg',
+        src: '/icons/iiche-app-icon.svg',
         sizes: 'any',
         type: 'image/svg+xml',
         purpose: 'any',
       },
       {
-        src: '/logo.svg',
+        src: '/icons/iiche-app-icon.svg',
         sizes: '512x512',
         type: 'image/svg+xml',
         purpose: 'maskable',

@@ -26,5 +26,5 @@ export async function getCurrentLogoClient(): Promise<string> {
         console.error('Error fetching logo:', error);
     }
 
-    return '/logo.svg';
+    return '/icons/iiche-app-icon.svg';
 }

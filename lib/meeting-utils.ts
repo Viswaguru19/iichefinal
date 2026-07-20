@@ -5,6 +5,7 @@
 
 import { createClient } from '@/lib/supabase/client';
 import type { MeetingType, MeetingPlatform } from '@/types/database';
+import { insertPortalNotifications } from '@/lib/portal-notifications-client';
 
 interface MeetingData {
     title: string;
@@ -160,13 +161,14 @@ async function sendMeetingInvitations(meeting: any, participantIds: string[]) {
         await sendMeetingEmail(participant.email, emailSubject, emailBody);
 
         // Create notification
-        await supabase.from('notifications').insert({
+        await insertPortalNotifications(supabase, [{
             user_id: participant.id,
-            title: 'New Meeting Invitation',
+            title: 'New meeting invitation',
             message: `You have been invited to: ${meeting.title}`,
             type: 'meeting',
             related_id: meeting.id,
-        });
+            link: `/dashboard/meetings/${meeting.id}`,
+        }]);
     }
 }
 
@@ -310,29 +312,35 @@ export async function cancelMeeting(meetingId: string, cancelledBy: string, reas
 async function notifyMeetingUpdate(meetingId: string, participantIds: string[]) {
     const supabase = createClient();
 
-    for (const userId of participantIds) {
-        await supabase.from('notifications').insert({
-            user_id: userId,
-            title: 'Meeting Updated',
-            message: 'A meeting you are invited to has been updated',
+    if (!participantIds.length) return;
+    await insertPortalNotifications(
+        supabase,
+        participantIds.map((user_id) => ({
+            user_id,
+            title: 'Meeting updated',
+            message: 'A meeting you are invited to has been updated.',
             type: 'meeting',
             related_id: meetingId,
-        });
-    }
+            link: `/dashboard/meetings/${meetingId}`,
+        })),
+    );
 }
 
 async function notifyMeetingCancellation(meeting: any, reason?: string) {
     const supabase = createClient();
 
-    for (const userId of meeting.participants) {
-        await supabase.from('notifications').insert({
-            user_id: userId,
-            title: 'Meeting Cancelled',
+    if (!meeting.participants?.length) return;
+    await insertPortalNotifications(
+        supabase,
+        meeting.participants.map((user_id: string) => ({
+            user_id,
+            title: 'Meeting cancelled',
             message: `The meeting "${meeting.title}" has been cancelled${reason ? `: ${reason}` : ''}`,
             type: 'meeting',
             related_id: meeting.id,
-        });
-    }
+            link: `/dashboard/meetings/${meeting.id}`,
+        })),
+    );
 }
 
 // ============================================
