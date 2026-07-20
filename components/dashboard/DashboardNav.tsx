@@ -41,7 +41,7 @@ export default function DashboardNav({ userName, userRole }: DashboardNavProps) 
             initial={{ y: -10, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             transition={{ ...motionTokens.enter, ease: motionTokens.easing }}
-            className="sticky top-0 z-50 premium-panel"
+            className="sticky top-0 z-50 premium-panel portal-safe-top"
         >
             <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
                 {/* Top row: logo + actions */}

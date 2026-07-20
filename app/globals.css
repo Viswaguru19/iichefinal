@@ -738,3 +738,26 @@ html[data-portal-theme='light'] .dashboard-section-title {
     display: none;
   }
 }
+
+/* ========== PWA / iOS standalone ========== */
+.portal-app-body {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+}
+
+.portal-safe-top {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+@supports (padding: env(safe-area-inset-bottom)) {
+  .portal-app-body {
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
+  }
+}
+
+@media (display-mode: standalone) {
+  .portal-app-body {
+    min-height: 100dvh;
+  }
+}

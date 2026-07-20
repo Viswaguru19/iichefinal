@@ -39,7 +39,8 @@ export default function EventQrScanner({ open, onClose, onScanned }: EventQrScan
 
     let mounted = true;
     let handled = false;
-    let scanner: { stop?: () => unknown; clear?: () => void } | null = null;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let scanner: any = null;
 
     const start = async () => {
       try {

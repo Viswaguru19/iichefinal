@@ -1670,7 +1670,9 @@ export default function EventDetailPage() {
                 onRefresh={loadParticipants}
                 mode="attendance"
                 showAttendanceActions
-                onMarkAttendance={markAttendance}
+                onMarkAttendance={(participantId, status) => {
+                  void markAttendance(participantId, status);
+                }}
                 markingId={markingAttendanceId}
                 onResetAttendance={resetAttendance}
                 resettingAttendance={resettingAttendance}
