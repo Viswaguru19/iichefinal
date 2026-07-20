@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter, useParams } from 'next/navigation';
 import { Calendar, MapPin, CheckCircle, Clock, Edit, Check, X, Palette, ImageIcon, AlertCircle, Camera, ChevronLeft, ChevronRight, Users, QrCode, FileText } from 'lucide-react';
@@ -347,11 +347,42 @@ export default function EventDetailPage() {
         toast.error('Invalid participant QR');
         return;
       }
-      if (String(eid) !== String(event?.id)) {
+      if (eid != null && eid !== '' && String(eid) !== String(event?.id)) {
         toast.error('This QR is for a different event');
         return;
       }
-      await markAttendance(String(pid), 'present');
+
+      let participantId = String(pid);
+      const known = participants.some((p) => p.id === participantId);
+      if (!known) {
+        const { data: byId } = await supabase
+          .from('event_participants')
+          .select('id')
+          .eq('id', participantId)
+          .eq('event_id', event!.id)
+          .maybeSingle();
+        if (byId?.id) {
+          participantId = byId.id;
+        } else {
+          const qrCandidates = [trimmed, decoded || '', unescaped, JSON.stringify(payload)].filter(
+            (v, i, arr) => Boolean(v) && arr.indexOf(v) === i,
+          );
+          for (const qrText of qrCandidates) {
+            const { data: byQr } = await supabase
+              .from('event_participants')
+              .select('id')
+              .eq('event_id', event!.id)
+              .eq('qr_data', qrText)
+              .maybeSingle();
+            if (byQr?.id) {
+              participantId = byQr.id;
+              break;
+            }
+          }
+        }
+      }
+
+      await markAttendance(participantId, 'present');
       toast.success('Attendance marked present');
     } catch (err) {
       console.error('processScanPayload failed:', err);
@@ -363,6 +394,10 @@ export default function EventDetailPage() {
     await processScanPayload(scanInput);
     setScanInput('');
   }
+
+  const handleQrScanned = useCallback((decodedText: string) => {
+    void processScanPayload(decodedText);
+  }, [event?.id, participants]);
 
   async function loadUserProfile() {
     const { data: { user } } = await supabase.auth.getUser();
@@ -1572,16 +1607,14 @@ export default function EventDetailPage() {
                 resettingAttendance={resettingAttendance}
               />
             )}
-            <EventQrScanner
-              open={scannerOpen}
-              onClose={() => setScannerOpen(false)}
-              onScanned={(decodedText) => {
-                void processScanPayload(decodedText);
-              }}
-            />
           </div>
         )}
       </div>
+      <EventQrScanner
+        open={scannerOpen}
+        onClose={() => setScannerOpen(false)}
+        onScanned={handleQrScanned}
+      />
     </div>
   );
 }
