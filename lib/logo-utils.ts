@@ -1,5 +1,5 @@
 /** Default IIChE logo used when DB/storage logo is unavailable. */
-export const DEFAULT_PORTAL_LOGO = '/icons/iiche-app-icon.svg';
+export const DEFAULT_PORTAL_LOGO = '/logo.svg';
 
 export const LOGO_CACHE_KEY = 'portal-logo-url-v3';
 

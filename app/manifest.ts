@@ -1,4 +1,7 @@
 import type { MetadataRoute } from 'next';
+import { buildPwaManifestIcons } from '@/lib/pwa-icons';
+
+export const dynamic = 'force-dynamic';
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
@@ -12,19 +15,6 @@ export default function manifest(): MetadataRoute.Manifest {
     background_color: '#0a0a0a',
     theme_color: '#7DD3C0',
     categories: ['education', 'productivity'],
-    icons: [
-      {
-        src: '/icons/iiche-app-icon.svg',
-        sizes: 'any',
-        type: 'image/svg+xml',
-        purpose: 'any',
-      },
-      {
-        src: '/icons/iiche-app-icon.svg',
-        sizes: '512x512',
-        type: 'image/svg+xml',
-        purpose: 'maskable',
-      },
-    ],
+    icons: buildPwaManifestIcons(),
   };
 }

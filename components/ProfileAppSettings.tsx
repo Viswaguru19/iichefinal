@@ -132,6 +132,12 @@ export default function ProfileAppSettings() {
             <strong>Chrome:</strong> ⋮ menu → <strong>Install app</strong> or <strong>Add to Home screen</strong>
           </p>
         )}
+        {installed && (
+          <p className="text-xs text-gray-600 bg-gray-50 rounded-lg px-3 py-2">
+            App icon uses your admin-uploaded logo. If it looks wrong, uninstall the app and install again after
+            updating the logo in Admin → Logo.
+          </p>
+        )}
       </div>
 
       {/* Push */}

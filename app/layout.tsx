@@ -1,36 +1,36 @@
-import type { Metadata, Viewport } from "next";
-import { Inter } from "next/font/google";
-import "./globals.css";
+import type { Metadata, Viewport } from 'next';
+import { Inter } from 'next/font/google';
+import './globals.css';
 import { Toaster } from 'react-hot-toast';
+import { buildMetadataIcons } from '@/lib/pwa-icons';
 
-const inter = Inter({ subsets: ["latin"] });
+const inter = Inter({ subsets: ['latin'] });
 
-export const metadata: Metadata = {
-  title: "IIChE AVVU SC Portal",
-  description: "Official portal for IIChE AVVU SC - Indian Institute of Chemical Engineers",
-  applicationName: "IIChE AVVU",
-  manifest: "/manifest.webmanifest",
-  appleWebApp: {
-    capable: true,
-    title: "IIChE AVVU",
-    statusBarStyle: "black-translucent",
-  },
-  formatDetection: {
-    telephone: false,
-  },
-  icons: {
-    icon: [{ url: '/icons/iiche-app-icon.svg', type: 'image/svg+xml' }],
-    apple: [{ url: '/icons/iiche-app-icon.svg', type: 'image/svg+xml', sizes: '180x180' }],
-  },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  return {
+    title: 'IIChE AVVU SC Portal',
+    description: 'Official portal for IIChE AVVU SC - Indian Institute of Chemical Engineers',
+    applicationName: 'IIChE AVVU',
+    manifest: '/manifest.webmanifest',
+    appleWebApp: {
+      capable: true,
+      title: 'IIChE AVVU',
+      statusBarStyle: 'black-translucent',
+    },
+    formatDetection: {
+      telephone: false,
+    },
+    icons: buildMetadataIcons(),
+  };
+}
 
 export const viewport: Viewport = {
-  width: "device-width",
+  width: 'device-width',
   initialScale: 1,
-  viewportFit: "cover",
+  viewportFit: 'cover',
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#7DD3C0" },
-    { media: "(prefers-color-scheme: dark)", color: "#0a0a0a" },
+    { media: '(prefers-color-scheme: light)', color: '#7DD3C0' },
+    { media: '(prefers-color-scheme: dark)', color: '#0a0a0a' },
   ],
 };
 
