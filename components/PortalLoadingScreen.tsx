@@ -12,28 +12,32 @@ export default function PortalLoadingScreen({
   className = '',
 }: PortalLoadingScreenProps) {
   const card = (
-    <div className={`portal-loader-shell ${className}`.trim()}>
-      <div className="portal-loader-glow" aria-hidden />
-      <div className="portal-loader-logo-stage">
-        <img
-          src="/icons/iiche-app-icon.svg"
-          alt="IIChE AVVU SC"
-          className="portal-loader-brand-logo"
-          width={120}
-          height={120}
-          decoding="async"
-          fetchPriority="high"
-        />
+    <div className={`portal-loader-shell ${className}`.trim()} role="status" aria-live="polite" aria-busy="true">
+      <div className="portal-loader-shimmer" aria-hidden />
+      <div className="portal-loader-orbit" aria-hidden>
+        <span className="portal-loader-ring portal-loader-ring-1" />
+        <span className="portal-loader-ring portal-loader-ring-2" />
+        <span className="portal-loader-ring portal-loader-ring-3" />
+        <span className="portal-loader-core" />
       </div>
       <p className="portal-loader-brand-text">IIChE AVVU SC</p>
+      <p className="portal-loader-tagline">Student Chapter Portal</p>
       <p className="portal-loader-message">{message}</p>
-      <div className="portal-loader-track" aria-hidden>
-        <div className="portal-loader-track-fill" />
+      <div className="portal-loader-dots" aria-hidden>
+        <span />
+        <span />
+        <span />
       </div>
     </div>
   );
 
   if (!fullPage) return card;
 
-  return <div className="portal-loader-page portal-fade-in">{card}</div>;
+  return (
+    <div className="portal-loader-page portal-fade-in">
+      <div className="portal-loader-bg-orb portal-loader-bg-orb-1" aria-hidden />
+      <div className="portal-loader-bg-orb portal-loader-bg-orb-2" aria-hidden />
+      {card}
+    </div>
+  );
 }
