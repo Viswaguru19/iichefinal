@@ -29,7 +29,7 @@ function MessagesContent() {
     loadMessages();
     const channel = supabase
       .channel('messages')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'direct_messages' }, (payload) => {
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'direct_messages' }, (payload: { new: Record<string, unknown> }) => {
         if ((payload.new as any).sender_id === receiverId || (payload.new as any).receiver_id === receiverId) {
           loadMessages();
         }

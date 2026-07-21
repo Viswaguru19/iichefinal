@@ -72,7 +72,7 @@ export default function EventWorkflowPage() {
       .eq('user_id', user.id)
       .in('position', ['head', 'co_head']);
     setCommitteeMemberships(memberships || []);
-    const committeeIds = new Set((memberships || []).map((m) => m.committee_id));
+    const committeeIds = new Set((memberships || []).map((m: { committee_id: string }) => m.committee_id));
 
     const { data: eventsData, error: eventsError } = await supabase
       .from('events')

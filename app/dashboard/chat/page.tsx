@@ -215,12 +215,18 @@ export default function ChatPage() {
       }
     }
 
-    const groupRows = (partRows || [])
-      .map((r: { group_id: string; last_read_at: string | null }) => ({
-        last_read_at: r.last_read_at,
-        group: groupMeta[String(r.group_id)],
-      }))
-      .filter((r): r is { last_read_at: string | null; group: { id: string; name: string; chat_type: string | null; committee_id: string | null } } => Boolean(r.group));
+    type GroupChatRow = {
+      last_read_at: string | null;
+      group: { id: string; name: string; chat_type: string | null; committee_id: string | null };
+    };
+
+    const groupRows: GroupChatRow[] = [];
+    for (const r of partRows || []) {
+      const group = groupMeta[String((r as { group_id: string }).group_id)];
+      if (group) {
+        groupRows.push({ last_read_at: (r as { last_read_at: string | null }).last_read_at, group });
+      }
+    }
 
     const messageChannelIds = [...new Set(groupRows.map((r) => groupMessagesChannelId(r.group)))];
     const latestByChannel: Record<string, { message: string; created_at: string }> = {};

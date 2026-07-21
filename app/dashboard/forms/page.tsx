@@ -52,7 +52,7 @@ export default function FormsPage() {
 
     // Get accurate response counts per form
     const withCounts = await Promise.all(
-      formsData.map(async (f) => {
+      formsData.map(async (f: { id: string }) => {
         const { count } = await supabase
           .from('form_responses')
           .select('*', { count: 'exact', head: true })

@@ -113,7 +113,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, showOnlineP
                 name: p.name,
                 avatar_url: p.avatar_url,
                 is_group_admin: !!adminMap[p.id],
-            })).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+            })).sort((a: ParticipantRow, b: ParticipantRow) => (a.name || '').localeCompare(b.name || ''));
             if (!cancelled) {
                 setParticipants(list);
                 setParticipantsLoading(false);
@@ -228,7 +228,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, showOnlineP
         if (channelRef.current) supabase.removeChannel(channelRef.current);
         const table = isDirect ? 'direct_messages' : 'group_messages';
         const ch = supabase.channel(`chat-${chat.type}-${chat.id}`);
-        ch.on('postgres_changes', { event: 'INSERT', schema: 'public', table }, (payload) => {
+        ch.on('postgres_changes', { event: 'INSERT', schema: 'public', table }, (payload: { new: Record<string, unknown> }) => {
             const msg = payload.new as any;
             if (msg.sender_id === currentUser.id) return;
             const isRelevant = isDirect
@@ -236,7 +236,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, showOnlineP
                 : msg.group_id === chat.id;
             if (isRelevant) loadMessages();
         });
-        ch.on('postgres_changes', { event: 'UPDATE', schema: 'public', table }, (payload) => {
+        ch.on('postgres_changes', { event: 'UPDATE', schema: 'public', table }, (payload: { new: Record<string, unknown> }) => {
             const msg = payload.new as any;
             if (isDirect) {
                 const inThread =
@@ -247,7 +247,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, showOnlineP
             }
             if (msg.poll_data) loadMessages();
         });
-        ch.on('broadcast', { event: 'typing' }, ({ payload }) => {
+        ch.on('broadcast', { event: 'typing' }, ({ payload }: { payload: { user_id: string; name: string } }) => {
             if (payload.user_id !== currentUser.id) { setTyping(payload.name); setTimeout(() => setTyping(null), 3000); }
         });
         if (!isDirect && chat.participantGroupId) {

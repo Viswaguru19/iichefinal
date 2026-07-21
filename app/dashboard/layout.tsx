@@ -1,11 +1,20 @@
 import PortalPresenceProvider from '@/components/dashboard/PortalPresenceProvider';
-import InstallAppPrompt from '@/components/InstallAppPrompt';
+import PortalLogoProvider from '@/components/dashboard/PortalLogoProvider';
+import ServiceWorkerRegistrar from '@/components/ServiceWorkerRegistrar';
+import { getCurrentLogo } from '@/lib/logo-utils-server';
 
-export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
+  const logoUrl = await getCurrentLogo();
+
   return (
-    <PortalPresenceProvider>
-      {children}
-      <InstallAppPrompt />
-    </PortalPresenceProvider>
+    <PortalLogoProvider logoUrl={logoUrl}>
+      <script
+        dangerouslySetInnerHTML={{
+          __html: `window.__PORTAL_LOGO__=${JSON.stringify(logoUrl)};`,
+        }}
+      />
+      <ServiceWorkerRegistrar />
+      <PortalPresenceProvider>{children}</PortalPresenceProvider>
+    </PortalLogoProvider>
   );
 }

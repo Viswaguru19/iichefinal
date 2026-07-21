@@ -63,6 +63,8 @@ export default function LogoManagementPage() {
                     .from('logos')
                     .getPublicUrl(data.logo_url.replace('logos/', ''));
                 setPreview(urlData.publicUrl);
+            } else if (data.logo_url === 'logo.svg') {
+                setPreview('/logo.svg');
             } else {
                 setPreview(`/${data.logo_url}`);
             }
@@ -88,7 +90,8 @@ export default function LogoManagementPage() {
                 .getPublicUrl(logoUrl.replace('logos/', ''));
             return urlData.publicUrl;
         }
-        return `/${logoUrl}`;
+        if (logoUrl === 'logo.svg') return '/logo.svg';
+        return logoUrl.startsWith('/') ? logoUrl : `/${logoUrl}`;
     }
 
     async function setAsActive(logoId: string) {

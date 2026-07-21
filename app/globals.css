@@ -722,6 +722,31 @@ html[data-portal-theme='light'] .dashboard-section-title {
     border-radius: 14px;
   }
 
+  /* Backdrop blur is expensive on mobile GPUs — use solid panels instead */
+  .premium-panel,
+  .glass,
+  .glass-strong,
+  .glass-dark {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  .premium-panel {
+    background: rgba(255, 255, 255, 0.97);
+  }
+
+  html[data-portal-theme='dark'] .premium-panel {
+    background: rgba(20, 20, 24, 0.97);
+  }
+
+  .glass {
+    background: rgba(255, 255, 255, 0.92);
+  }
+
+  html[data-portal-theme='dark'] .glass {
+    background: rgba(30, 30, 36, 0.94);
+  }
+
   .portal-header-title {
     font-size: 0.95rem;
   }
@@ -862,4 +887,32 @@ html[data-portal-theme='light'] .dashboard-section-title {
 @keyframes portal-loader-slide {
   0% { transform: translateX(-120%); }
   100% { transform: translateX(320%); }
+}
+
+/* Lightweight entrance animations (CSS-only, no JS bundle) */
+@keyframes portal-fade-in-keyframes {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes portal-section-in-keyframes {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes portal-nav-in-keyframes {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.portal-fade-in {
+  animation: portal-fade-in-keyframes 0.35s ease-out both;
+}
+
+.portal-section-in {
+  animation: portal-section-in-keyframes 0.45s ease-out both;
+}
+
+.portal-nav-in {
+  animation: portal-nav-in-keyframes 0.3s ease-out both;
 }

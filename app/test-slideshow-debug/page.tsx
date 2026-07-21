@@ -31,11 +31,11 @@ export default function SlideshowDebugPage() {
 
         console.log('All buckets:', buckets);
 
-        const slideshowBucket = buckets?.find(b => b.id === 'slideshow-photos');
+        const slideshowBucket = buckets?.find((b: { id: string }) => b.id === 'slideshow-photos');
         setBucketInfo(slideshowBucket);
 
         // Generate URLs for each photo
-        const photosWithUrls = dbPhotos?.map(photo => {
+        const photosWithUrls = dbPhotos?.map((photo: { photo_url: string }) => {
             const { data } = supabase.storage
                 .from('slideshow-photos')
                 .getPublicUrl(photo.photo_url);

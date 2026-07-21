@@ -107,7 +107,7 @@ export default function FacultyDashboard() {
             .select('budget')
             .eq('status', 'active');
 
-        const totalBudget = budgetData?.reduce((sum, e) => sum + (e.budget || 0), 0) || 0;
+        const totalBudget = budgetData?.reduce((sum: number, e: { budget?: number }) => sum + (e.budget || 0), 0) || 0;
 
         // Upcoming events
         const { count: upcomingEvents } = await supabase
@@ -147,7 +147,7 @@ export default function FacultyDashboard() {
 
         // Fetch EC approvals for each event
         const eventsWithApprovals = await Promise.all(
-            events.map(async (event) => {
+            events.map(async (event: { id: string }) => {
                 const { data: ecApprovals } = await supabase
                     .from('ec_approvals')
                     .select('user_id, approved_at, profiles(name, executive_role)')
@@ -177,7 +177,7 @@ export default function FacultyDashboard() {
             pendingAmount: 0,
         };
 
-        transactions?.forEach((t) => {
+        transactions?.forEach((t: { approval_status: string; transaction_type: string; amount: number }) => {
             if (t.approval_status === 'approved') {
                 if (t.transaction_type === 'income') {
                     overview.totalIncome += t.amount;
@@ -213,7 +213,7 @@ export default function FacultyDashboard() {
         if (!committees) return;
 
         const progress = await Promise.all(
-            committees.map(async (committee) => {
+            committees.map(async (committee: { id: string; name: string }) => {
                 const { count: total } = await supabase
                     .from('tasks')
                     .select('*', { count: 'exact', head: true })

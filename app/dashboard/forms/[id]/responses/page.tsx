@@ -85,18 +85,18 @@ export default function FormResponsesPage() {
     }
 
     // Fetch user profiles for responses that have user_id
-    const userIds = [...new Set((responsesData || []).map(r => r.user_id).filter(Boolean))];
+    const userIds = [...new Set((responsesData || []).map((r: { user_id: string | null }) => r.user_id).filter(Boolean))];
     let userMap: Record<string, any> = {};
     if (userIds.length > 0) {
       const { data: users } = await supabase
         .from('profiles')
         .select('id, name, email')
         .in('id', userIds);
-      users?.forEach(u => { userMap[u.id] = u; });
+      users?.forEach((u: { id: string }) => { userMap[u.id] = u; });
     }
 
     // Attach user data to responses
-    const enriched = (responsesData || []).map(r => ({
+    const enriched = (responsesData || []).map((r: { user_id?: string | null }) => ({
       ...r,
       user: r.user_id ? userMap[r.user_id] || { name: 'Unknown', email: '' } : null,
     }));

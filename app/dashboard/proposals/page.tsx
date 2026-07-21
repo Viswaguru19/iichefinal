@@ -112,14 +112,14 @@ function ProposalsPageClient() {
       .order('created_at', { ascending: false });
     setProposals(data || []);
     if (data && data.length > 0) {
-      const eventIds = data.map(e => e.id);
+      const eventIds = data.map((e: { id: string }) => e.id);
       const { data: approvals } = await supabase.from('ec_approvals').select('*, profiles(name, executive_role)').in('event_id', eventIds);
       const approvalsMap: any = {};
-      approvals?.forEach(a => { if (!approvalsMap[a.event_id]) approvalsMap[a.event_id] = []; approvalsMap[a.event_id].push(a); });
+      approvals?.forEach((a: { event_id: string }) => { if (!approvalsMap[a.event_id]) approvalsMap[a.event_id] = []; approvalsMap[a.event_id].push(a); });
       setEcApprovals(approvalsMap);
       const { data: profiles } = await supabase.from('profiles').select('id, name');
       const pMap: any = {};
-      profiles?.forEach(p => { pMap[p.id] = p; });
+      profiles?.forEach((p: { id: string }) => { pMap[p.id] = p; });
       setProfilesMap(pMap);
     }
     setPageLoading(false);

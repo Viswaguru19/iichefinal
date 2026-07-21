@@ -127,30 +127,30 @@ export function useReminderEligibility(
                     } else if (event.status === 'pending_second_head_approval' && headMembers?.length) {
                         const firstId = event.head_approved_by;
                         pendingApprovers = (headMembers ?? [])
-                            .filter((m) => m.user_id !== firstId)
-                            .map((m) => {
-                                const p = m.profiles as unknown as { id: string; name: string; email: string };
+                            .filter((m: { user_id: string }) => m.user_id !== firstId)
+                            .map((m: { user_id: string; profiles: unknown }) => {
+                                const p = m.profiles as { id: string; name: string; email: string };
                                 return { userId: p?.id ?? m.user_id, name: p?.name ?? '', email: p?.email ?? '' };
                             })
-                            .filter((r) => r.userId);
+                            .filter((r: { userId: string }) => r.userId);
                     } else if (event.status === 'pending_ec_approval') {
                         // EC members who haven't approved yet
-                        const approvedIds = new Set((ecApprovals ?? []).map((a) => a.user_id));
+                        const approvedIds = new Set((ecApprovals ?? []).map((a: { user_id: string }) => a.user_id));
                         const { data: ecMembers } = await supabase
                             .from('profiles')
                             .select('id, name, email')
                             .not('executive_role', 'is', null);
 
                         pendingApprovers = (ecMembers ?? [])
-                            .filter((m) => !approvedIds.has(m.id))
-                            .map((m) => ({ userId: m.id, name: m.name, email: m.email }));
+                            .filter((m: { id: string }) => !approvedIds.has(m.id))
+                            .map((m: { id: string; name: string; email: string }) => ({ userId: m.id, name: m.name, email: m.email }));
                     } else if (event.status === 'pending_faculty_approval') {
                         const { data: facultyMembers } = await supabase
                             .from('profiles')
                             .select('id, name, email')
                             .or('is_faculty.eq.true,is_admin.eq.true');
 
-                        pendingApprovers = (facultyMembers ?? []).map((m) => ({
+                        pendingApprovers = (facultyMembers ?? []).map((m: { id: string; name: string; email: string }) => ({
                             userId: m.id,
                             name: m.name,
                             email: m.email,

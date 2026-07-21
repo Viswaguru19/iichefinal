@@ -649,7 +649,7 @@ export default function EventDetailPage() {
       if (!members || members.length === 0) return;
 
       // Create notifications for all committee members
-      const notifications = members.map(member => ({
+      const notifications = members.map((member: { user_id: string }) => ({
         user_id: member.user_id,
         type: 'task_assigned',
         title: 'New Task Approved! 📋',

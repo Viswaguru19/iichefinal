@@ -386,7 +386,7 @@ export async function createOrganizationChat() {
 
     if (!users) throw new Error('No users found');
 
-    const userIds = users.map((u) => u.id);
+    const userIds = users.map((u: { id: string }) => u.id);
 
     return createChatGroup(
         'IIChE AVVU SC - Organization',
@@ -410,7 +410,7 @@ export async function createExecutiveChat() {
 
     if (!ecMembers) throw new Error('No EC members found');
 
-    const userIds = ecMembers.map((u) => u.id);
+    const userIds = ecMembers.map((u: { id: string }) => u.id);
 
     return createChatGroup(
         'Executive Committee',
@@ -434,7 +434,7 @@ export async function createCoHeadsChat() {
 
     if (!coHeads) throw new Error('No co-heads found');
 
-    const userIds = coHeads.map((u) => u.id);
+    const userIds = coHeads.map((u: { id: string }) => u.id);
 
     return createChatGroup(
         'Committee Co-Heads',
@@ -457,7 +457,7 @@ export async function createCommitteeChat(committeeId: string, committeeName: st
 
     if (!members) throw new Error('No committee members found');
 
-    const userIds = members.map((m) => m.user_id);
+    const userIds = members.map((m: { user_id: string }) => m.user_id);
 
     return createChatGroup(
         `${committeeName} Committee`,

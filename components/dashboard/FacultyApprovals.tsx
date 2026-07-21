@@ -126,7 +126,7 @@ export default function FacultyApprovals() {
             .order('created_at', { ascending: false })
             .limit(5);
         if (!events) { setPendingApprovals([]); return; }
-        const withEc = await Promise.all(events.map(async (event) => {
+        const withEc = await Promise.all(events.map(async (event: { id: string }) => {
             const { data: ecApprovals } = await supabase
                 .from('ec_approvals')
                 .select('user_id, approved_at, profiles(name, executive_role)')
@@ -149,7 +149,7 @@ export default function FacultyApprovals() {
     async function loadTaskProgress() {
         const { data: committees } = await supabase.from('committees').select('id, name').eq('type', 'regular');
         if (!committees) return;
-        const progress = await Promise.all(committees.map(async (c) => {
+        const progress = await Promise.all(committees.map(async (c: { id: string; name: string }) => {
             const { count: total } = await supabase.from('tasks').select('*', { count: 'exact', head: true }).eq('assigned_to_committee_id', c.id);
             const { count: completed } = await supabase.from('tasks').select('*', { count: 'exact', head: true }).eq('assigned_to_committee_id', c.id).eq('status', 'completed');
             return { committee: c.name, total: total || 0, completed: completed || 0, pct: total ? Math.round(((completed || 0) / total) * 100) : 0 };

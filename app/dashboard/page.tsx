@@ -1,16 +1,26 @@
 import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
+import nextDynamic from 'next/dynamic';
 import { Crown, Send, ClipboardList } from 'lucide-react';
 import DashboardNav from '@/components/dashboard/DashboardNav';
 import AnimatedDashboardCard from '@/components/dashboard/AnimatedDashboardCard';
-import AnimatedEventProgress from '@/components/dashboard/AnimatedEventProgress';
 import AnimatedSection from '@/components/dashboard/AnimatedSection';
 import AnimatedCommitteeCard from '@/components/dashboard/AnimatedCommitteeCard';
 import AnimatedUpcomingEvents from '@/components/dashboard/AnimatedUpcomingEvents';
-import FacultyApprovals from '@/components/dashboard/FacultyApprovals';
-import PastEvents from '@/components/dashboard/PastEvents';
-import { groupMessagesChannelId } from '@/lib/chat-group-keys';
+import PortalLoadingScreen from '@/components/PortalLoadingScreen';
+
+const AnimatedEventProgress = nextDynamic(() => import('@/components/dashboard/AnimatedEventProgress'), {
+  loading: () => <div className="h-24 animate-pulse rounded-xl bg-white/40" />,
+});
+
+const FacultyApprovals = nextDynamic(() => import('@/components/dashboard/FacultyApprovals'), {
+  loading: () => <PortalLoadingScreen fullPage={false} message="Loading approvals…" />,
+});
+
+const PastEvents = nextDynamic(() => import('@/components/dashboard/PastEvents'), {
+  loading: () => <div className="h-40 animate-pulse rounded-xl bg-white/40" />,
+});
 
 export const dynamic = 'force-dynamic';
 
@@ -20,16 +30,16 @@ export default async function DashboardPage() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect('/login');
 
-  const { error: ensureChatErr } = await supabase.rpc('ensure_default_chat_memberships');
-  if (ensureChatErr) {
-    console.warn('ensure_default_chat_memberships:', ensureChatErr.message);
+  const [profileResult, ensureChatResult] = await Promise.all([
+    supabase.from('profiles').select('*').eq('id', user.id).single(),
+    supabase.rpc('ensure_default_chat_memberships'),
+  ]);
+
+  if (ensureChatResult.error) {
+    console.warn('ensure_default_chat_memberships:', ensureChatResult.error.message);
   }
 
-  const { data: profile, error: profileError } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('id', user.id)
-    .single();
+  const { data: profile, error: profileError } = profileResult;
 
   if (profileError || !profile) {
     await supabase.auth.signOut();
@@ -53,7 +63,6 @@ export default async function DashboardPage() {
     pastEventsRes,
     userMembershipsRes,
     unreadDmCountRes,
-    chatParticipantsRes,
   ] = await Promise.all([
     supabase
       .from('committee_members')
@@ -84,12 +93,7 @@ export default async function DashboardPage() {
       .from('direct_messages')
       .select('id', { count: 'exact', head: true })
       .eq('receiver_id', user.id)
-      // Unread = not explicitly true (NULL read must count — .eq(false) misses those rows)
       .or('read.is.null,read.eq.false'),
-    supabase
-      .from('chat_participants')
-      .select('group_id, last_read_at')
-      .eq('user_id', user.id),
   ]);
 
   const userCommittee = userCommitteeRes.data;
@@ -100,43 +104,8 @@ export default async function DashboardPage() {
   const userMemberships = userMembershipsRes.data;
   const unreadDmCount = unreadDmCountRes.count ?? 0;
 
-  let groupChatUnreadTotal = 0;
-  const rawPartRows = chatParticipantsRes.data || [];
-  const groupIdSet = [...new Set(rawPartRows.map((r: { group_id: string }) => String(r.group_id)))];
-  const groupMap = new Map<string, { id: string; chat_type: string | null; committee_id: string | null }>();
-  if (groupIdSet.length > 0) {
-    const { data: chatGroups } = await supabase
-      .from('chat_groups')
-      .select('id, chat_type, committee_id')
-      .in('id', groupIdSet);
-    for (const g of chatGroups || []) {
-      groupMap.set(String((g as { id: string }).id), g as { id: string; chat_type: string | null; committee_id: string | null });
-    }
-  }
-  const partRows = rawPartRows.map((r: { group_id: string; last_read_at: string | null }) => ({
-    last_read_at: r.last_read_at,
-    group: groupMap.get(String(r.group_id)) ?? null,
-  }));
-  if (partRows.length > 0) {
-    const groupUnreadCounts = await Promise.all(
-      partRows.map(async (row: any) => {
-        const g = row.group;
-        if (!g) return 0;
-        const chId = groupMessagesChannelId(g);
-        const lr = row.last_read_at || '1970-01-01T00:00:00.000Z';
-        const { count } = await supabase
-          .from('group_messages')
-          .select('id', { count: 'exact', head: true })
-          .eq('group_id', chId)
-          .neq('sender_id', user.id)
-          .gt('created_at', lr);
-        return count ?? 0;
-      }),
-    );
-    groupChatUnreadTotal = groupUnreadCounts.reduce((a, b) => a + b, 0);
-  }
-
-  const chatUnreadBadgeTotal = unreadDmCount + groupChatUnreadTotal;
+  // Skip expensive per-group unread counts on dashboard — DMs only keeps first paint fast
+  const chatUnreadBadgeTotal = unreadDmCount;
 
   const committeeRole = userCommittee ? `${(userCommittee as any).committees.name} ${(userCommittee as any).position === 'head' ? 'Head' : (userCommittee as any).position === 'co_head' ? 'Co-Head' : 'Member'}` : null;
 
@@ -168,57 +137,52 @@ export default async function DashboardPage() {
   }));
 
   const userCommitteeIds = userMemberships?.map(m => m.committee_id) || [];
+  const isHead = userCommittee && ['head', 'co_head'].includes((userCommittee as any).position);
+  const committeeIdForHead = (userCommittee as any)?.committee_id || '';
 
-  let pendingTasks: any[] = [];
-  if (userCommitteeIds.length > 0) {
-    const { data: pTasks } = await supabase
-      .from('task_assignments')
-      .select('id, title, status, deadline, event:event_id(title), assigned_committee:assigned_to_committee(name)')
-      .in('assigned_to_committee', userCommitteeIds)
-      .in('status', ['approved', 'in_progress'])
-      .order('created_at', { ascending: false })
-      .limit(10);
-    pendingTasks = pTasks || [];
-  }
+  const [pendingTasksResult, headApprovalRes, ecApprovalBundle, facultyApprovalRes] = await Promise.all([
+    userCommitteeIds.length > 0
+      ? supabase
+          .from('task_assignments')
+          .select('id, title, status, deadline, event:event_id(title), assigned_committee:assigned_to_committee(name)')
+          .in('assigned_to_committee', userCommitteeIds)
+          .in('status', ['approved', 'in_progress'])
+          .order('created_at', { ascending: false })
+          .limit(10)
+      : Promise.resolve({ data: [] as any[] }),
+    isHead
+      ? supabase
+          .from('events')
+          .select('*', { count: 'exact', head: true })
+          .eq('status', 'pending_head_approval')
+          .eq('committee_id', committeeIdForHead)
+      : Promise.resolve({ count: 0 }),
+    isExecutive
+      ? Promise.all([
+          supabase.from('events').select('id').eq('status', 'pending_ec_approval'),
+          supabase.from('ec_approvals').select('event_id').eq('user_id', user.id).eq('approved', true),
+        ])
+      : Promise.resolve([{ data: [] as { id: string }[] }, { data: [] as { event_id: string }[] }] as const),
+    isFaculty
+      ? supabase
+          .from('events')
+          .select('*', { count: 'exact', head: true })
+          .eq('status', 'pending_faculty_approval')
+      : Promise.resolve({ count: 0 }),
+  ]);
 
-  // Count pending approvals for the user (head approvals + EC approvals + faculty approvals)
-  let pendingApprovalCount = 0;
+  const pendingTasks = pendingTasksResult.data || [];
 
-  // Head approvals: events pending head approval for user's committee
-  if (userCommittee && ['head', 'co_head'].includes((userCommittee as any).position)) {
-    const { count: headCount } = await supabase
-      .from('events')
-      .select('*', { count: 'exact', head: true })
-      .eq('status', 'pending_head_approval')
-      .eq('committee_id', (userCommittee as any).committee_id || '');
-    pendingApprovalCount += headCount || 0;
-  }
-
-  // EC approvals: events pending EC approval that this user hasn't approved yet
+  let pendingApprovalCount = headApprovalRes.count || 0;
   if (isExecutive) {
-    const { data: pendingEcEvents } = await supabase
-      .from('events')
-      .select('id')
-      .eq('status', 'pending_ec_approval');
-    if (pendingEcEvents && pendingEcEvents.length > 0) {
-      const { data: myApprovals } = await supabase
-        .from('ec_approvals')
-        .select('event_id')
-        .eq('user_id', user.id)
-        .eq('approved', true);
-      const approvedIds = new Set(myApprovals?.map(a => a.event_id) || []);
-      pendingApprovalCount += pendingEcEvents.filter(e => !approvedIds.has(e.id)).length;
+    const [pendingEcEventsRes, myApprovalsRes] = ecApprovalBundle;
+    const pendingEcEvents = pendingEcEventsRes.data || [];
+    if (pendingEcEvents.length > 0) {
+      const approvedIds = new Set((myApprovalsRes.data || []).map((a) => a.event_id));
+      pendingApprovalCount += pendingEcEvents.filter((e) => !approvedIds.has(e.id)).length;
     }
   }
-
-  // Faculty approvals
-  if (isFaculty) {
-    const { count: facultyCount } = await supabase
-      .from('events')
-      .select('*', { count: 'exact', head: true })
-      .eq('status', 'pending_faculty_approval');
-    pendingApprovalCount += facultyCount || 0;
-  }
+  pendingApprovalCount += facultyApprovalRes.count || 0;
 
   const profileName = String((profile as any).name ?? '').trim();
   const greetingFirst = profileName.split(/\s+/).filter(Boolean)[0] || 'there';

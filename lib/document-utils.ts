@@ -419,7 +419,7 @@ export async function getDocumentStats(committeeId?: string) {
         total_size: 0,
     };
 
-    data?.forEach((doc) => {
+    data?.forEach((doc: { document_type: string; file_size?: number }) => {
         stats.by_type[doc.document_type] = (stats.by_type[doc.document_type] || 0) + 1;
         stats.total_size += doc.file_size || 0;
     });
@@ -441,7 +441,7 @@ export async function getAvailableYears() {
 
     if (error) throw error;
 
-    const years = [...new Set(data?.map((d) => d.year).filter(Boolean))];
+    const years = [...new Set(data?.map((d: { year: number | null }) => d.year).filter(Boolean))];
     return years;
 }
 
@@ -456,7 +456,7 @@ export async function getAvailableMonths(year: number) {
 
     if (error) throw error;
 
-    const months = [...new Set(data?.map((d) => d.month).filter(Boolean))];
+    const months = [...new Set(data?.map((d: { month: number | null }) => d.month).filter(Boolean))];
     return months;
 }
 
@@ -487,7 +487,7 @@ export async function bulkDeleteDocuments(documentIds: string[], userId: string)
     if (!documents) return;
 
     // Delete from storage
-    const filePaths = documents.map((doc) => {
+    const filePaths = documents.map((doc: { file_url: string }) => {
         const urlParts = doc.file_url.split('/');
         return `documents/${urlParts[urlParts.length - 1]}`;
     });

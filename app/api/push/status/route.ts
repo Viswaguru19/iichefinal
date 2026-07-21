@@ -1,0 +1,17 @@
+import { NextResponse } from 'next/server';
+
+/** Public status check — tells the profile UI whether server-side push is configured. */
+export async function GET() {
+  const hasPublic = Boolean(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY);
+  const hasPrivate = Boolean(process.env.VAPID_PRIVATE_KEY);
+  const hasWebhook = Boolean(process.env.PUSH_WEBHOOK_SECRET);
+
+  return NextResponse.json({
+    configured: hasPublic && hasPrivate,
+    vapidPublic: hasPublic,
+    vapidPrivate: hasPrivate,
+    webhookSecret: hasWebhook,
+    /** Full auto-push on every notification insert needs migration 106 + Supabase DB settings. */
+    autoDispatchReady: hasPublic && hasPrivate && hasWebhook,
+  });
+}

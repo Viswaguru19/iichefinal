@@ -80,7 +80,7 @@ export default function NotificationBell() {
         }
 
         setNotifications(data || []);
-        setUnreadCount(data?.filter((n) => n.read !== true).length || 0);
+        setUnreadCount(data?.filter((n: { read?: boolean | null }) => n.read !== true).length || 0);
     }
 
     async function markAsRead(notificationId: string): Promise<boolean> {
