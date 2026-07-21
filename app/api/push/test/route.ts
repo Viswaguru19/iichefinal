@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { hasAdminAccess } from '@/lib/permissions';
+import { hasAdminAccess, isPortalAdmin } from '@/lib/permissions';
 import { sendWebPushToUsers } from '@/lib/push/send-web-push';
 
 async function requireAdmin() {
@@ -11,12 +11,39 @@ async function requireAdmin() {
   } = await supabase.auth.getUser();
   if (!user) return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) };
 
-  const { data: profile } = await supabase.from('profiles').select('role, is_faculty').eq('id', user.id).single();
-  if (!profile || (!hasAdminAccess(String(profile.role)) && !profile.is_faculty)) {
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('role, is_faculty, is_admin')
+    .eq('id', user.id)
+    .single();
+
+  if (
+    !profile ||
+    (!hasAdminAccess(String(profile.role)) && !profile.is_faculty && !isPortalAdmin(profile))
+  ) {
     return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) };
   }
 
   return { user };
+}
+
+function pushResultError(result: Awaited<ReturnType<typeof sendWebPushToUsers>>): string | null {
+  if (result.vapidMissing) {
+    return 'VAPID keys missing on server — add them in Vercel and redeploy.';
+  }
+  if (result.dbError) {
+    return result.dbError;
+  }
+  if (result.noSubscriptions) {
+    return 'This user has not enabled notifications. On iPhone: Safari → Add to Home Screen → open app → Profile → Enable notifications.';
+  }
+  if (result.sent === 0) {
+    return (
+      result.deliveryError ||
+      'Push could not be delivered. Ask the user to open Profile and tap Enable notifications again.'
+    );
+  }
+  return null;
 }
 
 /** Admin: send a test push notification to a selected user. */
@@ -36,44 +63,23 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Select a user' }, { status: 400 });
   }
 
-  const admin = createAdminClient();
-  const { count, error: countErr } = await admin
-    .from('push_subscriptions')
-    .select('id', { count: 'exact', head: true })
-    .eq('user_id', userId);
-
-  if (countErr) {
-    return NextResponse.json({ error: countErr.message }, { status: 500 });
-  }
-
-  if (!count) {
-    return NextResponse.json(
-      {
-        error: 'This user has not enabled notifications yet. Ask them to tap Enable notifications in Profile.',
-        noSubscription: true,
-      },
-      { status: 400 },
-    );
-  }
-
-  const { data: targetProfile } = await admin.from('profiles').select('name, email').eq('id', userId).single();
+  const { data: targetProfile } = await createAdminClient()
+    .from('profiles')
+    .select('name, email')
+    .eq('id', userId)
+    .single();
   const name = targetProfile?.name || targetProfile?.email || 'User';
 
   const result = await sendWebPushToUsers([userId], {
     title: 'IIChE AVVU — Test notification',
     body: body.message?.trim() || `Hi ${name}, push notifications are working on your device.`,
-    url: '/dashboard',
+    url: '/dashboard/profile',
     tag: 'admin-test-push',
   });
 
-  if (result.sent === 0) {
-    return NextResponse.json(
-      {
-        error: 'Push could not be delivered. User may need to enable notifications again in Profile.',
-        ...result,
-      },
-      { status: 502 },
-    );
+  const err = pushResultError(result);
+  if (err) {
+    return NextResponse.json({ error: err, ...result }, { status: result.dbError ? 500 : 502 });
   }
 
   return NextResponse.json({
@@ -95,7 +101,13 @@ export async function GET() {
   ]);
 
   if (profilesErr) return NextResponse.json({ error: profilesErr.message }, { status: 500 });
-  if (subsErr) return NextResponse.json({ error: subsErr.message }, { status: 500 });
+  if (subsErr) {
+    const msg = subsErr.message || 'Failed to load subscriptions';
+    const hint = msg.includes('push_subscriptions')
+      ? ' Run migration 105_push_subscriptions.sql in Supabase.'
+      : '';
+    return NextResponse.json({ error: msg + hint }, { status: 500 });
+  }
 
   const subCounts = new Map<string, number>();
   for (const s of subs || []) {

@@ -24,13 +24,13 @@ export async function subscribeToPushNotifications(): Promise<boolean> {
   }
 
   if (isIOSDevice() && !isStandaloneDisplay()) {
-    toast.error('On iPhone: use Install App first, then enable notifications from the home screen icon');
+    toast.error('On iPhone: Add to Home Screen in Safari first, then enable notifications from that icon');
     return false;
   }
 
   const permission = await Notification.requestPermission();
   if (permission !== 'granted') {
-    toast.error('Notification permission denied');
+    toast.error('Notification permission denied — allow in phone Settings');
     return false;
   }
 
@@ -48,13 +48,26 @@ export async function subscribeToPushNotifications(): Promise<boolean> {
 
   await navigator.serviceWorker.ready;
 
+  // Fresh subscription — fixes stale keys after VAPID was added/changed on server
   const existing = await reg.pushManager.getSubscription();
-  const subscription =
-    existing ||
-    (await reg.pushManager.subscribe({
+  if (existing) {
+    try {
+      await existing.unsubscribe();
+    } catch {
+      // continue
+    }
+  }
+
+  let subscription;
+  try {
+    subscription = await reg.pushManager.subscribe({
       userVisibleOnly: true,
       applicationServerKey: urlBase64ToUint8Array(vapidKey),
-    }));
+    });
+  } catch {
+    toast.error('Could not subscribe to push — on iPhone use the Home Screen app');
+    return false;
+  }
 
   const res = await fetch('/api/push/subscribe', {
     method: 'POST',
@@ -62,8 +75,14 @@ export async function subscribeToPushNotifications(): Promise<boolean> {
     body: JSON.stringify({ subscription: subscription.toJSON() }),
   });
 
+  const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    toast.error('Failed to save push subscription');
+    const msg = (data as { error?: string }).error || 'Failed to save push subscription';
+    if (msg.includes('push_subscriptions')) {
+      toast.error('Database not ready — admin must run migration 105 in Supabase');
+    } else {
+      toast.error(msg);
+    }
     return false;
   }
 
@@ -73,11 +92,12 @@ export async function subscribeToPushNotifications(): Promise<boolean> {
     // ignore
   }
 
-  // Send immediate test so the user knows it worked
   try {
     const welcome = await fetch('/api/push/welcome', { method: 'POST' });
+    const welcomeData = await welcome.json().catch(() => ({}));
     if (!welcome.ok) {
-      toast.success('Notifications enabled — test alert could not be sent; try again from Admin');
+      const err = (welcomeData as { deliveryError?: string; error?: string }).deliveryError;
+      toast.success('Subscribed — test alert pending. ' + (err || 'Try admin test again.'));
       return true;
     }
   } catch {

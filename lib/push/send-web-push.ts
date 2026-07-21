@@ -8,6 +8,16 @@ export type WebPushPayload = {
   tag?: string;
 };
 
+export type PushSendResult = {
+  sent: number;
+  failed: number;
+  noSubscriptions?: boolean;
+  vapidMissing?: boolean;
+  dbError?: string;
+  /** Shown when delivery failed — e.g. stale subscription or VAPID mismatch */
+  deliveryError?: string;
+};
+
 let configured = false;
 
 function ensureConfigured(): boolean {
@@ -27,12 +37,27 @@ function ensureConfigured(): boolean {
   return true;
 }
 
+function describePushError(err: unknown): string {
+  const e = err as { statusCode?: number; body?: string; message?: string };
+  if (e.statusCode === 401 || e.statusCode === 403) {
+    return 'VAPID key mismatch — user must open Profile and tap Enable notifications again.';
+  }
+  if (e.statusCode === 404 || e.statusCode === 410) {
+    return 'Subscription expired — user must enable notifications again in Profile.';
+  }
+  return e.body || e.message || 'Unknown push delivery error';
+}
+
 export async function sendWebPushToUsers(
   userIds: string[],
   payload: WebPushPayload,
-): Promise<{ sent: number; failed: number }> {
-  if (!userIds.length || !ensureConfigured()) {
-    return { sent: 0, failed: 0 };
+): Promise<PushSendResult> {
+  if (!userIds.length) {
+    return { sent: 0, failed: 0, noSubscriptions: true };
+  }
+
+  if (!ensureConfigured()) {
+    return { sent: 0, failed: 0, vapidMissing: true };
   }
 
   const uniqueIds = [...new Set(userIds.filter(Boolean))];
@@ -43,8 +68,20 @@ export async function sendWebPushToUsers(
     .select('id, endpoint, p256dh, auth')
     .in('user_id', uniqueIds);
 
-  if (error || !subs?.length) {
-    return { sent: 0, failed: 0 };
+  if (error) {
+    const msg = error.message || 'Database error';
+    const tableMissing = msg.includes('push_subscriptions') && msg.includes('does not exist');
+    return {
+      sent: 0,
+      failed: 0,
+      dbError: tableMissing
+        ? 'push_subscriptions table missing — run migration 105 in Supabase SQL editor.'
+        : msg,
+    };
+  }
+
+  if (!subs?.length) {
+    return { sent: 0, failed: 0, noSubscriptions: true };
   }
 
   const pushBody = JSON.stringify({
@@ -56,6 +93,7 @@ export async function sendWebPushToUsers(
 
   let sent = 0;
   let failed = 0;
+  let deliveryError: string | undefined;
   const staleIds: string[] = [];
 
   await Promise.all(
@@ -71,8 +109,9 @@ export async function sendWebPushToUsers(
         sent += 1;
       } catch (err: unknown) {
         failed += 1;
+        deliveryError = describePushError(err);
         const status = (err as { statusCode?: number })?.statusCode;
-        if (status === 404 || status === 410) {
+        if (status === 404 || status === 410 || status === 401 || status === 403) {
           staleIds.push(sub.id);
         }
       }
@@ -83,5 +122,5 @@ export async function sendWebPushToUsers(
     await admin.from('push_subscriptions').delete().in('id', staleIds);
   }
 
-  return { sent, failed };
+  return { sent, failed, deliveryError: sent === 0 ? deliveryError : undefined };
 }

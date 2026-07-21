@@ -45,13 +45,17 @@ self.addEventListener('push', (event) => {
     // use defaults
   }
 
+  const iconUrl = new URL('/api/pwa/icon', self.location.origin).href;
+
   event.waitUntil(
     self.registration.showNotification(payload.title, {
       body: payload.body,
-      icon: '/api/pwa/icon',
-      badge: '/api/pwa/icon',
+      icon: iconUrl,
+      badge: iconUrl,
       tag: payload.tag || 'iiche-portal',
       data: { url: payload.url || '/dashboard' },
+      vibrate: [120, 60, 120],
+      requireInteraction: false,
     }),
   );
 });

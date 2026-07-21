@@ -12,6 +12,24 @@ export function isIOSDevice(): boolean {
   return iOS || iPadOs;
 }
 
+export function isAndroidDevice(): boolean {
+  if (typeof window === 'undefined') return false;
+  return /Android/i.test(window.navigator.userAgent);
+}
+
+/** Instagram / Facebook / WhatsApp in-app browsers block Web Push on Android. */
+export function isInAppBrowser(): boolean {
+  if (typeof window === 'undefined') return false;
+  const ua = window.navigator.userAgent;
+  return /FBAN|FBAV|Instagram|WhatsApp|Line\//i.test(ua) || (/\bwv\b/.test(ua) && isAndroidDevice());
+}
+
+export function isChromeOrEdgeOnAndroid(): boolean {
+  if (!isAndroidDevice()) return false;
+  const ua = window.navigator.userAgent;
+  return (/Chrome\//.test(ua) || /EdgA\//.test(ua)) && !isInAppBrowser();
+}
+
 export function isMobileLikeViewport(): boolean {
   if (typeof window === 'undefined') return false;
   return window.innerWidth < 768 || isIOSDevice();

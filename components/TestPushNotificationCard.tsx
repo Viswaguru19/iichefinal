@@ -47,7 +47,7 @@ export default function TestPushNotificationCard() {
       });
       const data = await res.json();
       if (!res.ok) {
-        toast.error(data.error || 'Failed to send test notification');
+        toast.error(data.error || 'Failed to send test notification', { duration: 6000 });
         return;
       }
       toast.success(data.message || 'Test notification sent');
@@ -64,8 +64,8 @@ export default function TestPushNotificationCard() {
         <BellRing className="w-5 h-5" /> Test App Notification
       </h2>
       <p className="text-sm text-gray-500 mb-4">
-        Send a test push to a user&apos;s phone. They must have tapped <strong>Enable notifications</strong> in Profile
-        first.
+        Send a test push to a user&apos;s phone. They must tap <strong>Enable notifications</strong> in Profile
+        (Android: Chrome/Edge · iPhone: Home Screen app first).
       </p>
 
       <div className="space-y-3">
