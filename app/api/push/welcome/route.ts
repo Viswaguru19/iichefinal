@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { sendWebPushToUsers } from '@/lib/push/send-web-push';
 
+export const runtime = 'nodejs';
+
 /** Send a welcome push to the current user right after they enable notifications. */
 export async function POST() {
   const supabase = await createClient();

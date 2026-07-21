@@ -1,5 +1,8 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
+
+export const runtime = 'nodejs';
 
 type PushSubscriptionJson = {
   endpoint: string;
@@ -8,7 +11,9 @@ type PushSubscriptionJson = {
 
 export async function POST(request: Request) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -25,7 +30,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Invalid subscription' }, { status: 400 });
   }
 
-  const { error } = await supabase.from('push_subscriptions').upsert(
+  let admin;
+  try {
+    admin = createAdminClient();
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : 'Server missing SUPABASE_SERVICE_ROLE_KEY' },
+      { status: 503 },
+    );
+  }
+
+  const { error } = await admin.from('push_subscriptions').upsert(
     {
       user_id: user.id,
       endpoint: sub.endpoint,
@@ -38,7 +53,14 @@ export async function POST(request: Request) {
   );
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    const msg = error.message || 'Failed to save subscription';
+    if (msg.includes('does not exist')) {
+      return NextResponse.json(
+        { error: 'push_subscriptions table missing — run migration 105 in Supabase SQL editor.' },
+        { status: 500 },
+      );
+    }
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 
   return NextResponse.json({ ok: true });
@@ -46,7 +68,9 @@ export async function POST(request: Request) {
 
 export async function DELETE(request: Request) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -59,7 +83,8 @@ export async function DELETE(request: Request) {
     endpoint = undefined;
   }
 
-  let query = supabase.from('push_subscriptions').delete().eq('user_id', user.id);
+  const admin = createAdminClient();
+  let query = admin.from('push_subscriptions').delete().eq('user_id', user.id);
   if (endpoint) query = query.eq('endpoint', endpoint);
   const { error } = await query;
 

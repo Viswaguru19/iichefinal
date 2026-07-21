@@ -4,6 +4,8 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { hasAdminAccess, isPortalAdmin } from '@/lib/permissions';
 import { sendWebPushToUsers } from '@/lib/push/send-web-push';
 
+export const runtime = 'nodejs';
+
 async function requireAdmin() {
   const supabase = await createClient();
   const {
@@ -35,7 +37,7 @@ function pushResultError(result: Awaited<ReturnType<typeof sendWebPushToUsers>>)
     return result.dbError;
   }
   if (result.noSubscriptions) {
-    return 'This user has not enabled notifications. On iPhone: Safari → Add to Home Screen → open app → Profile → Enable notifications.';
+    return 'This user has not enabled notifications. Android: Chrome → Profile → Enable. iPhone: Safari → Add to Home Screen → open app → Profile → Enable.';
   }
   if (result.sent === 0) {
     return (
