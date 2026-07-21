@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
 import { Upload, Image as ImageIcon, Check, Trash2, RefreshCw, History } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { broadcastLogoUpdated, clearLogoCache, resolveLogoPublicUrl } from '@/lib/logo-utils';
 
 interface LogoRecord {
     id: string;
@@ -53,21 +54,13 @@ export default function LogoManagementPage() {
             .from('logo_settings')
             .select('*')
             .eq('is_active', true)
-            .single();
+            .order('uploaded_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
 
         if (data) {
             setCurrentLogo(data);
-            // Get public URL for the logo
-            if (data.logo_url.startsWith('logos/')) {
-                const { data: urlData } = supabase.storage
-                    .from('logos')
-                    .getPublicUrl(data.logo_url.replace('logos/', ''));
-                setPreview(urlData.publicUrl);
-            } else if (data.logo_url === 'logo.svg') {
-                setPreview('/logo.svg');
-            } else {
-                setPreview(`/${data.logo_url}`);
-            }
+            setPreview(getLogoPublicUrl(data.logo_url));
         }
     }
 
@@ -84,31 +77,36 @@ export default function LogoManagementPage() {
     }
 
     function getLogoPublicUrl(logoUrl: string): string {
-        if (logoUrl.startsWith('logos/')) {
-            const { data: urlData } = supabase.storage
-                .from('logos')
-                .getPublicUrl(logoUrl.replace('logos/', ''));
+        return resolveLogoPublicUrl(logoUrl, (path) => {
+            const { data: urlData } = supabase.storage.from('logos').getPublicUrl(path);
             return urlData.publicUrl;
-        }
-        if (logoUrl === 'logo.svg') return '/logo.svg';
-        return logoUrl.startsWith('/') ? logoUrl : `/${logoUrl}`;
+        });
+    }
+
+    function applyLogoGlobally(publicUrl: string) {
+        clearLogoCache();
+        broadcastLogoUpdated(publicUrl);
+        router.refresh();
     }
 
     async function setAsActive(logoId: string) {
         try {
-            // Deactivate all logos
+            const target = logoHistory.find((l) => l.id === logoId);
             await supabase
                 .from('logo_settings')
                 .update({ is_active: false })
                 .eq('is_active', true);
 
-            // Activate selected logo
             const { error } = await supabase
                 .from('logo_settings')
                 .update({ is_active: true })
                 .eq('id', logoId);
 
             if (error) throw error;
+
+            if (target) {
+                applyLogoGlobally(getLogoPublicUrl(target.logo_url));
+            }
 
             toast.success('Logo activated successfully!');
             loadCurrentLogo();
@@ -194,6 +192,9 @@ export default function LogoManagementPage() {
                 });
 
             if (insertError) throw insertError;
+
+            const publicUrl = getLogoPublicUrl(`logos/${filePath}`);
+            applyLogoGlobally(publicUrl);
 
             toast.success('Logo uploaded successfully!');
             loadCurrentLogo();
