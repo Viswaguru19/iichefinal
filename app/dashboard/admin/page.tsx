@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { hasAdminAccess } from '@/lib/permissions';
 import { Users, Calendar, Trophy, DollarSign, UserCheck, MessageSquare, FileText, Power, Settings, Image as ImageIcon, ArrowUpCircle } from 'lucide-react';
 import TestEmailCard from '@/components/TestEmailCard';
+import TestPushNotificationCard from '@/components/TestPushNotificationCard';
 import AdminOnlinePresenceControls from '@/components/dashboard/AdminOnlinePresenceControls';
 import { adminEventWorkflowLabel, adminEventStatusBadgeClass } from '@/lib/admin-event-status';
 
@@ -68,7 +69,8 @@ export default async function AdminDashboard() {
 
         <div className="grid md:grid-cols-2 gap-6">
           <TestEmailCard />
-          <div className="premium-panel rounded-2xl p-6">
+          <TestPushNotificationCard />
+          <div className="premium-panel rounded-2xl p-6 md:col-span-2">
             <h2 className="text-xl font-bold text-gradient mb-4">Recent Events</h2>
             <div className="space-y-2 max-h-96 overflow-y-auto">
               {(events as any)?.slice(0, 5).map((event: any) => (

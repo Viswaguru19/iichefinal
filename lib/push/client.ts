@@ -73,7 +73,19 @@ export async function subscribeToPushNotifications(): Promise<boolean> {
     // ignore
   }
 
-  toast.success('Notifications enabled — you will get alerts outside the app');
+  // Send immediate test so the user knows it worked
+  try {
+    const welcome = await fetch('/api/push/welcome', { method: 'POST' });
+    if (!welcome.ok) {
+      toast.success('Notifications enabled — test alert could not be sent; try again from Admin');
+      return true;
+    }
+  } catch {
+    toast.success('Notifications enabled');
+    return true;
+  }
+
+  toast.success('Notifications enabled — check your phone for a test alert');
   return true;
 }
 
