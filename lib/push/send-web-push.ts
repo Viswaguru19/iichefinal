@@ -39,6 +39,9 @@ function ensureConfigured(): boolean {
 
 function describePushError(err: unknown): string {
   const e = err as { statusCode?: number; body?: string; message?: string };
+  if (e.message?.includes('timed out')) {
+    return 'Push delivery timed out — try again or ask the user to re-enable notifications.';
+  }
   if (e.statusCode === 401 || e.statusCode === 403) {
     return 'VAPID key mismatch — user must open Profile and tap Enable notifications again.';
   }
@@ -46,6 +49,15 @@ function describePushError(err: unknown): string {
     return 'Subscription expired — user must enable notifications again in Profile.';
   }
   return e.body || e.message || 'Unknown push delivery error';
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => {
+      setTimeout(() => reject(new Error('Push delivery timed out')), ms);
+    }),
+  ]);
 }
 
 export async function sendWebPushToUsers(
@@ -99,12 +111,15 @@ export async function sendWebPushToUsers(
   await Promise.all(
     subs.map(async (sub) => {
       try {
-        await webpush.sendNotification(
-          {
-            endpoint: sub.endpoint,
-            keys: { p256dh: sub.p256dh, auth: sub.auth },
-          },
-          pushBody,
+        await withTimeout(
+          webpush.sendNotification(
+            {
+              endpoint: sub.endpoint,
+              keys: { p256dh: sub.p256dh, auth: sub.auth },
+            },
+            pushBody,
+          ),
+          8000,
         );
         sent += 1;
       } catch (err: unknown) {

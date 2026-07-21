@@ -71,13 +71,26 @@ export default function TestPushNotificationCard() {
     }
     setSending(true);
     setLastError(null);
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 20000);
     try {
       const res = await fetch('/api/push/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId, message: message.trim() || undefined }),
+        signal: controller.signal,
       });
-      const data = await res.json();
+      const raw = await res.text();
+      let data: { error?: string; message?: string } = {};
+      try {
+        data = raw ? (JSON.parse(raw) as { error?: string; message?: string }) : {};
+      } catch {
+        throw new Error(
+          raw
+            ? `Server returned ${res.status} — ${raw.slice(0, 120)}`
+            : `Server returned ${res.status} with no response body`,
+        );
+      }
       if (!res.ok) {
         const err = data.error || 'Failed to send test notification';
         setLastError(err);
@@ -85,11 +98,17 @@ export default function TestPushNotificationCard() {
         return;
       }
       toast.success(data.message || 'Test notification sent');
-    } catch {
-      const err = 'Network error — could not reach push API';
+    } catch (e) {
+      const err =
+        e instanceof DOMException && e.name === 'AbortError'
+          ? 'Request timed out — try again on Wi‑Fi or desktop.'
+          : e instanceof Error
+            ? e.message
+            : 'Network error — could not reach push API';
       setLastError(err);
-      toast.error(err);
+      toast.error(err, { duration: 8000 });
     } finally {
+      window.clearTimeout(timeoutId);
       setSending(false);
     }
   }

@@ -5,6 +5,7 @@ import { hasAdminAccess, isPortalAdmin } from '@/lib/permissions';
 import { sendWebPushToUsers } from '@/lib/push/send-web-push';
 
 export const runtime = 'nodejs';
+export const maxDuration = 30;
 
 async function requireAdmin() {
   const supabase = await createClient();
@@ -50,45 +51,58 @@ function pushResultError(result: Awaited<ReturnType<typeof sendWebPushToUsers>>)
 
 /** Admin: send a test push notification to a selected user. */
 export async function POST(request: Request) {
-  const auth = await requireAdmin();
-  if ('error' in auth && auth.error) return auth.error;
-
-  let body: { userId?: string; message?: string };
   try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+    const auth = await requireAdmin();
+    if ('error' in auth && auth.error) return auth.error;
+
+    let body: { userId?: string; message?: string };
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+    }
+
+    const userId = body.userId?.trim();
+    if (!userId) {
+      return NextResponse.json({ error: 'Select a user' }, { status: 400 });
+    }
+
+    const { data: targetProfile } = await createAdminClient()
+      .from('profiles')
+      .select('name, email')
+      .eq('id', userId)
+      .single();
+    const name = targetProfile?.name || targetProfile?.email || 'User';
+
+    const result = await sendWebPushToUsers([userId], {
+      title: 'IIChE AVVU — Test notification',
+      body: body.message?.trim() || `Hi ${name}, push notifications are working on your device.`,
+      url: '/dashboard/profile',
+      tag: 'admin-test-push',
+    });
+
+    const err = pushResultError(result);
+    if (err) {
+      return NextResponse.json({ error: err, ...result }, { status: result.dbError ? 500 : 502 });
+    }
+
+    return NextResponse.json({
+      ok: true,
+      message: `Test notification sent to ${name} (${result.sent} device${result.sent === 1 ? '' : 's'})`,
+      ...result,
+    });
+  } catch (err) {
+    console.error('[push/test] POST failed', err);
+    return NextResponse.json(
+      {
+        error:
+          err instanceof Error
+            ? err.message
+            : 'Push API failed unexpectedly — refresh and try again.',
+      },
+      { status: 500 },
+    );
   }
-
-  const userId = body.userId?.trim();
-  if (!userId) {
-    return NextResponse.json({ error: 'Select a user' }, { status: 400 });
-  }
-
-  const { data: targetProfile } = await createAdminClient()
-    .from('profiles')
-    .select('name, email')
-    .eq('id', userId)
-    .single();
-  const name = targetProfile?.name || targetProfile?.email || 'User';
-
-  const result = await sendWebPushToUsers([userId], {
-    title: 'IIChE AVVU — Test notification',
-    body: body.message?.trim() || `Hi ${name}, push notifications are working on your device.`,
-    url: '/dashboard/profile',
-    tag: 'admin-test-push',
-  });
-
-  const err = pushResultError(result);
-  if (err) {
-    return NextResponse.json({ error: err, ...result }, { status: result.dbError ? 500 : 502 });
-  }
-
-  return NextResponse.json({
-    ok: true,
-    message: `Test notification sent to ${name} (${result.sent} device${result.sent === 1 ? '' : 's'})`,
-    ...result,
-  });
 }
 
 /** Admin: list users and whether they have push subscriptions. */
