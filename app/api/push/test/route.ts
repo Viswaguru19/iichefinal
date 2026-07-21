@@ -99,7 +99,7 @@ export async function GET() {
   const admin = createAdminClient();
   const [{ data: profiles, error: profilesErr }, { data: subs, error: subsErr }] = await Promise.all([
     admin.from('profiles').select('id, name, email, role').eq('approved', true).order('name'),
-    admin.from('push_subscriptions').select('user_id'),
+    admin.from('push_subscriptions').select('user_id, user_agent, updated_at'),
   ]);
 
   if (profilesErr) return NextResponse.json({ error: profilesErr.message }, { status: 500 });
@@ -112,18 +112,35 @@ export async function GET() {
   }
 
   const subCounts = new Map<string, number>();
+  const subMeta = new Map<string, { userAgent: string | null; updatedAt: string | null }>();
   for (const s of subs || []) {
     subCounts.set(s.user_id, (subCounts.get(s.user_id) || 0) + 1);
+    const prev = subMeta.get(s.user_id);
+    const updatedAt = s.updated_at || null;
+    if (!prev || (updatedAt && (!prev.updatedAt || updatedAt > prev.updatedAt))) {
+      subMeta.set(s.user_id, { userAgent: s.user_agent || null, updatedAt });
+    }
   }
 
-  const users = (profiles || []).map((p) => ({
-    id: p.id,
-    name: p.name,
-    email: p.email,
-    role: p.role,
-    pushDevices: subCounts.get(p.id) || 0,
-    hasPush: (subCounts.get(p.id) || 0) > 0,
-  }));
+  const users = (profiles || [])
+    .map((p) => {
+      const pushDevices = subCounts.get(p.id) || 0;
+      const meta = subMeta.get(p.id);
+      return {
+        id: p.id,
+        name: p.name,
+        email: p.email,
+        role: p.role,
+        pushDevices,
+        hasPush: pushDevices > 0,
+        pushDeviceHint: meta?.userAgent || null,
+        pushUpdatedAt: meta?.updatedAt || null,
+      };
+    })
+    .sort((a, b) => {
+      if (a.hasPush !== b.hasPush) return a.hasPush ? -1 : 1;
+      return (a.name || a.email || '').localeCompare(b.name || b.email || '');
+    });
 
   return NextResponse.json({ users });
 }

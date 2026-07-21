@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { BellRing, AlertTriangle } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { describeDevice } from '@/lib/push/device-hint';
 
 type PushUser = {
   id: string;
@@ -11,6 +12,8 @@ type PushUser = {
   role: string | null;
   pushDevices: number;
   hasPush: boolean;
+  pushDeviceHint?: string | null;
+  pushUpdatedAt?: string | null;
 };
 
 type PushHealth = {
@@ -21,6 +24,8 @@ type PushHealth = {
   serviceRoleKey?: boolean;
   vapidPublic?: boolean;
   vapidPrivate?: boolean;
+  vapidPairOk?: boolean;
+  vapidError?: string | null;
 };
 
 export default function TestPushNotificationCard() {
@@ -45,7 +50,12 @@ export default function TestPushNotificationCard() {
           setLastError(data.error);
           toast.error(data.error, { duration: 8000 });
         } else {
-          setUsers(data.users || []);
+          const list = data.users || [];
+          setUsers(list);
+          const withPush = list.filter((u) => u.hasPush);
+          if (withPush.length === 1) {
+            setUserId(withPush[0].id);
+          }
         }
       })
       .catch(() => toast.error('Failed to load users'))
@@ -114,6 +124,11 @@ export default function TestPushNotificationCard() {
               <strong>VAPID:</strong> Add public + private keys in Vercel and redeploy.
             </p>
           )}
+          {health.vapidError && (
+            <p>
+              <strong>VAPID pair:</strong> {health.vapidError}
+            </p>
+          )}
         </div>
       )}
 
@@ -153,7 +168,7 @@ export default function TestPushNotificationCard() {
             className={`text-xs rounded-lg px-3 py-2 ${selected.hasPush ? 'bg-green-50 text-green-800' : 'bg-amber-50 text-amber-900'}`}
           >
             {selected.hasPush
-              ? `${selected.name || selected.email} has notifications enabled on ${selected.pushDevices} device(s).`
+              ? `${selected.name || selected.email} has notifications enabled on ${selected.pushDevices} device(s)${selected.pushDeviceHint ? ` (${describeDevice(selected.pushDeviceHint)})` : ''}.`
               : `${selected.name || selected.email} has not enabled notifications — ask them to open Profile → Enable notifications on their phone.`}
           </p>
         )}
