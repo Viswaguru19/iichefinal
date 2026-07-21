@@ -1,5 +1,6 @@
 import webpush from 'web-push';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { isValidVapidSubject, resolveVapidSubject } from '@/lib/push/vapid';
 
 export type WebPushPayload = {
   title: string;
@@ -13,6 +14,7 @@ export type PushSendResult = {
   failed: number;
   noSubscriptions?: boolean;
   vapidMissing?: boolean;
+  vapidSubjectInvalid?: boolean;
   dbError?: string;
   /** Shown when delivery failed — e.g. stale subscription or VAPID mismatch */
   deliveryError?: string;
@@ -28,17 +30,26 @@ function ensureConfigured(): boolean {
     console.warn('[Web Push] VAPID keys not configured — skipping push');
     return false;
   }
-  webpush.setVapidDetails(
-    process.env.VAPID_SUBJECT || 'mailto:admin@iicheavvu.in',
-    publicKey,
-    privateKey,
-  );
+  const subject = resolveVapidSubject(process.env.VAPID_SUBJECT);
+  if (!isValidVapidSubject(subject)) {
+    console.warn('[Web Push] VAPID subject is not a valid URL:', subject);
+    return false;
+  }
+  try {
+    webpush.setVapidDetails(subject, publicKey, privateKey);
+  } catch (err) {
+    console.warn('[Web Push] setVapidDetails failed:', err);
+    return false;
+  }
   configured = true;
   return true;
 }
 
 function describePushError(err: unknown): string {
   const e = err as { statusCode?: number; body?: string; message?: string };
+  if (e.message?.includes('not a valid URL') || e.message?.includes('not a valid url')) {
+    return 'VAPID_SUBJECT must be mailto:admin@iicheavvu.in — fix in Vercel and redeploy.';
+  }
   if (e.message?.includes('timed out')) {
     return 'Push delivery timed out — try again or ask the user to re-enable notifications.';
   }
@@ -69,6 +80,16 @@ export async function sendWebPushToUsers(
   }
 
   if (!ensureConfigured()) {
+    const subject = resolveVapidSubject(process.env.VAPID_SUBJECT);
+    if (!isValidVapidSubject(subject)) {
+      return {
+        sent: 0,
+        failed: 0,
+        vapidSubjectInvalid: true,
+        deliveryError:
+          'VAPID_SUBJECT must be mailto:admin@iicheavvu.in or https://your-site.in — fix in Vercel env vars.',
+      };
+    }
     return { sent: 0, failed: 0, vapidMissing: true };
   }
 

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { vapidKeysMatch } from '@/lib/push/vapid';
+import { vapidKeysMatch, isValidVapidSubject, resolveVapidSubject } from '@/lib/push/vapid';
 
 export const runtime = 'nodejs';
 
@@ -41,18 +41,29 @@ export async function GET() {
     tableError = 'SUPABASE_SERVICE_ROLE_KEY missing in Vercel environment variables.';
   }
 
+  const vapidSubject = resolveVapidSubject(process.env.VAPID_SUBJECT);
+  const vapidSubjectOk = isValidVapidSubject(vapidSubject);
+  const vapidSubjectError = vapidSubjectOk
+    ? null
+    : `VAPID_SUBJECT must start with mailto: or https:// — use mailto:admin@iicheavvu.in in Vercel.`;
+
   const vapidError =
     vapidPublic && vapidPrivate && !vapidPairOk
       ? 'VAPID public and private keys do not match — regenerate a pair and update both in Vercel.'
-      : null;
+      : !vapidSubjectOk
+        ? vapidSubjectError
+        : null;
 
-  const ready = vapidPublic && vapidPrivate && vapidPairOk && serviceRoleKey && tableOk;
+  const ready =
+    vapidPublic && vapidPrivate && vapidPairOk && vapidSubjectOk && serviceRoleKey && tableOk;
 
   return NextResponse.json({
     configured: ready,
     vapidPublic,
     vapidPrivate,
     vapidPairOk,
+    vapidSubjectOk,
+    vapidSubject,
     vapidError,
     serviceRoleKey,
     tableOk,

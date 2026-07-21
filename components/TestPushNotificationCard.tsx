@@ -25,6 +25,7 @@ type PushHealth = {
   vapidPublic?: boolean;
   vapidPrivate?: boolean;
   vapidPairOk?: boolean;
+  vapidSubjectOk?: boolean;
   vapidError?: string | null;
 };
 
@@ -145,7 +146,14 @@ export default function TestPushNotificationCard() {
           )}
           {health.vapidError && (
             <p>
-              <strong>VAPID pair:</strong> {health.vapidError}
+              <strong>VAPID:</strong> {health.vapidError}
+            </p>
+          )}
+          {!health.vapidSubjectOk && (
+            <p>
+              <strong>VAPID subject:</strong> Set{' '}
+              <code>VAPID_SUBJECT=mailto:admin@iicheavvu.in</code> in Vercel (must include{' '}
+              <code>mailto:</code>).
             </p>
           )}
         </div>

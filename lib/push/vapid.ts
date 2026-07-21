@@ -1,5 +1,26 @@
 import crypto from 'crypto';
 
+const DEFAULT_VAPID_SUBJECT = 'mailto:admin@iicheavvu.in';
+
+/** Normalize common VAPID_SUBJECT mistakes (missing mailto:, quotes, spaces). */
+export function resolveVapidSubject(raw?: string | null): string {
+  let subject = (raw || DEFAULT_VAPID_SUBJECT).trim().replace(/^["']|["']$/g, '');
+  if (!subject) return DEFAULT_VAPID_SUBJECT;
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(subject)) {
+    subject = `mailto:${subject}`;
+  }
+  return subject;
+}
+
+export function isValidVapidSubject(subject: string): boolean {
+  try {
+    const url = new URL(subject);
+    return url.protocol === 'mailto:' || url.protocol === 'https:' || url.protocol === 'http:';
+  } catch {
+    return false;
+  }
+}
+
 function urlBase64ToBuffer(base64String: string): Buffer {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');

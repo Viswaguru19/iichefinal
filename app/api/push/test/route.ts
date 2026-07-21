@@ -34,6 +34,9 @@ function pushResultError(result: Awaited<ReturnType<typeof sendWebPushToUsers>>)
   if (result.vapidMissing) {
     return 'VAPID keys missing on server — add them in Vercel and redeploy.';
   }
+  if (result.vapidSubjectInvalid || result.deliveryError?.includes('VAPID_SUBJECT')) {
+    return 'VAPID_SUBJECT must be mailto:admin@iicheavvu.in (include mailto:) — fix in Vercel env vars and redeploy.';
+  }
   if (result.dbError) {
     return result.dbError;
   }
