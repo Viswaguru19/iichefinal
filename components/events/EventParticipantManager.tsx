@@ -21,22 +21,6 @@ function participantSearchText(p: any): string {
   return `${p.participant_name || ''} ${p.participant_email || ''}`.toLowerCase();
 }
 
-function keeperScore(p: any): number {
-  let score = 0;
-  if (p.attendance_status === 'present') score += 100;
-  if (p.participant_email?.trim()) score += 10;
-  if (p.form_response_id) score += 5;
-  return score;
-}
-
-function pickDuplicateKeeper(rows: any[]): any {
-  return [...rows].sort((a, b) => {
-    const diff = keeperScore(b) - keeperScore(a);
-    if (diff !== 0) return diff;
-    return new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();
-  })[0];
-}
-
 interface EventParticipantManagerProps {
   eventId: string;
   participants: any[];
@@ -87,7 +71,7 @@ export default function EventParticipantManager({
   const [deletingGroupId, setDeletingGroupId] = useState<string | null>(null);
   const [searchDraft, setSearchDraft] = useState('');
   const [searchApplied, setSearchApplied] = useState('');
-  const [removingDuplicates, setRemovingDuplicates] = useState(false);
+  const [showDuplicatesOnly, setShowDuplicatesOnly] = useState(false);
 
   const groupNames = useMemo(() => groups.map((g) => g.name), [groups]);
 
@@ -127,6 +111,31 @@ export default function EventParticipantManager({
     return [...new Set([...groupNames, ...fromParticipants, 'Unassigned'])];
   }, [groupNames, participants]);
 
+  const duplicateStats = useMemo(() => {
+    const byName = new Map<string, any[]>();
+    for (const p of participants) {
+      const key = normalizeParticipantName(p.participant_name);
+      if (!key) continue;
+      const list = byName.get(key) || [];
+      list.push(p);
+      byName.set(key, list);
+    }
+    const duplicateGroups = [...byName.entries()].filter(([, rows]) => rows.length > 1);
+    const duplicateParticipantIds = new Set<string>();
+    for (const [, rows] of duplicateGroups) {
+      for (const row of rows) duplicateParticipantIds.add(row.id);
+    }
+    const extraCount = duplicateGroups.reduce((sum, [, rows]) => sum + rows.length - 1, 0);
+    return {
+      duplicateGroups,
+      duplicateParticipantIds,
+      extraCount,
+      duplicateNameCount: duplicateGroups.length,
+    };
+  }, [participants]);
+
+  const { duplicateGroups, duplicateParticipantIds, extraCount, duplicateNameCount } = duplicateStats;
+
   const filteredParticipants = useMemo(() => {
     let list = participants;
     if (groupFilter !== 'all') {
@@ -139,22 +148,11 @@ export default function EventParticipantManager({
       const q = searchApplied.toLowerCase();
       list = list.filter((p) => participantSearchText(p).includes(q));
     }
-    return list;
-  }, [participants, groupFilter, attendanceFilter, mode, searchApplied]);
-
-  const duplicateStats = useMemo(() => {
-    const byName = new Map<string, any[]>();
-    for (const p of participants) {
-      const key = normalizeParticipantName(p.participant_name);
-      if (!key) continue;
-      const list = byName.get(key) || [];
-      list.push(p);
-      byName.set(key, list);
+    if (mode === 'attendance' && showDuplicatesOnly) {
+      list = list.filter((p) => duplicateParticipantIds.has(p.id));
     }
-    const duplicateGroups = [...byName.entries()].filter(([, rows]) => rows.length > 1);
-    const extraCount = duplicateGroups.reduce((sum, [, rows]) => sum + rows.length - 1, 0);
-    return { duplicateGroups, extraCount, duplicateNameCount: duplicateGroups.length };
-  }, [participants]);
+    return list;
+  }, [participants, groupFilter, attendanceFilter, mode, searchApplied, showDuplicatesOnly, duplicateParticipantIds]);
 
   const attendanceCounts = useMemo(() => ({
     present: participants.filter((p) => p.attendance_status === 'present').length,
@@ -305,43 +303,6 @@ export default function EventParticipantManager({
     await onRefresh();
   }
 
-  async function handleRemoveDuplicateNames() {
-    const { extraCount, duplicateGroups } = duplicateStats;
-    if (extraCount === 0) {
-      toast.error('No duplicate names found');
-      return;
-    }
-    const ok = window.confirm(
-      `Remove ${extraCount} duplicate participant row(s)? For each name, the best record is kept (present > has email > earliest registration).`,
-    );
-    if (!ok) return;
-
-    const idsToDelete: string[] = [];
-    for (const [, rows] of duplicateGroups) {
-      const keeper = pickDuplicateKeeper(rows);
-      for (const row of rows) {
-        if (row.id !== keeper.id) idsToDelete.push(row.id);
-      }
-    }
-
-    setRemovingDuplicates(true);
-    let removed = 0;
-    let failed = 0;
-    for (const id of idsToDelete) {
-      const { error } = await supabase.from('event_participants').delete().eq('id', id);
-      if (error) failed += 1;
-      else removed += 1;
-    }
-    setRemovingDuplicates(false);
-
-    if (removed === 0) {
-      toast.error(failed ? 'Could not remove duplicates' : 'Nothing removed');
-      return;
-    }
-    toast.success(`Removed ${removed} duplicate(s)${failed ? ` (${failed} failed)` : ''}`);
-    await onRefresh();
-  }
-
   function applyParticipantSearch() {
     setSearchApplied(searchDraft.trim());
   }
@@ -351,7 +312,14 @@ export default function EventParticipantManager({
     setSearchApplied('');
   }
 
+  function isDuplicateParticipant(p: any): boolean {
+    return duplicateParticipantIds.has(p.id);
+  }
+
   function rowSurfaceClass(p: any, isSelected: boolean): string {
+    if (mode === 'attendance' && isDuplicateParticipant(p)) {
+      return 'border-l-[5px] border-l-orange-500 border-y border-r border-orange-300 bg-orange-50 shadow-sm hover:bg-orange-50';
+    }
     if (mode === 'attendance') {
       if (p.attendance_status === 'present') {
         return 'border-l-[5px] border-l-emerald-600 border-y border-r border-emerald-300 bg-emerald-100 shadow-sm shadow-emerald-200/60 hover:bg-emerald-100';
@@ -397,6 +365,7 @@ export default function EventParticipantManager({
     const isMarking = markingId === p.id;
     const statusUi = attendanceStatusUi(p.attendance_status);
     const StatusIcon = statusUi.Icon;
+    const isDuplicate = isDuplicateParticipant(p);
 
     return (
       <div
@@ -419,8 +388,20 @@ export default function EventParticipantManager({
                   {statusUi.label}
                 </span>
               )}
+              {isDuplicate && (
+                <span className="inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-wide px-2.5 py-0.5 rounded-full bg-orange-200 text-orange-950 border border-orange-400">
+                  <Copy className="w-3 h-3" />
+                  Duplicate name
+                </span>
+              )}
             </div>
             <p className="text-xs text-gray-500 truncate">{p.participant_email || 'No email'}</p>
+            {isDuplicate && p.created_at && (
+              <p className="text-[10px] text-orange-800 mt-0.5">
+                Registered {new Date(p.created_at).toLocaleString('en-IN')}
+                {p.attendance_status === 'present' ? ' · Present' : p.attendance_status === 'absent' ? ' · Absent' : ''}
+              </p>
+            )}
             <div className="flex flex-wrap gap-1 mt-1.5">
               {groupLabel !== 'Unassigned' && (
                 <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-sky-100 text-sky-800">
@@ -475,6 +456,17 @@ export default function EventParticipantManager({
                 disabled={deletingId === p.id}
                 className="p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 disabled:opacity-50"
                 title="Remove participant"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            )}
+            {canManage && mode === 'attendance' && isDuplicate && (
+              <button
+                type="button"
+                onClick={() => handleDelete(p.id)}
+                disabled={deletingId === p.id}
+                className="p-2 rounded-lg text-orange-600 hover:text-red-700 hover:bg-red-50 disabled:opacity-50"
+                title="Remove duplicate"
               >
                 <Trash2 className="w-4 h-4" />
               </button>
@@ -736,21 +728,37 @@ export default function EventParticipantManager({
               {resettingAttendance ? 'Resetting...' : 'Reset attendance'}
             </button>
           )}
-          {canManage && duplicateStats.extraCount > 0 && (
+          {duplicateNameCount > 0 && (
             <button
               type="button"
-              onClick={() => void handleRemoveDuplicateNames()}
-              disabled={removingDuplicates}
-              className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border border-rose-300 bg-rose-50 text-rose-800 hover:bg-rose-100 disabled:opacity-50"
+              onClick={() => setShowDuplicatesOnly((v) => !v)}
+              className={`inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border ${
+                showDuplicatesOnly
+                  ? 'border-orange-500 bg-orange-100 text-orange-950'
+                  : 'border-orange-300 bg-orange-50 text-orange-900 hover:bg-orange-100'
+              }`}
             >
-              <Copy className={`w-3.5 h-3.5 ${removingDuplicates ? 'animate-pulse' : ''}`} />
-              {removingDuplicates
-                ? 'Removing duplicates…'
-                : `Remove duplicate names (${duplicateStats.extraCount})`}
+              <Copy className="w-3.5 h-3.5" />
+              {showDuplicatesOnly
+                ? 'Show all participants'
+                : `Show duplicate names (${duplicateNameCount})`}
             </button>
           )}
           </div>
         </div>
+
+        {duplicateNameCount > 0 && (
+          <div className="rounded-xl border border-orange-200 bg-orange-50/70 px-4 py-3 text-xs text-orange-950 space-y-1">
+            <p className="font-semibold">
+              {duplicateNameCount} name(s) appear more than once ({extraCount} extra row{extraCount === 1 ? '' : 's'}).
+              Review highlighted rows and delete manually with the trash icon.
+            </p>
+            <p className="text-orange-900">
+              {duplicateGroups.slice(0, 8).map(([, rows]) => `${rows[0].participant_name || 'Unknown'} (${rows.length}×)`).join(' · ')}
+              {duplicateGroups.length > 8 ? ` · +${duplicateGroups.length - 8} more` : ''}
+            </p>
+          </div>
+        )}
         </>
       )}
 
@@ -785,7 +793,9 @@ export default function EventParticipantManager({
 
       {filteredParticipants.length === 0 ? (
         <p className="text-gray-500">
-          {mode === 'attendance' && searchApplied
+          {mode === 'attendance' && showDuplicatesOnly
+            ? 'No duplicate names found.'
+            : mode === 'attendance' && searchApplied
             ? `No participants match "${searchApplied}".`
             : mode === 'attendance' && attendanceFilter !== 'all'
             ? 'No participants match this attendance filter.'
