@@ -12,6 +12,7 @@ import EventReport from '@/components/EventReport';
 import QRCode from 'qrcode';
 import EventQrScanner from '@/components/events/EventQrScanner';
 import EventParticipantManager from '@/components/events/EventParticipantManager';
+import EventParticipantEmailPanel from '@/components/events/EventParticipantEmailPanel';
 import { registrationSourceLabel } from '@/lib/event-participant-groups';
 import { isPortalAdmin } from '@/lib/permissions';
 import PortalLoadingScreen from '@/components/PortalLoadingScreen';
@@ -1695,6 +1696,14 @@ export default function EventDetailPage() {
             <h3 className="text-2xl font-bold text-gray-900 mb-4 flex items-center gap-2">
               <Users className="w-6 h-6" /> Participant Details
             </h3>
+            {!participantsLoading && (
+              <EventParticipantEmailPanel
+                eventId={event.id}
+                eventTitle={event.title}
+                participants={participants}
+                canSend={canEditEventMeta}
+              />
+            )}
             {participantsLoading ? (
               <p className="text-gray-500">Loading participants...</p>
             ) : (
