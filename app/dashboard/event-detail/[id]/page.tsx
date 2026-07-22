@@ -47,6 +47,15 @@ function TaskSupportingDocuments({ docs }: { docs: any[] | null | undefined }) {
   );
 }
 
+/** Local datetime-local value from ISO timestamp. */
+function toDatetimeLocalValue(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 function sanitizeParticipantFormData(raw: any) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw;
   const duplicateKeys = new Set([
@@ -100,6 +109,10 @@ export default function EventDetailPage() {
   const [posterReviewKind, setPosterReviewKind] = useState<'reject' | 'alteration' | null>(null);
   const [posterReviewNotes, setPosterReviewNotes] = useState('');
   const [posterReviewSaving, setPosterReviewSaving] = useState(false);
+  const [editingEventMeta, setEditingEventMeta] = useState(false);
+  const [editEventDate, setEditEventDate] = useState('');
+  const [editEventLocation, setEditEventLocation] = useState('');
+  const [savingEventMeta, setSavingEventMeta] = useState(false);
   const supabase = createClient();
   const router = useRouter();
   const params = useParams();
@@ -476,7 +489,6 @@ export default function EventDetailPage() {
 
     setUserProfile(profile);
 
-    // Check if user is EC member (executive_role or Executive Committee membership)
     const isExecutive = !!(
       profile?.executive_role !== null ||
       profile?.committee_members?.some((m: any) => m.committee_id === EC_COMMITTEE_ID)
@@ -484,17 +496,44 @@ export default function EventDetailPage() {
     setIsEC(isExecutive);
     setIsFaculty(profile?.is_faculty === true || profile?.is_admin === true);
 
-    // Check if user is in Graphics committee
     const graphicsCommittee = profile?.committee_members?.find(
       (m: any) => m.committees?.name?.toLowerCase().includes('graphics')
     );
     setIsGraphics(!!graphicsCommittee);
 
-    // Check if user is in Editorial committee
     const editorialCommittee = profile?.committee_members?.find(
       (m: any) => m.committees?.name?.toLowerCase().includes('editorial')
     );
     setIsEditorial(!!editorialCommittee);
+  }
+
+  async function saveEventMeta() {
+    if (!event?.id || !editEventDate.trim()) {
+      toast.error('Date and time are required');
+      return;
+    }
+    setSavingEventMeta(true);
+    try {
+      const when = new Date(editEventDate).toISOString();
+      const location = editEventLocation.trim() || null;
+      const { error } = await supabase
+        .from('events')
+        .update({
+          event_date: when,
+          date: when,
+          location,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', event.id);
+      if (error) throw error;
+      setEvent({ ...event, event_date: when, date: when, location });
+      setEditingEventMeta(false);
+      toast.success('Event date and venue updated');
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to update event');
+    } finally {
+      setSavingEventMeta(false);
+    }
   }
 
   async function loadEventDetails() {
@@ -909,6 +948,12 @@ export default function EventDetailPage() {
   }
 
   const isAdminUser = isPortalAdmin(userProfile);
+  const userCommittees =
+    userProfile?.committee_members?.map((m: any) => m.committee_id as string) || [];
+  const canEditEventMeta =
+    event.status !== 'cancelled' &&
+    event.status !== 'completed' &&
+    (isFaculty || isEC || isAdminUser || userCommittees.includes(event.committee_id));
   const canManageParticipants = !!userProfile;
   const canUploadPoster = isGraphics || isAdminUser;
   const posterPublished =
@@ -1226,19 +1271,100 @@ export default function EventDetailPage() {
             </div>
           )}
 
+          <div className="mb-6">
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <h4 className="text-sm font-semibold text-gray-700">Schedule &amp; venue</h4>
+              {canEditEventMeta && !editingEventMeta && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditEventDate(toDatetimeLocalValue(event.event_date || event.date));
+                    setEditEventLocation(event.location || '');
+                    setEditingEventMeta(true);
+                  }}
+                  className="inline-flex items-center gap-1.5 text-sm font-semibold text-indigo-600 hover:text-indigo-800"
+                >
+                  <Edit className="w-4 h-4" />
+                  Edit date &amp; venue
+                </button>
+              )}
+            </div>
+
+            {editingEventMeta ? (
+              <div className="space-y-3 p-4 bg-indigo-50/60 rounded-xl border border-indigo-100">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Date &amp; time</label>
+                  <input
+                    type="datetime-local"
+                    value={editEventDate}
+                    onChange={(e) => setEditEventDate(e.target.value)}
+                    className="w-full max-w-md px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Venue</label>
+                  <input
+                    type="text"
+                    value={editEventLocation}
+                    onChange={(e) => setEditEventLocation(e.target.value)}
+                    placeholder="e.g. Main auditorium, Block A"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  />
+                </div>
+                <p className="text-xs text-gray-500">
+                  Changes apply immediately — no re-approval needed.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={savingEventMeta}
+                    onClick={() => void saveEventMeta()}
+                    className="inline-flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50"
+                  >
+                    <Check className="w-4 h-4" />
+                    {savingEventMeta ? 'Saving…' : 'Save changes'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={savingEventMeta}
+                    onClick={() => setEditingEventMeta(false)}
+                    className="inline-flex items-center gap-2 bg-gray-100 text-gray-700 px-4 py-2 rounded-lg text-sm font-semibold hover:bg-gray-200 disabled:opacity-50"
+                  >
+                    <X className="w-4 h-4" />
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="grid md:grid-cols-2 gap-4">
+                {event.event_date && (
+                  <div className="flex items-center gap-2 text-gray-600">
+                    <Calendar className="w-5 h-5 shrink-0" />
+                    <span>
+                      {new Date(event.event_date).toLocaleString('en-IN', {
+                        day: 'numeric',
+                        month: 'long',
+                        year: 'numeric',
+                        hour: 'numeric',
+                        minute: '2-digit',
+                      })}
+                    </span>
+                  </div>
+                )}
+                {event.location && (
+                  <div className="flex items-center gap-2 text-gray-600">
+                    <MapPin className="w-5 h-5 shrink-0" />
+                    <span>{event.location}</span>
+                  </div>
+                )}
+                {!event.event_date && !event.location && (
+                  <p className="text-sm text-gray-500">No date or venue set yet.</p>
+                )}
+              </div>
+            )}
+          </div>
+
           <div className="grid md:grid-cols-2 gap-4 mb-6">
-            {event.event_date && (
-              <div className="flex items-center gap-2 text-gray-600">
-                <Calendar className="w-5 h-5" />
-                <span>{new Date(event.event_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
-              </div>
-            )}
-            {event.location && (
-              <div className="flex items-center gap-2 text-gray-600">
-                <MapPin className="w-5 h-5" />
-                <span>{event.location}</span>
-              </div>
-            )}
             {event.event_duration && (
               <div className="flex items-center gap-2 text-gray-600">
                 <Clock className="w-5 h-5" />
