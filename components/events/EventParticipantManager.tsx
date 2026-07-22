@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { Plus, Upload, Trash2, Users, ChevronDown, ChevronUp, FolderPlus, Download, RotateCcw, CheckCircle2, XCircle } from 'lucide-react';
+import { Plus, Upload, Trash2, Users, ChevronDown, ChevronUp, FolderPlus, Download, RotateCcw, CheckCircle2, XCircle, Search, Copy } from 'lucide-react';
 import toast from 'react-hot-toast';
 import {
   type EventParticipantGroup,
@@ -12,6 +12,30 @@ import {
   participantGroupLabel,
   registrationSourceLabel,
 } from '@/lib/event-participant-groups';
+
+function normalizeParticipantName(name: string | null | undefined): string {
+  return (name || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function participantSearchText(p: any): string {
+  return `${p.participant_name || ''} ${p.participant_email || ''}`.toLowerCase();
+}
+
+function keeperScore(p: any): number {
+  let score = 0;
+  if (p.attendance_status === 'present') score += 100;
+  if (p.participant_email?.trim()) score += 10;
+  if (p.form_response_id) score += 5;
+  return score;
+}
+
+function pickDuplicateKeeper(rows: any[]): any {
+  return [...rows].sort((a, b) => {
+    const diff = keeperScore(b) - keeperScore(a);
+    if (diff !== 0) return diff;
+    return new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();
+  })[0];
+}
 
 interface EventParticipantManagerProps {
   eventId: string;
@@ -61,6 +85,9 @@ export default function EventParticipantManager({
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deletingGroupId, setDeletingGroupId] = useState<string | null>(null);
+  const [searchDraft, setSearchDraft] = useState('');
+  const [searchApplied, setSearchApplied] = useState('');
+  const [removingDuplicates, setRemovingDuplicates] = useState(false);
 
   const groupNames = useMemo(() => groups.map((g) => g.name), [groups]);
 
@@ -108,8 +135,26 @@ export default function EventParticipantManager({
     if (mode === 'attendance' && attendanceFilter !== 'all') {
       list = list.filter((p) => (p.attendance_status || 'registered') === attendanceFilter);
     }
+    if (mode === 'attendance' && searchApplied) {
+      const q = searchApplied.toLowerCase();
+      list = list.filter((p) => participantSearchText(p).includes(q));
+    }
     return list;
-  }, [participants, groupFilter, attendanceFilter, mode]);
+  }, [participants, groupFilter, attendanceFilter, mode, searchApplied]);
+
+  const duplicateStats = useMemo(() => {
+    const byName = new Map<string, any[]>();
+    for (const p of participants) {
+      const key = normalizeParticipantName(p.participant_name);
+      if (!key) continue;
+      const list = byName.get(key) || [];
+      list.push(p);
+      byName.set(key, list);
+    }
+    const duplicateGroups = [...byName.entries()].filter(([, rows]) => rows.length > 1);
+    const extraCount = duplicateGroups.reduce((sum, [, rows]) => sum + rows.length - 1, 0);
+    return { duplicateGroups, extraCount, duplicateNameCount: duplicateGroups.length };
+  }, [participants]);
 
   const attendanceCounts = useMemo(() => ({
     present: participants.filter((p) => p.attendance_status === 'present').length,
@@ -258,6 +303,52 @@ export default function EventParticipantManager({
     }
     toast.success('Participant removed');
     await onRefresh();
+  }
+
+  async function handleRemoveDuplicateNames() {
+    const { extraCount, duplicateGroups } = duplicateStats;
+    if (extraCount === 0) {
+      toast.error('No duplicate names found');
+      return;
+    }
+    const ok = window.confirm(
+      `Remove ${extraCount} duplicate participant row(s)? For each name, the best record is kept (present > has email > earliest registration).`,
+    );
+    if (!ok) return;
+
+    const idsToDelete: string[] = [];
+    for (const [, rows] of duplicateGroups) {
+      const keeper = pickDuplicateKeeper(rows);
+      for (const row of rows) {
+        if (row.id !== keeper.id) idsToDelete.push(row.id);
+      }
+    }
+
+    setRemovingDuplicates(true);
+    let removed = 0;
+    let failed = 0;
+    for (const id of idsToDelete) {
+      const { error } = await supabase.from('event_participants').delete().eq('id', id);
+      if (error) failed += 1;
+      else removed += 1;
+    }
+    setRemovingDuplicates(false);
+
+    if (removed === 0) {
+      toast.error(failed ? 'Could not remove duplicates' : 'Nothing removed');
+      return;
+    }
+    toast.success(`Removed ${removed} duplicate(s)${failed ? ` (${failed} failed)` : ''}`);
+    await onRefresh();
+  }
+
+  function applyParticipantSearch() {
+    setSearchApplied(searchDraft.trim());
+  }
+
+  function clearParticipantSearch() {
+    setSearchDraft('');
+    setSearchApplied('');
   }
 
   function rowSurfaceClass(p: any, isSelected: boolean): string {
@@ -576,6 +667,45 @@ export default function EventParticipantManager({
       )}
 
       {mode === 'attendance' && (
+        <>
+        <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-4 space-y-2">
+          <p className="text-sm font-semibold text-indigo-900 flex items-center gap-2">
+            <Search className="w-4 h-4" />
+            Search participant to mark attendance
+          </p>
+          <div className="flex gap-2 flex-wrap">
+            <input
+              value={searchDraft}
+              onChange={(e) => setSearchDraft(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && applyParticipantSearch()}
+              placeholder="Search by name or email…"
+              className="flex-1 min-w-[200px] border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-indigo-500"
+            />
+            <button
+              type="button"
+              onClick={applyParticipantSearch}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700"
+            >
+              <Search className="w-4 h-4" />
+              Search
+            </button>
+            {searchApplied && (
+              <button
+                type="button"
+                onClick={clearParticipantSearch}
+                className="px-4 py-2 rounded-lg border border-gray-300 bg-white text-sm font-semibold text-gray-700 hover:bg-gray-50"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+          {searchApplied && (
+            <p className="text-xs text-indigo-800">
+              Showing {filteredParticipants.length} match(es) for &quot;{searchApplied}&quot; — tap Present or Absent below.
+            </p>
+          )}
+        </div>
+
         <div className="flex flex-wrap items-center gap-3 rounded-xl border border-gray-200 bg-white/60 px-4 py-3">
           <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800">
             {attendanceCounts.present} present
@@ -606,8 +736,22 @@ export default function EventParticipantManager({
               {resettingAttendance ? 'Resetting...' : 'Reset attendance'}
             </button>
           )}
+          {canManage && duplicateStats.extraCount > 0 && (
+            <button
+              type="button"
+              onClick={() => void handleRemoveDuplicateNames()}
+              disabled={removingDuplicates}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border border-rose-300 bg-rose-50 text-rose-800 hover:bg-rose-100 disabled:opacity-50"
+            >
+              <Copy className={`w-3.5 h-3.5 ${removingDuplicates ? 'animate-pulse' : ''}`} />
+              {removingDuplicates
+                ? 'Removing duplicates…'
+                : `Remove duplicate names (${duplicateStats.extraCount})`}
+            </button>
+          )}
           </div>
         </div>
+        </>
       )}
 
       <div className="flex flex-wrap items-center gap-3">
@@ -641,7 +785,9 @@ export default function EventParticipantManager({
 
       {filteredParticipants.length === 0 ? (
         <p className="text-gray-500">
-          {mode === 'attendance' && attendanceFilter !== 'all'
+          {mode === 'attendance' && searchApplied
+            ? `No participants match "${searchApplied}".`
+            : mode === 'attendance' && attendanceFilter !== 'all'
             ? 'No participants match this attendance filter.'
             : 'No participants yet.'}
         </p>
