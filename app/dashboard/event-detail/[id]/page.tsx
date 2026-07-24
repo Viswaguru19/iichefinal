@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter, useParams } from 'next/navigation';
 import { Calendar, MapPin, CheckCircle, Clock, Edit, Check, X, Palette, ImageIcon, AlertCircle, Camera, ChevronLeft, ChevronRight, Users, QrCode, FileText } from 'lucide-react';
@@ -10,7 +10,7 @@ import ReminderButton from '@/components/ReminderButton';
 import StatusIndicator from '@/components/StatusIndicator';
 import EventReport from '@/components/EventReport';
 import QRCode from 'qrcode';
-import EventQrScanner from '@/components/events/EventQrScanner';
+import EventQrScanner, { type QrScanResult } from '@/components/events/EventQrScanner';
 import EventParticipantManager from '@/components/events/EventParticipantManager';
 import EventParticipantEmailPanel from '@/components/events/EventParticipantEmailPanel';
 import { registrationSourceLabel } from '@/lib/event-participant-groups';
@@ -75,6 +75,117 @@ function sanitizeParticipantFormData(raw: any) {
   return out;
 }
 
+type ParticipantRow = {
+  id: string;
+  participant_name?: string | null;
+  form_response_id?: string | null;
+  qr_data?: string | null;
+  attendance_status?: string | null;
+};
+
+function parseQrPayload(raw: string): {
+  payload: Record<string, unknown> | null;
+  trimmed: string;
+  candidates: string[];
+  error?: string;
+} {
+  const trimmed = raw.trim();
+  if (!trimmed) return { payload: null, trimmed, candidates: [] };
+
+  const tryParseJson = (text: string): Record<string, unknown> | null => {
+    try {
+      return JSON.parse(text) as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  };
+
+  const safeDecode = (text: string): string | null => {
+    try {
+      return decodeURIComponent(text);
+    } catch {
+      return null;
+    }
+  };
+
+  const decoded = safeDecode(trimmed);
+  const unescaped = trimmed.replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+  const candidates = [trimmed, decoded || '', unescaped]
+    .filter(Boolean)
+    .filter((v, i, arr) => arr.indexOf(v) === i);
+
+  const urlLike = candidates.find((c) => /^https?:\/\//i.test(c));
+  if (urlLike && /\/forms\/[^/\s?]+/i.test(urlLike)) {
+    return {
+      payload: null,
+      trimmed,
+      candidates,
+      error: 'Registration form QR — use participant check-in QR',
+    };
+  }
+
+  let parsed: Record<string, unknown> | null = null;
+  for (const c of candidates) {
+    parsed = tryParseJson(c);
+    if (parsed) break;
+
+    if (/^https?:\/\//i.test(c)) {
+      try {
+        const u = new URL(c);
+        const qp = u.searchParams.get('payload') || u.searchParams.get('data') || u.searchParams.get('qr');
+        if (qp) {
+          const decQp = safeDecode(qp) || qp;
+          parsed =
+            tryParseJson(decQp) || tryParseJson(decQp.replace(/\\"/g, '"').replace(/\\\\/g, '\\'));
+          if (parsed) break;
+        }
+      } catch {
+        // ignore invalid URL
+      }
+    }
+
+    const start = c.indexOf('{');
+    const end = c.lastIndexOf('}');
+    if (start >= 0 && end > start) {
+      parsed = tryParseJson(c.slice(start, end + 1));
+      if (parsed) break;
+    }
+  }
+
+  return { payload: parsed, trimmed, candidates, error: parsed ? undefined : 'Invalid QR payload' };
+}
+
+function findParticipantLocally(
+  payload: Record<string, unknown>,
+  candidates: string[],
+  eventId: string,
+  rows: ParticipantRow[],
+): ParticipantRow | null {
+  const pid = payload.participant_id;
+  if (pid != null && pid !== '') {
+    const hit = rows.find((p) => p.id === String(pid));
+    if (hit) return hit;
+  }
+
+  const responseId = payload.response_id;
+  if (responseId) {
+    const hit = rows.find((p) => p.form_response_id === String(responseId));
+    if (hit) return hit;
+  }
+
+  const eid = payload.event_id;
+  if (eid != null && eid !== '' && String(eid) !== String(eventId)) {
+    return null;
+  }
+
+  for (const qrText of candidates) {
+    const hit = rows.find((p) => p.qr_data === qrText);
+    if (hit) return hit;
+  }
+
+  return null;
+}
+
 export default function EventDetailPage() {
   const EC_COMMITTEE_ID = '00000000-0000-0000-0000-000000000001';
   const [event, setEvent] = useState<any>(null);
@@ -103,7 +214,10 @@ export default function EventDetailPage() {
   const [eventQrImage, setEventQrImage] = useState<string | null>(null);
   const [scanInput, setScanInput] = useState('');
   const [scannerOpen, setScannerOpen] = useState(false);
-  const [scannerKey, setScannerKey] = useState(0);
+  const participantsRef = useRef<any[]>([]);
+  const markAttendanceRef = useRef<
+    (participantId: string, status?: 'present' | 'absent') => Promise<boolean>
+  >(async () => false);
   const [slideshowUrls, setSlideshowUrls] = useState<Set<string>>(new Set());
   /** Faculty poster review: reject or request changes (with notes). */
   const [posterReviewOpen, setPosterReviewOpen] = useState(false);
@@ -117,6 +231,10 @@ export default function EventDetailPage() {
   const supabase = createClient();
   const router = useRouter();
   const params = useParams();
+
+  useEffect(() => {
+    participantsRef.current = participants;
+  }, [participants]);
 
   useEffect(() => {
     loadEventDetails();
@@ -280,6 +398,7 @@ export default function EventDetailPage() {
 
     return true;
   }
+  markAttendanceRef.current = markAttendance;
 
   async function resetAttendance() {
     const markedCount = participants.filter(
@@ -323,160 +442,116 @@ export default function EventDetailPage() {
     toast.success(`Attendance reset for ${markedCount} participant(s)`);
   }
 
-  async function processScanPayload(raw: string) {
-    try {
-      const trimmed = raw.trim();
-      if (!trimmed) return;
-      let payload: Record<string, unknown>;
+  const processScanPayload = useCallback(
+    async (raw: string): Promise<QrScanResult> => {
+      try {
+        const eventId = event?.id;
+        if (!eventId) return { ok: false, message: 'Event not loaded' };
 
-      const tryParseJson = (text: string): Record<string, unknown> | null => {
-        try {
-          return JSON.parse(text) as Record<string, unknown>;
-        } catch {
-          return null;
+        const parsed = parseQrPayload(raw);
+        if (parsed.error || !parsed.payload) {
+          return { ok: false, message: parsed.error || 'Invalid QR payload' };
         }
-      };
 
-      const safeDecode = (text: string): string | null => {
-        try {
-          return decodeURIComponent(text);
-        } catch {
-          return null;
+        const payload = parsed.payload;
+        const pid = payload.participant_id;
+        if (pid == null || pid === '') {
+          return { ok: false, message: 'Invalid participant QR' };
         }
-      };
+        const eid = payload.event_id;
+        if (eid != null && eid !== '' && String(eid) !== String(eventId)) {
+          return { ok: false, message: 'QR is for a different event' };
+        }
 
-      const decoded = safeDecode(trimmed);
-      const unescaped = trimmed.replace(/\\"/g, '"').replace(/\\\\/g, '\\');
-      const candidates = [trimmed, decoded || '', unescaped].filter(Boolean).filter((v, i, arr) => arr.indexOf(v) === i);
+        const localRows = participantsRef.current as ParticipantRow[];
+        let participantRow = findParticipantLocally(payload, parsed.candidates, eventId, localRows);
 
-      // If organizer scans the event registration QR (URL), guide them to scan participant check-in QR instead.
-      const urlLike = candidates.find((c) => /^https?:\/\//i.test(c));
-      if (urlLike && /\/forms\/[^/\s?]+/i.test(urlLike)) {
-        toast.error('This is the registration form QR. Scan the participant check-in QR shown after form submission.');
-        return;
-      }
+        if (!participantRow) {
+          const responseId = payload.response_id;
+          const qrCandidates = [
+            parsed.trimmed,
+            ...parsed.candidates,
+            JSON.stringify(payload),
+          ].filter((v, i, arr) => Boolean(v) && arr.indexOf(v) === i);
 
-      payload = {} as Record<string, unknown>;
-      let parsed = null as Record<string, unknown> | null;
-      for (const c of candidates) {
-        parsed = tryParseJson(c);
-        if (parsed) break;
+          const lookups: Promise<{ id: string; participant_name: string | null } | null>[] = [
+            supabase
+              .from('event_participants')
+              .select('id, participant_name')
+              .eq('id', String(pid))
+              .eq('event_id', eventId)
+              .maybeSingle()
+              .then(({ data }) => data),
+          ];
 
-        // Support URLs that embed payload in query params: ?payload=... or ?data=...
-        if (/^https?:\/\//i.test(c)) {
-          try {
-            const u = new URL(c);
-            const qp = u.searchParams.get('payload') || u.searchParams.get('data') || u.searchParams.get('qr');
-            if (qp) {
-              const decQp = safeDecode(qp) || qp;
-              parsed = tryParseJson(decQp) || tryParseJson(decQp.replace(/\\"/g, '"').replace(/\\\\/g, '\\'));
-              if (parsed) break;
-            }
-          } catch {
-            // ignore invalid URL
+          if (responseId) {
+            lookups.push(
+              supabase
+                .from('event_participants')
+                .select('id, participant_name')
+                .eq('form_response_id', String(responseId))
+                .eq('event_id', eventId)
+                .maybeSingle()
+                .then(({ data }) => data),
+            );
+          }
+
+          for (const qrText of qrCandidates.slice(0, 3)) {
+            lookups.push(
+              supabase
+                .from('event_participants')
+                .select('id, participant_name')
+                .eq('event_id', eventId)
+                .eq('qr_data', qrText)
+                .maybeSingle()
+                .then(({ data }) => data),
+            );
+          }
+
+          const results = await Promise.all(lookups);
+          const hit = results.find((r) => r?.id);
+          if (hit) {
+            participantRow = {
+              id: hit.id,
+              participant_name: hit.participant_name,
+              attendance_status: localRows.find((p) => p.id === hit.id)?.attendance_status,
+            };
           }
         }
 
-        const start = c.indexOf('{');
-        const end = c.lastIndexOf('}');
-        if (start >= 0 && end > start) {
-          parsed = tryParseJson(c.slice(start, end + 1));
-          if (parsed) break;
+        if (!participantRow?.id) {
+          return { ok: false, message: 'Participant not found — use check-in QR' };
         }
-      }
 
-      if (!parsed) {
-        toast.error('Invalid QR payload');
-        return;
-      }
-      payload = parsed;
-      const pid = payload?.participant_id;
-      const eid = payload?.event_id;
-      if (pid == null || pid === '') {
-        toast.error('Invalid participant QR');
-        return;
-      }
-      if (eid != null && eid !== '' && String(eid) !== String(event?.id)) {
-        toast.error('This QR is for a different event');
-        return;
-      }
-
-      let participantId = String(pid);
-      const responseId = payload?.response_id;
-      let resolved = false;
-
-      const { data: byId } = await supabase
-        .from('event_participants')
-        .select('id')
-        .eq('id', participantId)
-        .eq('event_id', event!.id)
-        .maybeSingle();
-
-      if (byId?.id) {
-        participantId = byId.id;
-        resolved = true;
-      } else if (responseId) {
-        const { data: byResponse } = await supabase
-          .from('event_participants')
-          .select('id')
-          .eq('form_response_id', String(responseId))
-          .eq('event_id', event!.id)
-          .maybeSingle();
-        if (byResponse?.id) {
-          participantId = byResponse.id;
-          resolved = true;
+        const name = participantRow.participant_name || 'Participant';
+        if (participantRow.attendance_status === 'present') {
+          return { ok: true, message: `Already present: ${name}` };
         }
-      }
 
-      if (!resolved) {
-        const qrCandidates = [trimmed, decoded || '', unescaped, JSON.stringify(payload)].filter(
-          (v, i, arr) => Boolean(v) && arr.indexOf(v) === i,
-        );
-        for (const qrText of qrCandidates) {
-          const { data: byQr } = await supabase
-            .from('event_participants')
-            .select('id')
-            .eq('event_id', event!.id)
-            .eq('qr_data', qrText)
-            .maybeSingle();
-          if (byQr?.id) {
-            participantId = byQr.id;
-            resolved = true;
-            break;
-          }
+        const marked = await markAttendanceRef.current(participantRow.id, 'present');
+        if (marked) {
+          return { ok: true, message: `Present: ${name}` };
         }
+        return { ok: false, message: `Could not mark ${name}` };
+      } catch (err) {
+        console.error('processScanPayload failed:', err);
+        return { ok: false, message: 'Failed to process QR scan' };
       }
-
-      const { data: participantRow } = await supabase
-        .from('event_participants')
-        .select('id, participant_name')
-        .eq('id', participantId)
-        .eq('event_id', event!.id)
-        .maybeSingle();
-
-      if (!participantRow?.id) {
-        toast.error('Participant not found — use the check-in QR from event registration');
-        return;
-      }
-
-      const marked = await markAttendance(participantRow.id, 'present');
-      if (marked) {
-        toast.success(`Marked present: ${participantRow.participant_name || 'Participant'}`);
-      }
-    } catch (err) {
-      console.error('processScanPayload failed:', err);
-      toast.error('Failed to process QR scan');
-    }
-  }
+    },
+    [event?.id, supabase],
+  );
 
   async function handleScan() {
-    await processScanPayload(scanInput);
+    const result = await processScanPayload(scanInput);
+    if (!result.ok) toast.error(result.message);
+    else toast.success(result.message);
     setScanInput('');
   }
 
-  const handleQrScanned = useCallback((decodedText: string) => {
-    void processScanPayload(decodedText);
-  }, [event?.id, participants]);
+  const handleQrScanned = useCallback(
+    (decodedText: string) => processScanPayload(decodedText),
+    [processScanPayload],
+  );
 
   async function loadUserProfile() {
     const { data: { user } } = await supabase.auth.getUser();
@@ -1777,10 +1852,7 @@ export default function EventDetailPage() {
                 <p className="text-sm font-medium text-gray-800">Scan participant check-in QR</p>
                 <button
                   type="button"
-                  onClick={() => {
-                    setScannerKey((k) => k + 1);
-                    setScannerOpen(true);
-                  }}
+                  onClick={() => setScannerOpen(true)}
                   className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700"
                 >
                   Scan QR (Camera)
@@ -1820,10 +1892,10 @@ export default function EventDetailPage() {
         )}
       </div>
       <EventQrScanner
-        key={scannerKey}
         open={scannerOpen}
         onClose={() => setScannerOpen(false)}
         onScanned={handleQrScanned}
+        continuous
       />
     </div>
   );
