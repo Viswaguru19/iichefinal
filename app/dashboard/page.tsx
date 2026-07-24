@@ -206,9 +206,9 @@ export default async function DashboardPage() {
               </p>
             )}
             {isExecutive && (
-              <div className="mt-3 inline-flex items-center gap-2 bg-gradient-to-r from-amber-400 to-orange-500 text-white px-3 sm:px-4 py-1.5 sm:py-2 rounded-full shadow-lg shadow-amber-500/20 text-xs sm:text-sm">
-                <Crown className="w-5 h-5" />
-                <span className="font-bold">
+              <div className="mt-3 inline-flex items-center gap-2 bg-gradient-to-r from-amber-400 to-orange-500 text-white px-3 sm:px-4 py-1.5 sm:py-2 rounded-full shadow-lg shadow-amber-500/20 text-xs sm:text-sm max-w-full">
+                <Crown className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
+                <span className="font-bold truncate">
                   IIChE Executive Committee - {(profile as any).executive_role?.replace('_', ' ').toUpperCase()}
                 </span>
               </div>

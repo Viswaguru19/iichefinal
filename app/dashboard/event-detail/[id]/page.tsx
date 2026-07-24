@@ -475,36 +475,42 @@ export default function EventDetailPage() {
           ].filter((v, i, arr) => Boolean(v) && arr.indexOf(v) === i);
 
           const lookups: Promise<{ id: string; participant_name: string | null } | null>[] = [
-            supabase
-              .from('event_participants')
-              .select('id, participant_name')
-              .eq('id', String(pid))
-              .eq('event_id', eventId)
-              .maybeSingle()
-              .then(({ data }) => data),
+            Promise.resolve(
+              supabase
+                .from('event_participants')
+                .select('id, participant_name')
+                .eq('id', String(pid))
+                .eq('event_id', eventId)
+                .maybeSingle()
+                .then(({ data }) => data),
+            ),
           ];
 
           if (responseId) {
             lookups.push(
-              supabase
-                .from('event_participants')
-                .select('id, participant_name')
-                .eq('form_response_id', String(responseId))
-                .eq('event_id', eventId)
-                .maybeSingle()
-                .then(({ data }) => data),
+              Promise.resolve(
+                supabase
+                  .from('event_participants')
+                  .select('id, participant_name')
+                  .eq('form_response_id', String(responseId))
+                  .eq('event_id', eventId)
+                  .maybeSingle()
+                  .then(({ data }) => data),
+              ),
             );
           }
 
           for (const qrText of qrCandidates.slice(0, 3)) {
             lookups.push(
-              supabase
-                .from('event_participants')
-                .select('id, participant_name')
-                .eq('event_id', eventId)
-                .eq('qr_data', qrText)
-                .maybeSingle()
-                .then(({ data }) => data),
+              Promise.resolve(
+                supabase
+                  .from('event_participants')
+                  .select('id, participant_name')
+                  .eq('event_id', eventId)
+                  .eq('qr_data', qrText)
+                  .maybeSingle()
+                  .then(({ data }) => data),
+              ),
             );
           }
 
@@ -1048,10 +1054,16 @@ export default function EventDetailPage() {
       <PageHeader title="Event Details" />
 
       <div className="max-w-7xl mx-auto px-4 py-8">
-        <div className="premium-card rounded-2xl p-2 mb-6 flex gap-2 w-fit">
-          <button onClick={() => setActiveTab('info')} className={`px-4 py-2 rounded-xl text-sm font-semibold ${activeTab === 'info' ? 'bg-indigo-600 text-white' : 'text-gray-600 hover:bg-white/70'}`}>Event Info</button>
-          <button onClick={() => setActiveTab('participants')} className={`px-4 py-2 rounded-xl text-sm font-semibold ${activeTab === 'participants' ? 'bg-indigo-600 text-white' : 'text-gray-600 hover:bg-white/70'}`}>Participant Details</button>
-          <button onClick={() => setActiveTab('attendance')} className={`px-4 py-2 rounded-xl text-sm font-semibold ${activeTab === 'attendance' ? 'bg-indigo-600 text-white' : 'text-gray-600 hover:bg-white/70'}`}>Participation / Attendance</button>
+        <div className="premium-card rounded-2xl p-1.5 sm:p-2 mb-6 flex gap-1.5 sm:gap-2 w-full max-w-full overflow-x-auto mobile-clean-scroll">
+          <button onClick={() => setActiveTab('info')} className={`px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold whitespace-nowrap shrink-0 ${activeTab === 'info' ? 'bg-indigo-600 text-white' : 'text-gray-600 hover:bg-white/70'}`}>Event Info</button>
+          <button onClick={() => setActiveTab('participants')} className={`px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold whitespace-nowrap shrink-0 ${activeTab === 'participants' ? 'bg-indigo-600 text-white' : 'text-gray-600 hover:bg-white/70'}`}>
+            <span className="sm:hidden">Participants</span>
+            <span className="hidden sm:inline">Participant Details</span>
+          </button>
+          <button onClick={() => setActiveTab('attendance')} className={`px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold whitespace-nowrap shrink-0 ${activeTab === 'attendance' ? 'bg-indigo-600 text-white' : 'text-gray-600 hover:bg-white/70'}`}>
+            <span className="sm:hidden">Attendance</span>
+            <span className="hidden sm:inline">Participation / Attendance</span>
+          </button>
         </div>
         {activeTab === 'info' && (
           <>
@@ -1863,7 +1875,7 @@ export default function EventDetailPage() {
                   value={scanInput}
                   onChange={(e) => setScanInput(e.target.value)}
                   placeholder="Paste QR contents (JSON) if not using camera"
-                  className="flex-1 min-w-[200px] border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                  className="flex-1 min-w-0 w-full sm:min-w-[200px] border border-gray-300 rounded-lg px-3 py-2 text-sm"
                 />
                 <button type="button" onClick={handleScan} className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700">
                   Mark present

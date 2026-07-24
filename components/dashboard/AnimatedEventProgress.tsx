@@ -105,11 +105,11 @@ export default function AnimatedEventProgress({ events }: AnimatedEventProgressP
                             </div>
 
                             {/* Approval Steps */}
-                            <div className="flex items-center gap-0 mb-5 relative z-10">
+                            <div className="flex items-center gap-0 mb-5 relative z-10 overflow-x-auto mobile-clean-scroll">
                                 {APPROVAL_STEPS.map((step, i) => {
                                     const done = step.key === 'head' ? steps.headDone : step.key === 'ec' ? steps.ecDone : steps.facultyDone;
                                     return (
-                                        <div key={step.key} className="flex items-center flex-1">
+                                        <div key={step.key} className="flex items-center flex-1 min-w-[4.5rem]">
                                             <div className="flex flex-col items-center flex-1">
                                                 <motion.div
                                                     initial={{ scale: 0 }}
@@ -126,12 +126,12 @@ export default function AnimatedEventProgress({ events }: AnimatedEventProgressP
                                                         </div>
                                                     )}
                                                 </motion.div>
-                                                <span className={`text-[10px] mt-1.5 font-semibold ${done ? 'text-gray-700' : 'text-gray-300'}`}>
+                                                <span className={`text-[9px] sm:text-[10px] mt-1.5 font-semibold text-center leading-tight px-0.5 ${done ? 'text-gray-700' : 'text-gray-300'}`}>
                                                     {step.label}
                                                 </span>
                                             </div>
                                             {i < APPROVAL_STEPS.length - 1 && (
-                                                <div className="flex-shrink-0 w-8 -mt-4 mx-1">
+                                                <div className="flex-shrink-0 w-4 sm:w-8 -mt-4 mx-0.5 sm:mx-1">
                                                     <div className={`h-0.5 rounded-full ${done ? `bg-gradient-to-r ${step.gradient}` : 'bg-gray-200'}`} />
                                                 </div>
                                             )}

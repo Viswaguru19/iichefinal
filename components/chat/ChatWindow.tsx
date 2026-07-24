@@ -12,6 +12,7 @@ import { motionTokens } from '@/lib/ui/motion';
 interface Props {
     chat: ChatItem;
     currentUser: UserProfile;
+    allUsers: UserProfile[];
     onlineUsers: Set<string>;
     showOnlinePresence: boolean;
     onOpenProfile: (userId: string) => void;
@@ -46,7 +47,7 @@ function groupReceiptLevel(
     return 'read';
 }
 
-export default function ChatWindow({ chat, currentUser, onlineUsers, showOnlinePresence, onOpenProfile, onMessageSent, onBack }: Props) {
+export default function ChatWindow({ chat, currentUser, allUsers, onlineUsers, showOnlinePresence, onOpenProfile, onMessageSent, onBack }: Props) {
     const [messages, setMessages] = useState<any[]>([]);
     const [newMessage, setNewMessage] = useState('');
     const [loading, setLoading] = useState(true);
@@ -227,14 +228,51 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, showOnlineP
     function setupChannel() {
         if (channelRef.current) supabase.removeChannel(channelRef.current);
         const table = isDirect ? 'direct_messages' : 'group_messages';
+
+        async function enrichIncoming(msg: Record<string, unknown>) {
+            const row = msg as { id: string; sender_id: string; created_at: string; [key: string]: unknown };
+            if (row.sender_id === currentUser.id) {
+                return { ...row, sender: { name: currentUser.name, avatar_url: currentUser.avatar_url } };
+            }
+            if (isDirect) {
+                return { ...row, sender: { name: chat.name, avatar_url: chat.avatar } };
+            }
+            const cached = allUsers.find((u) => u.id === row.sender_id);
+            if (cached) {
+                return { ...row, sender: { name: cached.name, avatar_url: cached.avatar_url } };
+            }
+            const { data: p } = await supabase.from('profiles').select('id, name, avatar_url').eq('id', row.sender_id).single();
+            return { ...row, sender: p || { name: 'Unknown', avatar_url: null } };
+        }
+
         const ch = supabase.channel(`chat-${chat.type}-${chat.id}`);
-        ch.on('postgres_changes', { event: 'INSERT', schema: 'public', table }, (payload: { new: Record<string, unknown> }) => {
-            const msg = payload.new as any;
-            if (msg.sender_id === currentUser.id) return;
+        ch.on('postgres_changes', { event: 'INSERT', schema: 'public', table }, async (payload: { new: Record<string, unknown> }) => {
+            const msg = payload.new as { id: string; sender_id: string; receiver_id?: string; group_id?: string };
+            if (msg.sender_id === currentUser.id && isSendingRef.current) return;
             const isRelevant = isDirect
-                ? (msg.sender_id === chat.id && msg.receiver_id === currentUser.id)
+                ? msg.sender_id === chat.id && msg.receiver_id === currentUser.id
                 : msg.group_id === chat.id;
-            if (isRelevant) loadMessages();
+            if (!isRelevant) return;
+
+            const enriched = await enrichIncoming(payload.new);
+            setMessages((prev) => {
+                if (prev.some((m) => m.id === enriched.id)) return prev;
+                return [...prev, enriched].sort(
+                    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+                );
+            });
+
+            if (isDirect) {
+                await supabase.from('direct_messages').update({ read: true } as any).eq('id', msg.id);
+                onMessageSent();
+            } else if (chat.participantGroupId) {
+                await supabase
+                    .from('chat_participants')
+                    .update({ last_read_at: new Date().toISOString() })
+                    .eq('group_id', chat.participantGroupId)
+                    .eq('user_id', currentUser.id);
+                onMessageSent();
+            }
         });
         ch.on('postgres_changes', { event: 'UPDATE', schema: 'public', table }, (payload: { new: Record<string, unknown> }) => {
             const msg = payload.new as any;
@@ -242,10 +280,14 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, showOnlineP
                 const inThread =
                     (msg.sender_id === chat.id && msg.receiver_id === currentUser.id) ||
                     (msg.sender_id === currentUser.id && msg.receiver_id === chat.id);
-                if (inThread) loadMessages();
+                if (inThread) {
+                    setMessages((prev) => prev.map((m) => (m.id === msg.id ? { ...m, ...msg } : m)));
+                }
                 return;
             }
-            if (msg.poll_data) loadMessages();
+            if (msg.poll_data) {
+                setMessages((prev) => prev.map((m) => (m.id === msg.id ? { ...m, poll_data: msg.poll_data } : m)));
+            }
         });
         ch.on('broadcast', { event: 'typing' }, ({ payload }: { payload: { user_id: string; name: string } }) => {
             if (payload.user_id !== currentUser.id) { setTyping(payload.name); setTimeout(() => setTyping(null), 3000); }
@@ -507,7 +549,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, showOnlineP
                                             {showName && <p className="text-[12px] font-semibold text-emerald-400 mb-0.5">{msg.sender?.name}</p>}
 
                                             {isPoll ? (
-                                                <PollBubble poll={msg.poll_data} msgId={msg.id} myId={currentUser.id} onVote={votePoll} />
+                                                <PollBubble poll={msg.poll_data} msgId={msg.id} myId={currentUser.id} onVote={votePoll} allUsers={allUsers} />
                                             ) : msg.file_url ? (
                                                 <a href={msg.file_url} target="_blank" rel="noopener noreferrer"
                                                     className="flex items-center gap-2 text-[15px] text-emerald-300 hover:text-emerald-200 font-medium">
@@ -560,7 +602,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, showOnlineP
             </div>
 
             {/* Input */}
-            <form onSubmit={sendMessage} className="px-3 py-2 bg-[#202c33] flex items-center gap-2 relative">
+            <form onSubmit={sendMessage} className="px-2 sm:px-3 py-2 bg-[#202c33] flex items-center gap-1.5 sm:gap-2 relative pb-[max(0.5rem,env(safe-area-inset-bottom))]">
                 <div className="relative">
                     <button type="button" onClick={() => setShowEmoji(v => !v)} className="p-2 text-gray-400 hover:text-white transition-colors">
                         <Smile className="w-6 h-6" />
@@ -585,7 +627,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, showOnlineP
                 </button>
                 <input ref={fileRef} type="file" className="hidden" accept="image/*,.pdf,.doc,.docx" onChange={e => { const f = e.target.files?.[0]; if (f) sendFile(f); e.target.value = ''; }} />
                 <input type="text" value={newMessage} onChange={e => { setNewMessage(e.target.value); handleTyping(); }} placeholder="Type a message"
-                    className="flex-1 px-4 py-2.5 bg-[#2a3942] rounded-lg text-base text-white placeholder-gray-500 outline-none focus:ring-1 focus:ring-emerald-500/30 transition-all" />
+                    className="flex-1 min-w-0 px-3 sm:px-4 py-2.5 bg-[#2a3942] rounded-lg text-base text-white placeholder-gray-500 outline-none focus:ring-1 focus:ring-emerald-500/30 transition-all" />
                 <motion.button whileHover={{ scale: 1.03 }} whileTap={motionTokens.tap} type="submit" disabled={!newMessage.trim()}
                     className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-white disabled:opacity-40 shadow-md">
                     <Send className="w-4 h-4" />
@@ -736,7 +778,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, showOnlineP
 }
 
 /* Clean Poll Bubble with voter visibility */
-function PollBubble({ poll, msgId, myId, onVote, allUsers }: { poll: any; msgId: string; myId: string; onVote: (msgId: string, option: string) => void; allUsers?: any[] }) {
+function PollBubble({ poll, msgId, myId, onVote, allUsers }: { poll: any; msgId: string; myId: string; onVote: (msgId: string, option: string) => void; allUsers: UserProfile[] }) {
     const [showVoters, setShowVoters] = useState(false);
     const myVotes: string[] = poll.votes?.[myId] || [];
     const hasVoted = myVotes.length > 0;
@@ -752,7 +794,7 @@ function PollBubble({ poll, msgId, myId, onVote, allUsers }: { poll: any; msgId:
 
     function getVoterName(userId: string): string {
         if (userId === myId) return 'You';
-        const user = allUsers?.find((u: any) => u.id === userId);
+        const user = allUsers.find((u) => u.id === userId);
         return user?.name || 'Unknown';
     }
 

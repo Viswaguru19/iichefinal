@@ -401,18 +401,18 @@ export default function EditFormPage() {
 
             <div className="max-w-5xl mx-auto relative z-10">
                 {/* Top Bar */}
-                <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }} className="flex items-center justify-between mb-6">
-                    <div className="flex items-center gap-4">
-                        <Link href="/dashboard/forms" className="text-gray-400 hover:text-indigo-600 transition">
+                <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+                    <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+                        <Link href="/dashboard/forms" className="text-gray-400 hover:text-indigo-600 transition shrink-0">
                             <ArrowLeft className="w-6 h-6" />
                         </Link>
-                        <h1 className="text-2xl font-extrabold text-gradient tracking-tight">Edit Form</h1>
+                        <h1 className="text-xl sm:text-2xl font-extrabold text-gradient tracking-tight truncate">Edit Form</h1>
                     </div>
-                    <div className="flex items-center gap-3">
-                        <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.97 }} onClick={() => setShowSettings(!showSettings)} className="glass px-4 py-2 rounded-xl text-gray-700 hover:shadow-md transition flex items-center gap-2 text-sm font-medium">
+                    <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+                        <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.97 }} onClick={() => setShowSettings(!showSettings)} className="glass px-3 sm:px-4 py-2 rounded-xl text-gray-700 hover:shadow-md transition flex items-center gap-2 text-sm font-medium">
                             <Settings className="w-4 h-4" /> Settings
                         </motion.button>
-                        <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.97 }} onClick={handleSave} disabled={saving} className="btn-gradient-green px-6 py-2 rounded-xl font-semibold disabled:opacity-50 shadow-lg shadow-emerald-500/20 flex items-center gap-2">
+                        <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.97 }} onClick={handleSave} disabled={saving} className="btn-gradient-green px-4 sm:px-6 py-2 rounded-xl font-semibold disabled:opacity-50 shadow-lg shadow-emerald-500/20 flex items-center gap-2 text-sm">
                             <Save className="w-4 h-4" /> {saving ? 'Saving...' : 'Save Changes'}
                         </motion.button>
                     </div>

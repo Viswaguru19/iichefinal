@@ -201,11 +201,11 @@ export default function MeetingsPage() {
             <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search meetings..."
               className="w-full pl-11 pr-4 py-3 glass-strong rounded-2xl text-sm outline-none focus:ring-2 focus:ring-indigo-300/50 transition-all" />
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 w-full sm:w-auto">
             <input type="text" value={joinCode} onChange={e => setJoinCode(e.target.value)} placeholder="Paste meeting link..."
-              className="w-64 px-4 py-3 glass-strong rounded-2xl text-sm outline-none focus:ring-2 focus:ring-indigo-300/50" />
+              className="flex-1 min-w-0 sm:w-64 sm:flex-none px-4 py-3 glass-strong rounded-2xl text-sm outline-none focus:ring-2 focus:ring-indigo-300/50" />
             <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.97 }} onClick={handleJoinCode}
-              className="btn-gradient-blue px-5 py-3 rounded-2xl text-sm font-semibold shadow-md flex items-center gap-2">
+              className="btn-gradient-blue px-4 sm:px-5 py-3 rounded-2xl text-sm font-semibold shadow-md flex items-center gap-2 shrink-0">
               <Link2 className="w-4 h-4" /> Join
             </motion.button>
           </div>
@@ -231,10 +231,10 @@ export default function MeetingsPage() {
         </motion.div>
 
         {/* Filter Tabs */}
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }} className="premium-card rounded-2xl p-1.5 flex gap-1 mb-8 w-fit">
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }} className="premium-card rounded-2xl p-1.5 flex gap-1 mb-8 w-full max-w-full overflow-x-auto mobile-clean-scroll">
           {(['upcoming', 'past', 'all'] as const).map(tab => (
             <button key={tab} onClick={() => setFilter(tab)}
-              className={`relative px-5 py-2 rounded-xl text-sm font-medium transition-all duration-300 ${filter === tab ? 'text-white' : 'text-gray-500 hover:text-gray-800 hover:bg-white/40'}`}>
+              className={`relative px-3 sm:px-5 py-2 rounded-xl text-xs sm:text-sm font-medium transition-all duration-300 whitespace-nowrap shrink-0 ${filter === tab ? 'text-white' : 'text-gray-500 hover:text-gray-800 hover:bg-white/40'}`}>
               {filter === tab && (
                 <motion.div layoutId="meetingTab" className="absolute inset-0 bg-gradient-to-r from-indigo-500 to-purple-500 rounded-xl shadow-lg" transition={{ type: 'spring', stiffness: 400, damping: 30 }} />
               )}

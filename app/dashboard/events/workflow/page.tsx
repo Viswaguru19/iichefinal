@@ -320,25 +320,25 @@ export default function EventWorkflowPage() {
                   className={`absolute -top-12 -right-12 w-36 h-36 rounded-full bg-gradient-to-br ${grad} opacity-[0.06] blur-3xl group-hover:opacity-[0.12] transition-all duration-500`}
                 />
 
-                <div className="flex items-start justify-between mb-4 relative z-10">
-                  <div>
-                    <h3 className="text-xl font-bold text-gray-900">{event.title}</h3>
+                <div className="flex flex-col sm:flex-row items-start justify-between gap-2 mb-4 relative z-10">
+                  <div className="min-w-0">
+                    <h3 className="text-lg sm:text-xl font-bold text-gray-900 break-words">{event.title}</h3>
                     <p className="text-sm text-gray-500">{event.committee?.name}</p>
                     <p className="text-xs text-gray-400 mt-0.5">by {event.proposer?.name}</p>
                   </div>
-                  <span className={`px-3 py-1 rounded-full text-[11px] font-bold text-white bg-gradient-to-r ${grad} shadow-sm`}>
+                  <span className={`px-3 py-1 rounded-full text-[11px] font-bold text-white bg-gradient-to-r ${grad} shadow-sm whitespace-nowrap shrink-0`}>
                     {STATUS_LABELS[event.status] || event.status}
                   </span>
                 </div>
 
                 <p className="text-gray-600 text-sm mb-4 relative z-10">{event.description}</p>
 
-                <div className="grid grid-cols-3 gap-3 mb-4 text-sm text-gray-500 relative z-10">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4 text-sm text-gray-500 relative z-10">
                   <div>
                     <span className="font-medium text-gray-600">Date:</span>{' '}
                     {event.date ? new Date(event.date).toLocaleDateString() : 'TBA'}
                   </div>
-                  <div>
+                  <div className="min-w-0 break-words">
                     <span className="font-medium text-gray-600">Location:</span> {event.location || 'TBA'}
                   </div>
                   <div>

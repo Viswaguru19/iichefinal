@@ -235,13 +235,13 @@ export default function FormResponsesPage() {
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2 }}
-          className="premium-card rounded-2xl p-1.5 flex gap-1 mb-8 w-fit"
+          className="premium-card rounded-2xl p-1.5 flex gap-1 mb-8 w-full max-w-full overflow-x-auto mobile-clean-scroll"
         >
           {(['summary', 'individual'] as const).map(tab => (
             <button
               key={tab}
               onClick={() => setView(tab)}
-              className={`relative px-5 py-2 rounded-xl text-sm font-medium transition-all duration-300 ${view === tab ? 'text-white' : 'text-gray-500 hover:text-gray-800 hover:bg-white/40'
+              className={`relative px-4 sm:px-5 py-2 rounded-xl text-xs sm:text-sm font-medium transition-all duration-300 whitespace-nowrap shrink-0 ${view === tab ? 'text-white' : 'text-gray-500 hover:text-gray-800 hover:bg-white/40'
                 }`}
             >
               {view === tab && (

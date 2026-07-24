@@ -526,7 +526,7 @@ export default function EventParticipantManager({
                     value={newGroupName}
                     onChange={(e) => setNewGroupName(e.target.value)}
                     placeholder="Group name (e.g. 1st Year)"
-                    className="flex-1 min-w-[180px] border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
+                    className="flex-1 min-w-0 w-full sm:min-w-[180px] border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
                     onKeyDown={(e) => e.key === 'Enter' && handleCreateGroup()}
                   />
                   <button
@@ -671,7 +671,7 @@ export default function EventParticipantManager({
               onChange={(e) => setSearchDraft(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && applyParticipantSearch()}
               placeholder="Search by name or email…"
-              className="flex-1 min-w-[200px] border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-indigo-500"
+              className="flex-1 min-w-0 w-full sm:min-w-[200px] border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-indigo-500"
             />
             <button
               type="button"

@@ -448,13 +448,13 @@ function ProposalsPageClient() {
                   {/* Decorative orb */}
                   <div className={`absolute -top-12 -right-12 w-36 h-36 rounded-full bg-gradient-to-br ${grad} opacity-[0.06] blur-3xl group-hover:opacity-[0.12] transition-all duration-500`} />
 
-                  <div className="flex justify-between items-start mb-4 relative z-10">
-                    <div className="flex-1">
-                      <h3 className="text-xl font-bold text-gray-900">{proposal.title}</h3>
+                  <div className="flex flex-col sm:flex-row justify-between items-start gap-2 mb-4 relative z-10">
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-lg sm:text-xl font-bold text-gray-900 break-words">{proposal.title}</h3>
                       <p className="text-sm text-gray-500 mt-1">{proposal.committee?.name}</p>
                       <p className="text-xs text-gray-400 mt-0.5">by {proposal.proposer?.name}</p>
                     </div>
-                    <span className={`px-3 py-1 rounded-full text-[11px] font-bold text-white bg-gradient-to-r ${grad} shadow-sm`}>
+                    <span className={`px-3 py-1 rounded-full text-[11px] font-bold text-white bg-gradient-to-r ${grad} shadow-sm whitespace-nowrap shrink-0`}>
                       {STATUS_LABELS[proposal.status] || proposal.status}
                     </span>
                   </div>

@@ -42,14 +42,14 @@ export default function DashboardNav({ userName, userRole }: DashboardNavProps) 
   return (
     <nav className="sticky top-0 z-50 premium-panel portal-safe-top portal-nav-in">
       <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
-        <div className="flex justify-between h-16 sm:h-[74px] items-center gap-2">
-          <Link href="/dashboard" className="flex items-center gap-2 group flex-shrink-0 min-w-0">
-            <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl bg-white/85 border border-white/80 shadow-sm flex items-center justify-center">
+        <div className="flex justify-between h-16 sm:h-[74px] items-center gap-2 min-w-0">
+          <Link href="/dashboard" className="flex items-center gap-2 group min-w-0 flex-1 overflow-hidden">
+            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-white/85 border border-white/80 shadow-sm flex items-center justify-center shrink-0">
               <DynamicLogo width={38} height={38} />
             </div>
-            <h1 className="text-base sm:text-2xl font-bold text-gradient portal-header-brand truncate">IIChE AVVU SC</h1>
+            <h1 className="text-sm sm:text-2xl font-bold text-gradient portal-header-brand truncate max-[380px]:hidden">IIChE AVVU SC</h1>
           </Link>
-          <div className="flex items-center gap-1.5 sm:gap-4">
+          <div className="flex items-center gap-1 sm:gap-4 shrink-0">
             <AdminOnlinePresenceControls />
             <NotificationBell />
             <button

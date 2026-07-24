@@ -209,31 +209,31 @@ export default function FacultyApprovals() {
             {/* Pending Faculty Approvals */}
             {pendingApprovals.length > 0 && (
                 <div className="glass rounded-2xl p-6 border-l-4 border-orange-500 glow-amber">
-                    <h3 className="text-xl font-bold text-gradient-warm mb-4 flex items-center gap-2">
-                        <AlertCircle className="w-6 h-6 text-orange-500" />
-                        Faculty Approval Required
-                        <span className="ml-auto text-xs bg-orange-100 text-orange-700 px-3 py-1 rounded-full font-semibold">{pendingApprovals.length} pending</span>
+                    <h3 className="text-lg sm:text-xl font-bold text-gradient-warm mb-4 flex flex-wrap items-center gap-2">
+                        <AlertCircle className="w-6 h-6 text-orange-500 shrink-0" />
+                        <span className="min-w-0">Faculty Approval Required</span>
+                        <span className="sm:ml-auto text-xs bg-orange-100 text-orange-700 px-3 py-1 rounded-full font-semibold whitespace-nowrap">{pendingApprovals.length} pending</span>
                     </h3>
                     <div className="space-y-4">
                         {pendingApprovals.map(event => (
-                            <div key={event.id} className="glass-strong rounded-xl p-5 hover:shadow-lg transition">
-                                <div className="flex justify-between items-start mb-3">
-                                    <div className="flex-1">
-                                        <h4 className="font-bold text-gray-900 text-lg">{event.title}</h4>
-                                        <p className="text-sm text-gray-500 mt-1">
+                            <div key={event.id} className="glass-strong rounded-xl p-4 sm:p-5 hover:shadow-lg transition">
+                                <div className="flex flex-col sm:flex-row justify-between items-start gap-2 mb-3">
+                                    <div className="flex-1 min-w-0">
+                                        <h4 className="font-bold text-gray-900 text-base sm:text-lg break-words">{event.title}</h4>
+                                        <p className="text-sm text-gray-500 mt-1 break-words">
                                             {event.committee?.name} · Proposed by {event.proposed_by_profile?.name}
                                         </p>
                                     </div>
                                     {event.budget && (
-                                        <div className="text-right ml-4">
+                                        <div className="text-left sm:text-right sm:ml-4 shrink-0">
                                             <p className="text-xs text-gray-400">Budget</p>
                                             <p className="text-lg font-bold text-indigo-600">₹{event.budget.toLocaleString()}</p>
                                         </div>
                                     )}
                                 </div>
-                                <div className="flex items-center gap-4 text-sm text-gray-500 mb-3">
-                                    <span className="flex items-center gap-1"><Calendar className="w-4 h-4" /> {event.event_date ? new Date(event.event_date).toLocaleDateString('en-IN', { weekday: 'short', month: 'short', day: 'numeric' }) : 'TBA'}</span>
-                                    <span className="flex items-center gap-1"><CheckCircle className="w-4 h-4 text-green-500" /> Head: {event.head_approver?.name || 'Approved'}</span>
+                                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-500 mb-3">
+                                    <span className="flex items-center gap-1 min-w-0"><Calendar className="w-4 h-4 shrink-0" /> {event.event_date ? new Date(event.event_date).toLocaleDateString('en-IN', { weekday: 'short', month: 'short', day: 'numeric' }) : 'TBA'}</span>
+                                    <span className="flex items-center gap-1 min-w-0"><CheckCircle className="w-4 h-4 text-green-500 shrink-0" /> Head: {event.head_approver?.name || 'Approved'}</span>
                                 </div>
                                 {event.ec_approvals?.length > 0 && (
                                     <div className="bg-white/50 rounded-lg p-3 mb-3">

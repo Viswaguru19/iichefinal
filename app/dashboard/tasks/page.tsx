@@ -648,32 +648,32 @@ export default function TasksPage() {
                     )}
 
                     {/* Task Header */}
-                    <div className="flex justify-between items-start mb-4">
-                      <div className="flex-1">
-                        <h3 className="text-xl font-bold text-gray-900">{task.title}</h3>
-                        <p className="text-sm text-gray-600">
+                    <div className="flex flex-col sm:flex-row justify-between items-start gap-2 mb-4">
+                      <div className="flex-1 min-w-0 w-full">
+                        <h3 className="text-lg sm:text-xl font-bold text-gray-900 break-words">{task.title}</h3>
+                        <p className="text-sm text-gray-600 break-words">
                           Assigned to: <span className="font-semibold">{task.assigned_to?.name}</span>
                           {task.assignee?.name ? (
                             <span className="ml-2 text-xs text-indigo-700 font-semibold">
                               (Individual: {task.assignee.name})
                             </span>
                           ) : null}
-                          {isExecutive && task.status !== 'completed' && (
-                            <select
-                              className="ml-2 text-xs border border-gray-200 rounded-lg px-2 py-0.5 bg-white"
-                              defaultValue={task.assigned_to_committee}
-                              onChange={async (e) => {
-                                await supabase.from('task_assignments').update({ assigned_to_committee: e.target.value }).eq('id', task.id);
-                                toast.success('Committee reassigned');
-                                loadData();
-                              }}
-                            >
-                              {committees.map((c) => (
-                                <option key={c.id} value={c.id}>{c.name}</option>
-                              ))}
-                            </select>
-                          )}
                         </p>
+                        {isExecutive && task.status !== 'completed' && (
+                          <select
+                            className="mt-2 w-full sm:w-auto text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white"
+                            defaultValue={task.assigned_to_committee}
+                            onChange={async (e) => {
+                              await supabase.from('task_assignments').update({ assigned_to_committee: e.target.value }).eq('id', task.id);
+                              toast.success('Committee reassigned');
+                              loadData();
+                            }}
+                          >
+                            {committees.map((c) => (
+                              <option key={c.id} value={c.id}>{c.name}</option>
+                            ))}
+                          </select>
+                        )}
                         <p className="text-xs text-gray-500 mt-1">
                           {task.event?.title ? `Event: ${task.event.title}` : 'General Task'}
                         </p>
@@ -694,7 +694,7 @@ export default function TasksPage() {
                           </p>
                         ) : null}
                       </div>
-                      <span className={`px-3 py-1 rounded-full text-xs font-bold ${statusColors[task.status as keyof typeof statusColors]}`}>
+                      <span className={`px-3 py-1 rounded-full text-xs font-bold whitespace-nowrap shrink-0 ${statusColors[task.status as keyof typeof statusColors]}`}>
                         {task.status.replace(/_/g, ' ').toUpperCase()}
                       </span>
                     </div>

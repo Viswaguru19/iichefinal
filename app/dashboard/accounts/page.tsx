@@ -248,13 +248,13 @@ export default function StatementOfAccountsPage() {
       <div className="absolute bottom-20 right-10 w-96 h-96 bg-gradient-to-br from-pink-400/8 to-violet-400/8 rounded-full blur-3xl pointer-events-none" />
 
       <div className="max-w-7xl mx-auto relative z-10">
-        <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-4">
-            <Link href="/dashboard" className="text-indigo-400 hover:text-indigo-600 transition-colors">
+        <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+          <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+            <Link href="/dashboard" className="text-indigo-400 hover:text-indigo-600 transition-colors shrink-0">
               <ArrowLeft className="w-6 h-6" />
             </Link>
-            <div>
-              <h1 className="text-3xl font-extrabold text-gradient tracking-tight">Statement of Accounts</h1>
+            <div className="min-w-0">
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-gradient tracking-tight">Statement of Accounts</h1>
               <p className="text-gray-400 text-sm">IIChE AVVU SC Student Chapter</p>
               {!canManage && (
                 <p className="text-gray-500 text-xs mt-1">View only — edits are limited to Faculty, Treasurer, and Associate Treasurer.</p>
@@ -263,7 +263,7 @@ export default function StatementOfAccountsPage() {
           </div>
           {canManage && (
             <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.97 }} onClick={() => setShowAddModal(true)}
-              className="flex items-center gap-2 btn-gradient-blue px-4 py-2 rounded-xl font-semibold shadow-lg shadow-blue-500/20">
+              className="flex items-center justify-center gap-2 btn-gradient-blue px-4 py-2 rounded-xl font-semibold shadow-lg shadow-blue-500/20 w-full sm:w-auto">
               <Plus className="w-5 h-5" /> Add Transaction
             </motion.button>
           )}
@@ -284,13 +284,13 @@ export default function StatementOfAccountsPage() {
         </motion.div>
 
         {/* Filters */}
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }} className="premium-card rounded-2xl p-4 mb-6 flex gap-4 items-center">
-          <Filter className="w-5 h-5 text-gray-400" />
-          <select value={filterYear} onChange={e => setFilterYear(e.target.value)} className="border border-gray-200 rounded-xl px-3 py-2 bg-white/80 text-sm">
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }} className="premium-card rounded-2xl p-4 mb-6 flex flex-col sm:flex-row gap-3 sm:gap-4 sm:items-center">
+          <Filter className="w-5 h-5 text-gray-400 shrink-0" />
+          <select value={filterYear} onChange={e => setFilterYear(e.target.value)} className="border border-gray-200 rounded-xl px-3 py-2 bg-white/80 text-sm w-full sm:w-auto">
             <option value="all">All Years</option>
             {years.map(y => <option key={y} value={y}>{y}</option>)}
           </select>
-          <select value={filterEvent} onChange={e => setFilterEvent(e.target.value)} className="border border-gray-200 rounded-xl px-3 py-2 bg-white/80 text-sm">
+          <select value={filterEvent} onChange={e => setFilterEvent(e.target.value)} className="border border-gray-200 rounded-xl px-3 py-2 bg-white/80 text-sm w-full sm:w-auto min-w-0">
             <option value="all">All Events</option>
             {events.map(ev => <option key={ev} value={ev}>{ev}</option>)}
           </select>
