@@ -318,10 +318,10 @@ export default async function DashboardPage() {
         <AnimatedSection delay={0.5}>
           <div className="mt-6 sm:mt-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
             <AnimatedDashboardCard
-              href="/dashboard/chat"
+              href="/chat"
               iconName="MessageSquare"
-              title="Chats"
-              description="Messages & Groups"
+              title="IIChE Chat"
+              description="WhatsApp-style messages"
               gradient
               gradientFrom="green-600"
               gradientTo="green-700"

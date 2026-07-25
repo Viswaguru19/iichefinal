@@ -12,7 +12,7 @@ function MessagesRedirect() {
     const user = searchParams.get('user');
     const group = searchParams.get('group') || searchParams.get('id');
     const q = user ? `?user=${encodeURIComponent(user)}` : group ? `?group=${encodeURIComponent(group)}` : '';
-    router.replace(`/dashboard/chat${q}`);
+    router.replace(`/chat${q}`);
   }, [router, searchParams]);
 
   return <PortalLoadingScreen message="Opening chat…" />;

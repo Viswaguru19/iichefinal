@@ -133,7 +133,7 @@ export default function LoginPage() {
         rawNext && rawNext.startsWith('/') && !rawNext.startsWith('//') ? rawNext : null;
       const defaultDest = p?.hiring_portal_only ? '/hiring/portal' : '/dashboard';
       let dest = nextPath || defaultDest;
-      if (p?.hiring_portal_only && nextPath?.startsWith('/dashboard')) {
+      if (p?.hiring_portal_only && (nextPath?.startsWith('/dashboard') || nextPath?.startsWith('/chat'))) {
         dest = '/hiring/portal';
       }
       window.location.href = dest;

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Download, Share, X } from 'lucide-react';
+import DynamicLogo from '@/components/DynamicLogo';
 import { isIOSDevice, isMobileLikeViewport, isStandaloneDisplay } from '@/lib/pwa';
 
 type BeforeInstallPromptEvent = Event & {
@@ -9,8 +10,8 @@ type BeforeInstallPromptEvent = Event & {
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
 };
 
-const DISMISS_KEY = 'pwa-install-dismissed';
-const DISMISS_DAYS = 14;
+const DISMISS_KEY = 'chat-pwa-install-dismissed';
+const DISMISS_DAYS = 21;
 
 function wasRecentlyDismissed(): boolean {
   try {
@@ -24,16 +25,21 @@ function wasRecentlyDismissed(): boolean {
   }
 }
 
-export default function InstallAppPrompt() {
+/** Install prompt for IIChE Chat only (separate from the IIChE portal app). */
+export default function InstallChatAppPrompt() {
   const [visible, setVisible] = useState(false);
   const [ios, setIos] = useState(false);
   const [installEvent, setInstallEvent] = useState<BeforeInstallPromptEvent | null>(null);
+  const [standalone, setStandalone] = useState(false);
 
   useEffect(() => {
-    if (isStandaloneDisplay() || wasRecentlyDismissed()) return;
-    if (!isMobileLikeViewport()) return;
-
+    const alone = isStandaloneDisplay();
+    setStandalone(alone);
     setIos(isIOSDevice());
+
+    if (alone || wasRecentlyDismissed()) return;
+    if (!isMobileLikeViewport() && !isIOSDevice()) return;
+
     setVisible(true);
 
     const onBeforeInstall = (event: Event) => {
@@ -63,35 +69,39 @@ export default function InstallAppPrompt() {
     dismiss();
   };
 
-  if (!visible) return null;
+  if (standalone || !visible) return null;
 
   return (
     <div
       className="fixed inset-x-0 bottom-0 z-[70] px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pointer-events-none"
       role="region"
-      aria-label="Install app"
+      aria-label="Install IIChE Chat"
     >
-      <div className="mx-auto max-w-lg pointer-events-auto rounded-2xl border border-indigo-200/80 bg-white/95 backdrop-blur-md shadow-xl p-4">
+      <div className="mx-auto max-w-lg pointer-events-auto rounded-2xl border border-emerald-700/40 bg-[#1f2c34] shadow-2xl p-4 text-white">
         <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-sm font-semibold text-gray-900">Install IIChE</p>
-            {ios ? (
-              <p className="text-xs text-gray-600 mt-1 leading-relaxed">
-                On iPhone/iPad: tap{' '}
-                <Share className="inline w-3.5 h-3.5 align-text-bottom mx-0.5" aria-hidden />
-                <strong> Share</strong> → <strong>Add to Home Screen</strong>. This installs the portal app (events, forms, tasks). For chat-only, open Chat and install <strong>IIChE Chat</strong> separately.
-              </p>
-            ) : (
-              <p className="text-xs text-gray-600 mt-1 leading-relaxed">
-                Install the portal app. Chat is a separate app — open Chats and install <strong>IIChE Chat</strong> for WhatsApp-style messaging.
-              </p>
-            )}
+          <div className="flex items-start gap-3 min-w-0">
+            <div className="w-11 h-11 rounded-xl bg-white/95 flex items-center justify-center shrink-0 overflow-hidden">
+              <DynamicLogo width={36} height={36} />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold">Install IIChE Chat</p>
+              {ios ? (
+                <p className="text-xs text-gray-300 mt-1 leading-relaxed">
+                  Tap <Share className="inline w-3.5 h-3.5 align-text-bottom mx-0.5" aria-hidden />{' '}
+                  <strong>Share</strong> → <strong>Add to Home Screen</strong>. Opens chat only — separate from the IIChE portal app.
+                </p>
+              ) : (
+                <p className="text-xs text-gray-300 mt-1 leading-relaxed">
+                  Install as its own app (like WhatsApp). Opens straight to chat — separate from the IIChE portal.
+                </p>
+              )}
+            </div>
           </div>
           <button
             type="button"
             onClick={dismiss}
-            className="shrink-0 p-1 rounded-md text-gray-500 hover:bg-gray-100"
-            aria-label="Dismiss install prompt"
+            className="shrink-0 p-1 rounded-md text-gray-400 hover:bg-white/10"
+            aria-label="Dismiss"
           >
             <X className="w-4 h-4" />
           </button>
@@ -100,10 +110,10 @@ export default function InstallAppPrompt() {
           <button
             type="button"
             onClick={() => void install()}
-            className="mt-3 w-full inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700"
+            className="mt-3 w-full inline-flex items-center justify-center gap-2 rounded-xl bg-[#00a884] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#008f72]"
           >
             <Download className="w-4 h-4" />
-            Install IIChE
+            Install IIChE Chat
           </button>
         )}
       </div>

@@ -1,6 +1,7 @@
 import PortalPresenceProvider from '@/components/dashboard/PortalPresenceProvider';
 import PortalLogoProvider from '@/components/dashboard/PortalLogoProvider';
 import ServiceWorkerRegistrar from '@/components/ServiceWorkerRegistrar';
+import InstallAppPrompt from '@/components/InstallAppPrompt';
 import { getCurrentLogo } from '@/lib/logo-utils-server';
 
 export const dynamic = 'force-dynamic';
@@ -16,7 +17,10 @@ export default async function DashboardLayout({ children }: { children: React.Re
         }}
       />
       <ServiceWorkerRegistrar />
-      <PortalPresenceProvider>{children}</PortalPresenceProvider>
+      <PortalPresenceProvider>
+        {children}
+        <InstallAppPrompt />
+      </PortalPresenceProvider>
     </PortalLogoProvider>
   );
 }

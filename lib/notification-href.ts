@@ -5,18 +5,22 @@ export function getNotificationHref(n: {
   link?: string | null;
 }): string | null {
   if (n.type === 'chat' || n.type === 'message') {
-    if (n.link?.startsWith('/dashboard/chat')) return n.link;
+    if (n.link?.startsWith('/chat')) return n.link;
+    if (n.link?.startsWith('/dashboard/chat')) {
+      const qs = n.link.includes('?') ? n.link.slice(n.link.indexOf('?')) : '';
+      return `/chat${qs}`;
+    }
     if (n.link?.includes('/dashboard/messages')) {
       const qs = n.link.includes('?') ? n.link.slice(n.link.indexOf('?')) : '';
-      return `/dashboard/chat${qs}`;
+      return `/chat${qs}`;
     }
     if (n.link?.includes('/dashboard/chat/group')) {
       const qs = n.link.includes('?') ? n.link.slice(n.link.indexOf('?') + 1) : '';
       const params = new URLSearchParams(qs);
       const id = params.get('id') || params.get('group');
-      return id ? `/dashboard/chat?group=${encodeURIComponent(id)}` : '/dashboard/chat';
+      return id ? `/chat?group=${encodeURIComponent(id)}` : '/chat';
     }
-    return n.link || '/dashboard/chat';
+    return n.link || '/chat';
   }
 
   if (n.link) return n.link;

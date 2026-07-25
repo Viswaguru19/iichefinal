@@ -10,7 +10,7 @@ function GroupChatRedirect() {
 
   useEffect(() => {
     const group = searchParams.get('group') || searchParams.get('id');
-    router.replace(group ? `/dashboard/chat?group=${encodeURIComponent(group)}` : '/dashboard/chat');
+    router.replace(group ? `/chat?group=${encodeURIComponent(group)}` : '/chat');
   }, [router, searchParams]);
 
   return <PortalLoadingScreen message="Opening group chat…" />;

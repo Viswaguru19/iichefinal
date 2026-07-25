@@ -1,5 +1,4 @@
--- Chat notifications: portal + push (via notifications INSERT webhook)
--- Fixes DM links and adds group message notifications.
+-- Point chat notifications at the dedicated /chat PWA (idempotent re-apply of notify functions).
 
 CREATE OR REPLACE FUNCTION notify_on_message()
 RETURNS TRIGGER AS $$
@@ -35,11 +34,6 @@ BEGIN
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
-
-DROP TRIGGER IF EXISTS trigger_notify_on_message ON direct_messages;
-CREATE TRIGGER trigger_notify_on_message
-AFTER INSERT ON direct_messages
-FOR EACH ROW EXECUTE FUNCTION notify_on_message();
 
 CREATE OR REPLACE FUNCTION notify_on_group_message()
 RETURNS TRIGGER AS $$
@@ -91,8 +85,3 @@ BEGIN
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
-
-DROP TRIGGER IF EXISTS trigger_notify_on_group_message ON group_messages;
-CREATE TRIGGER trigger_notify_on_group_message
-AFTER INSERT ON group_messages
-FOR EACH ROW EXECUTE FUNCTION notify_on_group_message();

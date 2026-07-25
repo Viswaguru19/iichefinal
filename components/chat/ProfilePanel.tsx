@@ -2,7 +2,7 @@
 
 import { motion } from 'framer-motion';
 import { X, Mail, Phone, Building, Award, Calendar, Shield } from 'lucide-react';
-import type { UserProfile } from '@/app/dashboard/chat/page';
+import type { UserProfile } from '@/components/chat/types';
 
 interface Props {
   user: UserProfile;

@@ -3,11 +3,13 @@ import { buildPwaManifestIcons } from '@/lib/pwa-icons';
 
 export const dynamic = 'force-dynamic';
 
+/** Portal app — separate from IIChE Chat (`/chat/manifest.webmanifest`). */
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: 'IIChE AVVU SC Portal',
-    short_name: 'IIChE AVVU',
-    description: 'Official portal for IIChE AVVU SC — events, forms, attendance, and committee workflows.',
+    id: '/',
+    name: 'IIChE',
+    short_name: 'IIChE',
+    description: 'IIChE AVVU SC portal — events, forms, attendance, and committee workflows.',
     start_url: '/dashboard',
     scope: '/',
     display: 'standalone',
@@ -16,5 +18,5 @@ export default function manifest(): MetadataRoute.Manifest {
     theme_color: '#7DD3C0',
     categories: ['education', 'productivity'],
     icons: buildPwaManifestIcons(),
-  };
+  } as MetadataRoute.Manifest;
 }

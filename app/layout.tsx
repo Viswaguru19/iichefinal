@@ -9,13 +9,13 @@ const inter = Inter({ subsets: ['latin'] });
 
 export async function generateMetadata(): Promise<Metadata> {
   return {
-    title: 'IIChE AVVU SC Portal',
+    title: 'IIChE',
     description: 'Official portal for IIChE AVVU SC - Indian Institute of Chemical Engineers',
-    applicationName: 'IIChE AVVU',
+    applicationName: 'IIChE',
     manifest: '/manifest.webmanifest',
     appleWebApp: {
       capable: true,
-      title: 'IIChE AVVU',
+      title: 'IIChE',
       statusBarStyle: 'black-translucent',
     },
     formatDetection: {

@@ -86,8 +86,11 @@ export async function middleware(request: NextRequest) {
       }
     }
 
-    // Hiring-only + approval gate for main dashboard
-    if (user && request.nextUrl.pathname.startsWith('/dashboard')) {
+    // Hiring-only + approval gate for main dashboard + chat app
+    if (
+      user &&
+      (request.nextUrl.pathname.startsWith('/dashboard') || request.nextUrl.pathname.startsWith('/chat'))
+    ) {
       const { data: prof } = await supabase
         .from('profiles')
         .select('hiring_portal_only, approved, role')
@@ -105,12 +108,20 @@ export async function middleware(request: NextRequest) {
       }
     }
 
-    // Protected routes (only /dashboard and /admin, not public pages)
-    if (request.nextUrl.pathname.startsWith('/dashboard') ||
-      request.nextUrl.pathname.startsWith('/admin')) {
-      if (!user) {
-        return NextResponse.redirect(new URL('/login', request.url));
+    // Protected routes (dashboard, chat app, admin) — allow chat PWA manifest without auth
+    const path = request.nextUrl.pathname;
+    const isChatManifest = path === '/chat/manifest.webmanifest';
+    if (
+      (path.startsWith('/dashboard') ||
+        (path.startsWith('/chat') && !isChatManifest) ||
+        path.startsWith('/admin')) &&
+      !user
+    ) {
+      const login = new URL('/login', request.url);
+      if (path.startsWith('/chat')) {
+        login.searchParams.set('next', path + request.nextUrl.search);
       }
+      return NextResponse.redirect(login);
     }
 
     // Redirect if already logged in and trying to access login

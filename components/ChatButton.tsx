@@ -9,7 +9,7 @@ export default function ChatButton({ userId, userName }: { userId: string; userN
   return (
     <button
       type="button"
-      onClick={() => router.push(`/dashboard/chat?user=${encodeURIComponent(userId)}`)}
+      onClick={() => router.push(`/chat?user=${encodeURIComponent(userId)}`)}
       className="w-full bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 flex items-center justify-center gap-2 transition font-semibold text-sm"
     >
       <MessageSquare className="w-4 h-4" />

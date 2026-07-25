@@ -2,12 +2,14 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { Send, Smile, Paperclip, BarChart3, Users, Check, CheckCheck, ArrowLeft, Trash2 } from 'lucide-react';
+import { Send, Smile, Paperclip, BarChart3, Users, Check, CheckCheck, ArrowLeft, Trash2, Mic, Square, Image as ImageIcon, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
 import DynamicLogo from '@/components/DynamicLogo';
-import type { ChatItem, UserProfile } from '@/app/dashboard/chat/page';
+import GroupInfoPanel from '@/components/chat/GroupInfoPanel';
+import type { ChatItem, UserProfile } from '@/components/chat/types';
 import { motionTokens } from '@/lib/ui/motion';
+import { attachmentLabel, isAudioUrl, isImageFile, isImageUrl } from '@/lib/chat-media';
 
 interface Props {
     chat: ChatItem;
@@ -16,13 +18,13 @@ interface Props {
     onlineUsers: Set<string>;
     showOnlinePresence: boolean;
     onOpenProfile: (userId: string) => void;
-    onMessageSent: () => void;
+    onMessageSent: (preview?: string) => void;
     onBack?: () => void;
+    onChatMetaUpdate?: (patch: Partial<ChatItem>) => void;
+    onLeaveOrDeleteChat?: () => void;
 }
 
 const EMOJIS = ['😀', '😂', '😊', '😍', '🤝', '👍', '🔥', '🙌', '🙏', '🎉', '❤️', '😎', '🤔', '😢', '😡', '🥳', '💯', '👏', '🫡', '✨', '😅', '🥰', '😤', '🤩', '😴', '🤗', '😇', '🤣', '💪', '🎊'];
-
-type ParticipantRow = { id: string; name: string; avatar_url: string | null; is_group_admin: boolean };
 
 /** WhatsApp-style group receipts from per-member last_read_at vs message time */
 type GroupReceiptLevel = 'sent' | 'delivered' | 'read';
@@ -47,7 +49,45 @@ function groupReceiptLevel(
     return 'read';
 }
 
-export default function ChatWindow({ chat, currentUser, allUsers, onlineUsers, showOnlinePresence, onOpenProfile, onMessageSent, onBack }: Props) {
+function memberViewedMessage(
+    msgCreatedAt: string,
+    lastReadAt: string | null | undefined,
+): boolean {
+    if (!lastReadAt) return false;
+    return new Date(lastReadAt).getTime() >= new Date(msgCreatedAt).getTime();
+}
+
+type ViewerRow = { id: string; name: string; avatar: string | null; viewed: boolean; viewedAt: string | null };
+
+function ReceiptTicks({ viewed, title, onOpen }: { viewed: boolean; title: string; onOpen: () => void }) {
+    return (
+        <button
+            type="button"
+            title={title}
+            onClick={(e) => {
+                e.stopPropagation();
+                onOpen();
+            }}
+            className="inline-flex items-center p-0.5 -mr-0.5 rounded hover:bg-white/10 transition-colors"
+            aria-label={title}
+        >
+            <CheckCheck className={`w-3.5 h-3.5 ${viewed ? 'text-amber-400' : 'text-red-400'}`} />
+        </button>
+    );
+}
+
+export default function ChatWindow({
+    chat,
+    currentUser,
+    allUsers,
+    onlineUsers,
+    showOnlinePresence,
+    onOpenProfile,
+    onMessageSent,
+    onBack,
+    onChatMetaUpdate,
+    onLeaveOrDeleteChat,
+}: Props) {
     const [messages, setMessages] = useState<any[]>([]);
     const [newMessage, setNewMessage] = useState('');
     const [loading, setLoading] = useState(true);
@@ -58,74 +98,55 @@ export default function ChatWindow({ chat, currentUser, allUsers, onlineUsers, s
     const [pollMultiple, setPollMultiple] = useState(false);
     const [typing, setTyping] = useState<string | null>(null);
     const [menuMsgId, setMenuMsgId] = useState<string | null>(null);
-    const [showParticipants, setShowParticipants] = useState(false);
-    const [participantsLoading, setParticipantsLoading] = useState(false);
-    const [participants, setParticipants] = useState<ParticipantRow[]>([]);
-    const [iAmGroupAdmin, setIAmGroupAdmin] = useState(false);
-    const [removingId, setRemovingId] = useState<string | null>(null);
+    const [showGroupInfo, setShowGroupInfo] = useState(false);
     const [groupMemberLastRead, setGroupMemberLastRead] = useState<Record<string, string | null>>({});
+    const [pendingPreview, setPendingPreview] = useState<{ url: string; file: File } | null>(null);
+    const [recording, setRecording] = useState(false);
+    const [lightbox, setLightbox] = useState<string | null>(null);
+    const [viewInfoMsg, setViewInfoMsg] = useState<any | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const fileRef = useRef<HTMLInputElement>(null);
+    const imageRef = useRef<HTMLInputElement>(null);
+    const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+    const audioChunksRef = useRef<Blob[]>([]);
+    const chatKeyRef = useRef(`${chat.type}-${chat.id}`);
     const supabase = createClient();
     const channelRef = useRef<any>(null);
     const isSendingRef = useRef(false);
 
     const isDirect = chat.type === 'direct';
     const isOnline = showOnlinePresence && isDirect && onlineUsers.has(chat.id);
-    const canManageGroupMembers = !isDirect && chat.groupChatType === 'custom_group' && iAmGroupAdmin;
 
     useEffect(() => {
-        setShowParticipants(false);
-        setIAmGroupAdmin(false);
+        setShowGroupInfo(false);
         setGroupMemberLastRead({});
+        setPendingPreview(null);
+        setMenuMsgId(null);
+        setViewInfoMsg(null);
     }, [chat.id, chat.type]);
 
     useEffect(() => {
-        loadMessages();
+        const key = `${chat.type}-${chat.id}`;
+        const switched = chatKeyRef.current !== key;
+        chatKeyRef.current = key;
+        if (switched) {
+            setMessages([]);
+            setLoading(true);
+        }
+        void loadMessages(!switched);
         setupChannel();
-        return () => { if (channelRef.current) supabase.removeChannel(channelRef.current); };
+        return () => {
+            if (channelRef.current) supabase.removeChannel(channelRef.current);
+        };
     }, [chat.id, chat.type]);
 
     useEffect(() => {
-        if (!showParticipants || isDirect || !chat.participantGroupId) return;
-        let cancelled = false;
-        (async () => {
-            setParticipantsLoading(true);
-            const { data: rows, error: pErr } = await supabase
-                .from('chat_participants')
-                .select('user_id, is_admin')
-                .eq('group_id', chat.participantGroupId!);
-            if (pErr) {
-                console.error('participants load:', pErr);
-                if (!cancelled) setParticipantsLoading(false);
-                return;
-            }
-            const adminMap = Object.fromEntries((rows || []).map((r: { user_id: string; is_admin: boolean }) => [r.user_id, r.is_admin]));
-            const myAdmin = !!(rows || []).find((r: { user_id: string; is_admin: boolean }) => r.user_id === currentUser.id)?.is_admin;
-            if (!cancelled) setIAmGroupAdmin(myAdmin);
-            const ids = [...new Set((rows || []).map((r: { user_id: string }) => r.user_id))];
-            if (ids.length === 0) {
-                if (!cancelled) { setParticipants([]); setParticipantsLoading(false); }
-                return;
-            }
-            const { data: profs } = await supabase.from('profiles').select('id, name, avatar_url').in('id', ids);
-            const list: ParticipantRow[] = (profs || []).map((p: { id: string; name: string; avatar_url: string | null }) => ({
-                id: p.id,
-                name: p.name,
-                avatar_url: p.avatar_url,
-                is_group_admin: !!adminMap[p.id],
-            })).sort((a: ParticipantRow, b: ParticipantRow) => (a.name || '').localeCompare(b.name || ''));
-            if (!cancelled) {
-                setParticipants(list);
-                setParticipantsLoading(false);
-            }
-        })();
-        return () => { cancelled = true; };
-    }, [showParticipants, isDirect, chat.participantGroupId, currentUser.id]);
+        scrollToBottom();
+    }, [messages]);
 
-    useEffect(() => { scrollToBottom(); }, [messages]);
-
-    function scrollToBottom() { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }
+    function scrollToBottom() {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
 
     async function loadGroupMemberReads() {
         if (!chat.participantGroupId || isDirect) return;
@@ -145,8 +166,44 @@ export default function ChatWindow({ chat, currentUser, allUsers, onlineUsers, s
         setGroupMemberLastRead(map);
     }
 
-    async function loadMessages() {
-        setLoading(true);
+    function buildViewerRows(msg: { sender_id: string; created_at: string; read?: boolean }): ViewerRow[] {
+        if (isDirect) {
+            const viewed = msg.read === true;
+            return [
+                {
+                    id: chat.id,
+                    name: chat.name,
+                    avatar: chat.avatar,
+                    viewed,
+                    viewedAt: null,
+                },
+            ];
+        }
+        const rows: ViewerRow[] = [];
+        for (const [userId, lastRead] of Object.entries(groupMemberLastRead)) {
+            if (userId === msg.sender_id) continue;
+            const profile = allUsers.find((u) => u.id === userId);
+            const viewed = memberViewedMessage(msg.created_at, lastRead);
+            rows.push({
+                id: userId,
+                name: profile?.name || 'Member',
+                avatar: profile?.avatar_url || null,
+                viewed,
+                viewedAt: viewed ? lastRead : null,
+            });
+        }
+        rows.sort((a, b) => Number(b.viewed) - Number(a.viewed) || a.name.localeCompare(b.name));
+        return rows;
+    }
+
+    async function openMessageViewInfo(msg: any) {
+        if (!isDirect) await loadGroupMemberReads();
+        setMenuMsgId(null);
+        setViewInfoMsg(msg);
+    }
+
+    async function loadMessages(silent = false) {
+        if (!silent) setLoading(true);
         if (isDirect) {
             const { data: sent, error: e1 } = await supabase
                 .from('direct_messages')
@@ -169,7 +226,6 @@ export default function ChatWindow({ chat, currentUser, allUsers, onlineUsers, s
                 const all = [...(sent || []), ...(received || [])].sort(
                     (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
                 );
-                // Attach sender info manually
                 const enriched = all.map(m => ({
                     ...m,
                     sender: m.sender_id === currentUser.id
@@ -182,14 +238,13 @@ export default function ChatWindow({ chat, currentUser, allUsers, onlineUsers, s
             }
 
             if (!e2 && received && received.length > 0) {
-                const { data: marked, error: markErr } = await supabase
+                const { error: markErr } = await supabase
                     .from('direct_messages')
                     .update({ read: true } as any)
                     .eq('receiver_id', currentUser.id)
-                    .eq('sender_id', chat.id)
-                    .select('id');
+                    .eq('sender_id', chat.id);
                 if (markErr) console.error('DM read update error:', markErr);
-                else if ((marked?.length || 0) > 0) onMessageSent();
+                onMessageSent();
             }
         } else {
             const { data, error } = await supabase
@@ -198,7 +253,6 @@ export default function ChatWindow({ chat, currentUser, allUsers, onlineUsers, s
                 .eq('group_id', chat.id)
                 .order('created_at', { ascending: true });
             if (error) { console.error('Group msg load error:', error); setLoading(false); return; }
-            // Fetch sender profiles for group messages
             const senderIds = [...new Set((data || []).map((m: any) => m.sender_id))];
             let senderMap: Record<string, any> = {};
             if (senderIds.length > 0) {
@@ -272,6 +326,7 @@ export default function ChatWindow({ chat, currentUser, allUsers, onlineUsers, s
                     .eq('group_id', chat.participantGroupId)
                     .eq('user_id', currentUser.id);
                 onMessageSent();
+                void loadGroupMemberReads();
             }
         });
         ch.on('postgres_changes', { event: 'UPDATE', schema: 'public', table }, (payload: { new: Record<string, unknown> }) => {
@@ -348,44 +403,155 @@ export default function ChatWindow({ chat, currentUser, allUsers, onlineUsers, s
                     setMessages(prev => prev.map(m => m.id === tempMsg.id ? realMsg : m));
                 }
             }
-            onMessageSent();
+            try {
+                onMessageSent(text);
+            } catch (patchErr: any) {
+                console.error('Chat list update failed:', patchErr);
+            }
         } finally {
             isSendingRef.current = false;
         }
     }
 
-    async function sendFile(file: File) {
-        if (file.size > 10 * 1024 * 1024) { toast.error('Max 10MB'); return; }
-        const ext = file.name.split('.').pop();
-        const path = `chat-files/${Date.now()}.${ext}`;
-        const { error: upErr } = await supabase.storage.from('documents').upload(path, file);
-        if (upErr) { toast.error('Upload failed: ' + upErr.message); return; }
-        const { data } = supabase.storage.from('documents').getPublicUrl(path);
-        const text = `📎 ${file.name}`;
+    async function sendFile(file: File, localPreviewUrl?: string) {
+        if (file.size > 15 * 1024 * 1024) { toast.error('Max 15MB'); return; }
+        const text = attachmentLabel(file);
+        const tempId = `temp-${Date.now()}`;
+        const previewUrl = localPreviewUrl || (isImageFile(file) ? URL.createObjectURL(file) : null);
+        const tempMsg = {
+            id: tempId,
+            sender_id: currentUser.id,
+            message: text,
+            file_url: previewUrl,
+            created_at: new Date().toISOString(),
+            sender: { name: currentUser.name, avatar_url: currentUser.avatar_url },
+            ...(isDirect ? { receiver_id: chat.id } : { group_id: chat.id }),
+            _pending: true,
+        };
+        setMessages((prev) => [...prev, tempMsg]);
+        setPendingPreview(null);
         isSendingRef.current = true;
-        if (isDirect) {
-            const { error } = await supabase.from('direct_messages').insert({ sender_id: currentUser.id, receiver_id: chat.id, message: text, file_url: data.publicUrl, read: false } as any);
-            if (error) { toast.error('Failed to send file'); isSendingRef.current = false; return; }
-        } else {
-            const { error } = await supabase.from('group_messages').insert({ group_id: chat.id, sender_id: currentUser.id, message: text, file_url: data.publicUrl } as any);
-            if (error) { toast.error('Failed to send file'); isSendingRef.current = false; return; }
+
+        try {
+            const ext = file.name.split('.').pop() || 'bin';
+            const path = `chat-files/${Date.now()}.${ext}`;
+            const { error: upErr } = await supabase.storage.from('documents').upload(path, file);
+            if (upErr) throw new Error(upErr.message);
+            const { data } = supabase.storage.from('documents').getPublicUrl(path);
+
+            if (isDirect) {
+                const { data: inserted, error } = await supabase
+                    .from('direct_messages')
+                    .insert({ sender_id: currentUser.id, receiver_id: chat.id, message: text, file_url: data.publicUrl, read: false } as any)
+                    .select()
+                    .single();
+                if (error) throw error;
+                if (inserted) {
+                    setMessages((prev) =>
+                        prev.map((m) =>
+                            m.id === tempId
+                                ? { ...inserted, sender: { name: currentUser.name, avatar_url: currentUser.avatar_url } }
+                                : m,
+                        ),
+                    );
+                }
+            } else {
+                const { data: inserted, error } = await supabase
+                    .from('group_messages')
+                    .insert({ group_id: chat.id, sender_id: currentUser.id, message: text, file_url: data.publicUrl } as any)
+                    .select()
+                    .single();
+                if (error) throw error;
+                if (inserted) {
+                    setMessages((prev) =>
+                        prev.map((m) =>
+                            m.id === tempId
+                                ? { ...inserted, sender: { name: currentUser.name, avatar_url: currentUser.avatar_url } }
+                                : m,
+                        ),
+                    );
+                }
+            }
+            onMessageSent(text);
+        } catch (err: any) {
+            toast.error(err?.message || 'Failed to send');
+            setMessages((prev) => prev.filter((m) => m.id !== tempId));
+        } finally {
+            isSendingRef.current = false;
+            if (previewUrl?.startsWith('blob:')) URL.revokeObjectURL(previewUrl);
         }
-        await loadMessages();
-        isSendingRef.current = false;
-        onMessageSent();
     }
 
     async function sendPoll() {
         if (!pollQ.trim() || pollOpts.filter(o => o.trim()).length < 2) { toast.error('Need question + 2 options'); return; }
         const pollData = { question: pollQ.trim(), options: pollOpts.filter(o => o.trim()), votes: {} as Record<string, string[]>, allowMultiple: pollMultiple };
         const text = `📊 ${pollQ}`;
-        if (isDirect) await supabase.from('direct_messages').insert({ sender_id: currentUser.id, receiver_id: chat.id, message: text, poll_data: pollData, read: false } as any);
-        else await supabase.from('group_messages').insert({ group_id: chat.id, sender_id: currentUser.id, message: text, poll_data: pollData } as any);
+        const tempId = `temp-${Date.now()}`;
+        const tempMsg = {
+            id: tempId,
+            sender_id: currentUser.id,
+            message: text,
+            poll_data: pollData,
+            created_at: new Date().toISOString(),
+            sender: { name: currentUser.name, avatar_url: currentUser.avatar_url },
+            ...(isDirect ? { receiver_id: chat.id } : { group_id: chat.id }),
+        };
+        setMessages((prev) => [...prev, tempMsg]);
         setShowPoll(false); setPollQ(''); setPollOpts(['', '']); setPollMultiple(false);
         isSendingRef.current = true;
-        await loadMessages();
-        isSendingRef.current = false;
-        onMessageSent();
+        try {
+            if (isDirect) {
+                const { data: inserted, error } = await supabase
+                    .from('direct_messages')
+                    .insert({ sender_id: currentUser.id, receiver_id: chat.id, message: text, poll_data: pollData, read: false } as any)
+                    .select()
+                    .single();
+                if (error) throw error;
+                if (inserted) setMessages((prev) => prev.map((m) => m.id === tempId ? { ...inserted, sender: tempMsg.sender } : m));
+            } else {
+                const { data: inserted, error } = await supabase
+                    .from('group_messages')
+                    .insert({ group_id: chat.id, sender_id: currentUser.id, message: text, poll_data: pollData } as any)
+                    .select()
+                    .single();
+                if (error) throw error;
+                if (inserted) setMessages((prev) => prev.map((m) => m.id === tempId ? { ...inserted, sender: tempMsg.sender } : m));
+            }
+            onMessageSent(text);
+        } catch (err: any) {
+            toast.error(err?.message || 'Failed to send poll');
+            setMessages((prev) => prev.filter((m) => m.id !== tempId));
+        } finally {
+            isSendingRef.current = false;
+        }
+    }
+
+    async function startVoice() {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const mime = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4';
+            const recorder = new MediaRecorder(stream);
+            audioChunksRef.current = [];
+            recorder.ondataavailable = (e) => {
+                if (e.data.size > 0) audioChunksRef.current.push(e.data);
+            };
+            recorder.onstop = () => {
+                stream.getTracks().forEach((t) => t.stop());
+                const blob = new Blob(audioChunksRef.current, { type: mime });
+                const file = new File([blob], `voice-${Date.now()}.${mime.includes('webm') ? 'webm' : 'm4a'}`, { type: mime });
+                void sendFile(file);
+            };
+            mediaRecorderRef.current = recorder;
+            recorder.start();
+            setRecording(true);
+        } catch {
+            toast.error('Microphone permission needed for voice messages');
+        }
+    }
+
+    function stopVoice() {
+        mediaRecorderRef.current?.stop();
+        setRecording(false);
     }
 
     async function votePoll(msgId: string, option: string) {
@@ -399,36 +565,12 @@ export default function ChatWindow({ chat, currentUser, allUsers, onlineUsers, s
         } else {
             votes[currentUser.id] = [option];
         }
-        // Optimistically update the message in state
         const updatedPoll = { ...msg.poll_data, votes };
         setMessages(prev => prev.map(m => m.id === msgId ? { ...m, poll_data: updatedPoll } : m));
         isSendingRef.current = true;
         const table = isDirect ? 'direct_messages' : 'group_messages';
         await supabase.from(table).update({ poll_data: updatedPoll } as any).eq('id', msgId);
         isSendingRef.current = false;
-    }
-
-    async function removeGroupMember(userId: string) {
-        if (!chat.participantGroupId || userId === currentUser.id) return;
-        setRemovingId(userId);
-        const { error, data } = await supabase
-            .from('chat_participants')
-            .delete()
-            .eq('group_id', chat.participantGroupId)
-            .eq('user_id', userId)
-            .select('user_id');
-        setRemovingId(null);
-        if (error) {
-            toast.error(error.message || 'Could not remove member');
-            return;
-        }
-        if (!data?.length) {
-            toast.error('Remove was not allowed (only custom group admins can remove others).');
-            return;
-        }
-        toast.success('Member removed');
-        setParticipants((prev) => prev.filter((p) => p.id !== userId));
-        onMessageSent();
     }
 
     async function deleteMessage(msgId: string) {
@@ -449,12 +591,11 @@ export default function ChatWindow({ chat, currentUser, allUsers, onlineUsers, s
             return;
         }
         if (!data || data.length === 0) {
-            toast.error('Could not delete this message. If it persists, refresh the page and try again.');
+            toast.error('Could not delete this message.');
             return;
         }
         setMessages(prev => prev.filter(m => m.id !== msgId));
         setMenuMsgId(null);
-        await loadMessages();
         onMessageSent();
     }
 
@@ -467,12 +608,18 @@ export default function ChatWindow({ chat, currentUser, allUsers, onlineUsers, s
                         <ArrowLeft className="w-5 h-5" />
                     </button>
                 )}
-                <div className="flex items-center gap-3 flex-1 cursor-pointer" onClick={() => isDirect && onOpenProfile(chat.id)}>
-                    <div className="relative">
+                <div
+                    className="flex items-center gap-3 flex-1 cursor-pointer min-w-0"
+                    onClick={() => {
+                        if (isDirect) onOpenProfile(chat.id);
+                        else if (chat.participantGroupId) setShowGroupInfo(true);
+                    }}
+                >
+                    <div className="relative shrink-0">
                         {chat.avatar ? (
                             <img src={chat.avatar} alt="" className="w-10 h-10 rounded-full object-cover" />
                         ) : (
-                            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-white font-semibold text-sm">
+                            <div className="w-10 h-10 rounded-full bg-[#00a884] flex items-center justify-center text-white font-semibold text-sm">
                                 {chat.type === 'group' ? <Users className="w-5 h-5" /> : (chat.name || '?')[0]?.toUpperCase()}
                             </div>
                         )}
@@ -480,13 +627,13 @@ export default function ChatWindow({ chat, currentUser, allUsers, onlineUsers, s
                     </div>
                     <div className="flex-1 min-w-0">
                         <h2 className="font-semibold text-white text-base truncate">{chat.name || 'Chat'}</h2>
-                        <p className="text-xs text-gray-400">
+                        <p className="text-xs text-gray-400 truncate">
                             {typing ? (
                                 <span className="text-emerald-400 italic">{typing} is typing...</span>
                             ) : isDirect ? (
-                                showOnlinePresence ? (isOnline ? 'Online' : 'Offline') : 'Direct message'
+                                showOnlinePresence ? (isOnline ? 'Online' : 'Offline') : 'Tap for contact info'
                             ) : (
-                                'Group chat'
+                                chat.description?.trim() || 'Tap for group info'
                             )}
                         </p>
                     </div>
@@ -494,9 +641,9 @@ export default function ChatWindow({ chat, currentUser, allUsers, onlineUsers, s
                 {!isDirect && chat.participantGroupId && (
                     <button
                         type="button"
-                        onClick={() => setShowParticipants(true)}
+                        onClick={() => setShowGroupInfo(true)}
                         className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-[#2a3942] shrink-0"
-                        title="View participants"
+                        title="Group info"
                     >
                         <Users className="w-5 h-5" />
                     </button>
@@ -550,11 +697,22 @@ export default function ChatWindow({ chat, currentUser, allUsers, onlineUsers, s
 
                                             {isPoll ? (
                                                 <PollBubble poll={msg.poll_data} msgId={msg.id} myId={currentUser.id} onVote={votePoll} allUsers={allUsers} />
+                                            ) : msg.file_url && isImageUrl(msg.file_url, msg.message) ? (
+                                                <button type="button" className="block text-left" onClick={(e) => { e.stopPropagation(); setLightbox(msg.file_url); }}>
+                                                    <img
+                                                        src={msg.file_url}
+                                                        alt=""
+                                                        className={`max-w-[240px] sm:max-w-[280px] max-h-64 rounded-lg object-cover ${msg._pending ? 'opacity-70' : ''}`}
+                                                    />
+                                                </button>
+                                            ) : msg.file_url && isAudioUrl(msg.file_url, msg.message) ? (
+                                                <audio controls preload="metadata" className="max-w-[240px] h-10" src={msg.file_url} onClick={(e) => e.stopPropagation()} />
                                             ) : msg.file_url ? (
                                                 <a href={msg.file_url} target="_blank" rel="noopener noreferrer"
-                                                    className="flex items-center gap-2 text-[15px] text-emerald-300 hover:text-emerald-200 font-medium">
+                                                    className="flex items-center gap-2 text-[15px] text-emerald-300 hover:text-emerald-200 font-medium"
+                                                    onClick={(e) => e.stopPropagation()}>
                                                     <Paperclip className="w-4 h-4" />
-                                                    <span className="underline">{msg.message?.replace('📎 ', '') || 'Download File'}</span>
+                                                    <span className="underline">{msg.message?.replace(/^📎\s*/, '') || 'Download File'}</span>
                                                 </a>
                                             ) : (
                                                 <p className="text-[15px] text-gray-100 break-words whitespace-pre-wrap leading-[22px]">{msg.message}</p>
@@ -564,20 +722,30 @@ export default function ChatWindow({ chat, currentUser, allUsers, onlineUsers, s
                                                 <span className="text-[10.5px] text-gray-500">{new Date(msg.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
                                                 {isSent && (() => {
                                                     if (isDirect) {
-                                                        return msg.read ? (
-                                                            <span title="Read"><CheckCheck className="w-3.5 h-3.5 text-blue-400" /></span>
-                                                        ) : (
-                                                            <span title="Sent · not read yet"><CheckCheck className="w-3.5 h-3.5 text-gray-500" /></span>
+                                                        const viewed = msg.read === true;
+                                                        return (
+                                                            <ReceiptTicks
+                                                                viewed={viewed}
+                                                                title={viewed ? 'Viewed — tap for details' : 'Not viewed — tap for details'}
+                                                                onOpen={() => void openMessageViewInfo(msg)}
+                                                            />
                                                         );
                                                     }
                                                     const lvl = groupReceiptLevel(msg, groupMemberLastRead, currentUser.id);
-                                                    if (lvl === 'sent') {
-                                                        return <span title="Sent · no one else has read yet"><Check className="w-3.5 h-3.5 text-gray-500" /></span>;
-                                                    }
-                                                    if (lvl === 'delivered') {
-                                                        return <span title="Read by some members"><CheckCheck className="w-3.5 h-3.5 text-gray-500" /></span>;
-                                                    }
-                                                    return <span title="Read by everyone in the group"><CheckCheck className="w-3.5 h-3.5 text-blue-400" /></span>;
+                                                    const viewed = lvl === 'delivered' || lvl === 'read';
+                                                    const title =
+                                                        lvl === 'read'
+                                                            ? 'Viewed by everyone — tap for details'
+                                                            : lvl === 'delivered'
+                                                              ? 'Viewed by some — tap for details'
+                                                              : 'Not viewed yet — tap for details';
+                                                    return (
+                                                        <ReceiptTicks
+                                                            viewed={viewed}
+                                                            title={title}
+                                                            onOpen={() => void openMessageViewInfo(msg)}
+                                                        />
+                                                    );
                                                 })()}
                                             </div>
 
@@ -585,8 +753,12 @@ export default function ChatWindow({ chat, currentUser, allUsers, onlineUsers, s
                                             {isSent && menuMsgId === msg.id && (
                                                 <motion.div initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.18, ease: motionTokens.easing }}
                                                     className="absolute -top-10 right-0 bg-[#233138] rounded-lg shadow-xl border border-[#2a3942] z-20 overflow-hidden">
+                                                    <button onClick={(e) => { e.stopPropagation(); void openMessageViewInfo(msg); }}
+                                                        className="flex items-center gap-2 px-4 py-2 text-gray-200 hover:bg-[#2a3942] text-xs font-medium whitespace-nowrap w-full">
+                                                        <CheckCheck className="w-3.5 h-3.5 text-amber-400" /> Viewed by
+                                                    </button>
                                                     <button onClick={(e) => { e.stopPropagation(); deleteMessage(msg.id); }}
-                                                        className="flex items-center gap-2 px-4 py-2 text-red-400 hover:bg-[#2a3942] text-xs font-medium whitespace-nowrap">
+                                                        className="flex items-center gap-2 px-4 py-2 text-red-400 hover:bg-[#2a3942] text-xs font-medium whitespace-nowrap w-full">
                                                         <Trash2 className="w-3.5 h-3.5" /> Delete
                                                     </button>
                                                 </motion.div>
@@ -601,8 +773,112 @@ export default function ChatWindow({ chat, currentUser, allUsers, onlineUsers, s
                 </div>
             </div>
 
+            {viewInfoMsg && (() => {
+                const viewers = buildViewerRows(viewInfoMsg);
+                const viewedList = viewers.filter((v) => v.viewed);
+                const pendingList = viewers.filter((v) => !v.viewed);
+                return (
+                    <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center" onClick={() => setViewInfoMsg(null)}>
+                        <div className="absolute inset-0 bg-black/55" />
+                        <motion.div
+                            initial={{ opacity: 0, y: 24 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ duration: 0.2, ease: motionTokens.easing }}
+                            className="relative w-full sm:max-w-md bg-[#1f2c34] rounded-t-2xl sm:rounded-2xl border border-[#2a3942] shadow-2xl max-h-[75dvh] flex flex-col overflow-hidden"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            <div className="px-4 py-3 border-b border-[#2a3942] flex items-center justify-between">
+                                <div>
+                                    <p className="text-sm font-semibold text-gray-100">Message info</p>
+                                    <p className="text-[11px] text-gray-500 mt-0.5">
+                                        {viewedList.length} viewed · {pendingList.length} not viewed
+                                    </p>
+                                </div>
+                                <button type="button" onClick={() => setViewInfoMsg(null)} className="p-2 text-gray-400 hover:text-white rounded-full hover:bg-white/5" aria-label="Close">
+                                    <X className="w-4 h-4" />
+                                </button>
+                            </div>
+                            <div className="overflow-y-auto flex-1 px-2 py-2">
+                                <p className="px-2 pt-1 pb-2 text-[11px] uppercase tracking-wide text-amber-400/90 font-semibold flex items-center gap-1.5">
+                                    <CheckCheck className="w-3.5 h-3.5 text-amber-400" /> Viewed
+                                </p>
+                                {viewedList.length === 0 ? (
+                                    <p className="px-3 pb-3 text-xs text-gray-500">Nobody has viewed this yet</p>
+                                ) : (
+                                    <ul className="mb-3">
+                                        {viewedList.map((v) => (
+                                            <li key={v.id} className="flex items-center gap-3 px-2 py-2 rounded-lg">
+                                                <div className="w-9 h-9 rounded-full bg-[#2a3942] overflow-hidden flex items-center justify-center text-sm text-gray-300 font-medium flex-shrink-0">
+                                                    {v.avatar ? <img src={v.avatar} alt="" className="w-full h-full object-cover" /> : (v.name[0] || '?').toUpperCase()}
+                                                </div>
+                                                <div className="min-w-0 flex-1">
+                                                    <p className="text-sm text-gray-100 truncate">{v.name}</p>
+                                                    {v.viewedAt && (
+                                                        <p className="text-[10px] text-gray-500">
+                                                            {new Date(v.viewedAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                                                        </p>
+                                                    )}
+                                                </div>
+                                                <CheckCheck className="w-4 h-4 text-amber-400 flex-shrink-0" />
+                                            </li>
+                                        ))}
+                                    </ul>
+                                )}
+                                <p className="px-2 pt-1 pb-2 text-[11px] uppercase tracking-wide text-red-400/90 font-semibold flex items-center gap-1.5">
+                                    <CheckCheck className="w-3.5 h-3.5 text-red-400" /> Not viewed
+                                </p>
+                                {pendingList.length === 0 ? (
+                                    <p className="px-3 pb-3 text-xs text-gray-500">Everyone has viewed this</p>
+                                ) : (
+                                    <ul className="mb-2">
+                                        {pendingList.map((v) => (
+                                            <li key={v.id} className="flex items-center gap-3 px-2 py-2 rounded-lg">
+                                                <div className="w-9 h-9 rounded-full bg-[#2a3942] overflow-hidden flex items-center justify-center text-sm text-gray-300 font-medium flex-shrink-0">
+                                                    {v.avatar ? <img src={v.avatar} alt="" className="w-full h-full object-cover" /> : (v.name[0] || '?').toUpperCase()}
+                                                </div>
+                                                <div className="min-w-0 flex-1">
+                                                    <p className="text-sm text-gray-100 truncate">{v.name}</p>
+                                                </div>
+                                                <CheckCheck className="w-4 h-4 text-red-400 flex-shrink-0" />
+                                            </li>
+                                        ))}
+                                    </ul>
+                                )}
+                            </div>
+                        </motion.div>
+                    </div>
+                );
+            })()}
+
             {/* Input */}
-            <form onSubmit={sendMessage} className="px-2 sm:px-3 py-2 bg-[#202c33] flex items-center gap-1.5 sm:gap-2 relative pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+            {/* Input */}
+            <div className="px-2 sm:px-3 py-2 bg-[#202c33] relative pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+                {pendingPreview && (
+                    <div className="mb-2 flex items-center gap-3 bg-[#111b21] rounded-xl p-2 border border-[#2a3942]">
+                        <img src={pendingPreview.url} alt="" className="w-16 h-16 rounded-lg object-cover" />
+                        <div className="flex-1 min-w-0">
+                            <p className="text-xs text-gray-300 truncate">{pendingPreview.file.name}</p>
+                            <button
+                                type="button"
+                                onClick={() => void sendFile(pendingPreview.file, pendingPreview.url)}
+                                className="mt-1 text-xs font-semibold text-[#00a884]"
+                            >
+                                Send photo
+                            </button>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                URL.revokeObjectURL(pendingPreview.url);
+                                setPendingPreview(null);
+                            }}
+                            className="text-gray-400 text-xs px-2"
+                        >
+                            Cancel
+                        </button>
+                    </div>
+                )}
+                <form onSubmit={sendMessage} className="flex items-center gap-1.5 sm:gap-2">
                 <div className="relative">
                     <button type="button" onClick={() => setShowEmoji(v => !v)} className="p-2 text-gray-400 hover:text-white transition-colors">
                         <Smile className="w-6 h-6" />
@@ -619,20 +895,49 @@ export default function ChatWindow({ chat, currentUser, allUsers, onlineUsers, s
                         )}
                     </AnimatePresence>
                 </div>
-                <button type="button" onClick={() => fileRef.current?.click()} className="p-2 text-gray-400 hover:text-white transition-colors">
+                <button type="button" onClick={() => imageRef.current?.click()} className="p-2 text-gray-400 hover:text-white transition-colors" title="Photo">
+                    <ImageIcon className="w-5 h-5" />
+                </button>
+                <button type="button" onClick={() => fileRef.current?.click()} className="p-2 text-gray-400 hover:text-white transition-colors" title="Document">
                     <Paperclip className="w-5 h-5" />
                 </button>
-                <button type="button" onClick={() => setShowPoll(true)} className="p-2 text-gray-400 hover:text-white transition-colors">
+                <button type="button" onClick={() => setShowPoll(true)} className="p-2 text-gray-400 hover:text-white transition-colors" title="Poll">
                     <BarChart3 className="w-5 h-5" />
                 </button>
-                <input ref={fileRef} type="file" className="hidden" accept="image/*,.pdf,.doc,.docx" onChange={e => { const f = e.target.files?.[0]; if (f) sendFile(f); e.target.value = ''; }} />
+                <input ref={fileRef} type="file" className="hidden" accept="image/*,audio/*,.pdf,.doc,.docx" onChange={e => {
+                    const f = e.target.files?.[0];
+                    if (!f) return;
+                    if (isImageFile(f)) {
+                        setPendingPreview({ url: URL.createObjectURL(f), file: f });
+                    } else {
+                        void sendFile(f);
+                    }
+                    e.target.value = '';
+                }} />
+                <input ref={imageRef} type="file" className="hidden" accept="image/*" capture="environment" onChange={e => {
+                    const f = e.target.files?.[0];
+                    if (f) setPendingPreview({ url: URL.createObjectURL(f), file: f });
+                    e.target.value = '';
+                }} />
                 <input type="text" value={newMessage} onChange={e => { setNewMessage(e.target.value); handleTyping(); }} placeholder="Type a message"
                     className="flex-1 min-w-0 px-3 sm:px-4 py-2.5 bg-[#2a3942] rounded-lg text-base text-white placeholder-gray-500 outline-none focus:ring-1 focus:ring-emerald-500/30 transition-all" />
-                <motion.button whileHover={{ scale: 1.03 }} whileTap={motionTokens.tap} type="submit" disabled={!newMessage.trim()}
-                    className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-white disabled:opacity-40 shadow-md">
-                    <Send className="w-4 h-4" />
-                </motion.button>
-            </form>
+                {newMessage.trim() ? (
+                    <motion.button whileHover={{ scale: 1.03 }} whileTap={motionTokens.tap} type="submit"
+                        className="w-10 h-10 rounded-full bg-[#00a884] flex items-center justify-center text-white shadow-md shrink-0">
+                        <Send className="w-4 h-4" />
+                    </motion.button>
+                ) : (
+                    <button
+                        type="button"
+                        onClick={() => (recording ? stopVoice() : void startVoice())}
+                        className={`w-10 h-10 rounded-full flex items-center justify-center text-white shadow-md shrink-0 ${recording ? 'bg-red-500 animate-pulse' : 'bg-[#00a884]'}`}
+                        title={recording ? 'Stop recording' : 'Voice message'}
+                    >
+                        {recording ? <Square className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                    </button>
+                )}
+                </form>
+            </div>
 
             {/* Poll Modal - WhatsApp Style */}
             <AnimatePresence>
@@ -682,94 +987,34 @@ export default function ChatWindow({ chat, currentUser, allUsers, onlineUsers, s
             </AnimatePresence>
 
             <AnimatePresence>
-                {showParticipants && (
+                {showGroupInfo && !isDirect && chat.participantGroupId && (
+                    <GroupInfoPanel
+                        chat={chat}
+                        currentUser={currentUser}
+                        allUsers={allUsers}
+                        onlineUsers={onlineUsers}
+                        showOnlinePresence={showOnlinePresence}
+                        onClose={() => setShowGroupInfo(false)}
+                        onOpenProfile={onOpenProfile}
+                        onMetaUpdated={(patch) => onChatMetaUpdate?.(patch)}
+                        onLeftOrDeleted={() => {
+                            setShowGroupInfo(false);
+                            onLeaveOrDeleteChat?.();
+                        }}
+                    />
+                )}
+            </AnimatePresence>
+
+            <AnimatePresence>
+                {lightbox && (
                     <motion.div
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
-                        transition={{ duration: motionTokens.modal.duration }}
-                        className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[55] p-4"
-                        onClick={() => setShowParticipants(false)}
+                        className="fixed inset-0 z-[70] bg-black/90 flex items-center justify-center p-4"
+                        onClick={() => setLightbox(null)}
                     >
-                        <motion.div
-                            initial={{ scale: 0.96, y: 16 }}
-                            animate={{ scale: 1, y: 0 }}
-                            exit={{ scale: 0.96, y: 16 }}
-                            transition={{ duration: motionTokens.modal.duration, ease: motionTokens.easing }}
-                            className="bg-[#233138] rounded-2xl max-w-md w-full max-h-[75vh] shadow-2xl border border-[#2a3942] flex flex-col overflow-hidden"
-                            onClick={(e) => e.stopPropagation()}
-                        >
-                            <div className="px-4 py-3 border-b border-[#2a3942] flex items-center justify-between gap-2">
-                                <h2 className="text-white font-semibold text-lg">Participants</h2>
-                                <button type="button" onClick={() => setShowParticipants(false)} className="text-gray-400 hover:text-white p-1 text-xl leading-none" aria-label="Close">
-                                    ✕
-                                </button>
-                            </div>
-                            <div className="overflow-y-auto flex-1 p-3 min-h-[120px]">
-                                {participantsLoading ? (
-                                    <p className="text-sm text-gray-500 text-center py-6">Loading…</p>
-                                ) : participants.length === 0 ? (
-                                    <p className="text-sm text-gray-500 text-center py-6">No members found.</p>
-                                ) : (
-                                    <ul className="space-y-1">
-                                        {participants.map((p) => (
-                                            <li
-                                                key={p.id}
-                                                className="flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-[#2a3942]/80"
-                                            >
-                                                <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                        if (p.id !== currentUser.id) {
-                                                            setShowParticipants(false);
-                                                            onOpenProfile(p.id);
-                                                        }
-                                                    }}
-                                                    className="flex items-center gap-3 flex-1 min-w-0 text-left"
-                                                >
-                                                    <div className="relative flex-shrink-0">
-                                                        {p.avatar_url ? (
-                                                            <img src={p.avatar_url} alt="" className="w-9 h-9 rounded-full object-cover" />
-                                                        ) : (
-                                                            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-white text-xs font-semibold">
-                                                                {(p.name || '?')[0]?.toUpperCase()}
-                                                            </div>
-                                                        )}
-                                                        {showOnlinePresence && onlineUsers.has(p.id) && (
-                                                            <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 rounded-full border-2 border-[#233138]" />
-                                                        )}
-                                                    </div>
-                                                    <div className="flex-1 min-w-0">
-                                                        <p className="text-sm text-white font-medium truncate">
-                                                            {p.name}
-                                                            {p.id === currentUser.id ? ' (you)' : ''}
-                                                        </p>
-                                                        {p.is_group_admin && (
-                                                            <p className="text-[10px] text-emerald-400 font-semibold uppercase tracking-wide">Group admin</p>
-                                                        )}
-                                                    </div>
-                                                </button>
-                                                {canManageGroupMembers && p.id !== currentUser.id && (
-                                                    <button
-                                                        type="button"
-                                                        disabled={removingId === p.id}
-                                                        onClick={() => void removeGroupMember(p.id)}
-                                                        className="text-xs font-medium text-red-400 hover:text-red-300 px-2 py-1 rounded disabled:opacity-40 shrink-0"
-                                                    >
-                                                        {removingId === p.id ? '…' : 'Remove'}
-                                                    </button>
-                                                )}
-                                            </li>
-                                        ))}
-                                    </ul>
-                                )}
-                            </div>
-                            {chat.groupChatType !== 'custom_group' && (
-                                <p className="text-[11px] text-gray-500 px-4 pb-3 pt-0">
-                                    This is an organization or committee chat. Members are managed automatically; you can view the list here.
-                                </p>
-                            )}
-                        </motion.div>
+                        <img src={lightbox} alt="" className="max-w-full max-h-full object-contain rounded-lg" />
                     </motion.div>
                 )}
             </AnimatePresence>
