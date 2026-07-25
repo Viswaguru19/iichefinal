@@ -113,7 +113,7 @@ export default function ChatSidebar({
           <button
             type="button"
             onClick={() => setShowCreateGroup(true)}
-            className="w-9 h-9 rounded-full bg-[#00a884] flex items-center justify-center text-white"
+            className="w-9 h-9 rounded-full bg-[#00a884] flex items-center justify-center text-white active:scale-95 touch-manipulation"
             title="Create Group"
           >
             <Users className="w-4 h-4" />
@@ -121,7 +121,7 @@ export default function ChatSidebar({
           <button
             type="button"
             onClick={() => setShowNewChat(true)}
-            className="w-9 h-9 rounded-full bg-[#00a884] flex items-center justify-center text-white"
+            className="w-9 h-9 rounded-full bg-[#00a884] flex items-center justify-center text-white active:scale-95 touch-manipulation"
             title="New chat"
           >
             <Plus className="w-5 h-5" />
@@ -148,8 +148,8 @@ export default function ChatSidebar({
             key={f}
             type="button"
             onClick={() => setFilter(f)}
-            className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap shrink-0 transition-all ${
-              filter === f ? 'bg-[#00a884] text-white' : 'bg-[#202c33] text-gray-400 hover:bg-[#2a3942]'
+            className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap shrink-0 touch-manipulation active:scale-95 ${
+              filter === f ? 'bg-[#00a884] text-white' : 'bg-[#202c33] text-gray-400 active:bg-[#2a3942]'
             }`}
           >
             {f === 'all' ? 'All' : f === 'unread' ? 'Unread' : 'Groups'}
@@ -216,14 +216,14 @@ export default function ChatSidebar({
             return (
               <div
                 key={`${chat.type}-${chat.id}`}
-                className={`group flex items-center gap-0.5 px-1 sm:px-2 border-b border-[#1a242b] transition-colors ${
-                  isActive ? 'bg-[#2a3942]' : 'hover:bg-[#202c33]/80'
+                className={`group flex items-center gap-0.5 px-1 sm:px-2 border-b border-[#1a242b] ${
+                  isActive ? 'bg-[#2a3942]' : 'active:bg-[#202c33]'
                 }`}
               >
                 <button
                   type="button"
                   onClick={() => onSelectChat(chat)}
-                  className="flex-1 flex items-center gap-3 px-2 py-3 text-left min-w-0"
+                  className="flex-1 flex items-center gap-3 px-2 py-3 text-left min-w-0 touch-manipulation"
                 >
                   <div className="relative flex-shrink-0">
                     {chat.avatar ? (
@@ -264,8 +264,8 @@ export default function ChatSidebar({
                       e.stopPropagation();
                       onTogglePin(chat);
                     }}
-                    className={`p-2 rounded-lg shrink-0 transition-colors ${
-                      isPinned ? 'text-[#00a884]' : 'text-gray-600 hover:text-gray-300'
+                    className={`p-2 rounded-lg shrink-0 touch-manipulation active:opacity-70 ${
+                      isPinned ? 'text-[#00a884]' : 'text-gray-600'
                     }`}
                   >
                     {isPinned ? <PinOff className="w-4 h-4" /> : <Pin className="w-4 h-4" />}
@@ -279,7 +279,7 @@ export default function ChatSidebar({
                       e.stopPropagation();
                       onDeleteChat(chat);
                     }}
-                    className="p-2 text-gray-600 hover:text-red-400 shrink-0"
+                    className="p-2 text-gray-600 active:text-red-400 shrink-0 touch-manipulation"
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
@@ -293,10 +293,10 @@ export default function ChatSidebar({
       <AnimatePresence>
         {showNewChat && (
           <motion.div
-            initial={{ x: -420 }}
+            initial={{ x: '100%' }}
             animate={{ x: 0 }}
-            exit={{ x: -420 }}
-            transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+            exit={{ x: '100%' }}
+            transition={{ duration: 0.15, ease: 'easeOut' }}
             className="absolute inset-0 bg-[#111b21] z-20 flex flex-col"
           >
             <div className="px-4 py-3 bg-[#202c33] flex items-center gap-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
@@ -355,10 +355,10 @@ export default function ChatSidebar({
       <AnimatePresence>
         {showCreateGroup && (
           <motion.div
-            initial={{ x: -420 }}
+            initial={{ x: '100%' }}
             animate={{ x: 0 }}
-            exit={{ x: -420 }}
-            transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+            exit={{ x: '100%' }}
+            transition={{ duration: 0.15, ease: 'easeOut' }}
             className="absolute inset-0 bg-[#111b21] z-30 flex flex-col"
           >
             <div className="px-4 py-3 bg-[#00a884] flex items-center gap-3 pt-[max(0.75rem,env(safe-area-inset-top))]">

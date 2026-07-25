@@ -8,7 +8,6 @@ import toast from 'react-hot-toast';
 import DynamicLogo from '@/components/DynamicLogo';
 import GroupInfoPanel from '@/components/chat/GroupInfoPanel';
 import type { ChatItem, UserProfile } from '@/components/chat/types';
-import { motionTokens } from '@/lib/ui/motion';
 import { attachmentLabel, isAudioUrl, isImageFile, isImageUrl } from '@/lib/chat-media';
 
 interface Props {
@@ -137,15 +136,16 @@ export default function ChatWindow({
             setMessages([]);
             setLoading(true);
         }
-        void loadMessages(!switched);
+        // Open channel immediately so incoming messages aren't missed while loading history.
         setupChannel();
+        void loadMessages(!switched);
         return () => {
             if (channelRef.current) supabase.removeChannel(channelRef.current);
         };
     }, [chat.id, chat.type]);
 
     useEffect(() => {
-        scrollToBottom();
+        scrollToBottom(messages.length <= 1);
     }, [messages]);
 
     /** Keep sent-message view ticks fresh even if realtime UPDATE is delayed. */
@@ -187,8 +187,8 @@ export default function ChatWindow({
         };
     }, [chat.id, chat.type, currentUser.id, isDirect]);
 
-    function scrollToBottom() {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    function scrollToBottom(instant = false) {
+        messagesEndRef.current?.scrollIntoView({ behavior: instant ? 'auto' : 'smooth' });
     }
 
     function broadcastReadReceipt() {
@@ -726,7 +726,7 @@ export default function ChatWindow({
             {/* Header */}
             <div className="shrink-0 px-2 sm:px-4 py-2 pt-[max(0.5rem,env(safe-area-inset-top))] bg-[#202c33] flex items-center gap-2 sm:gap-3 border-b border-[#2a3942]">
                 {onBack && (
-                    <button type="button" onClick={onBack} className="md:hidden text-gray-400 hover:text-white p-1.5 -ml-0.5 shrink-0" aria-label="Back">
+                    <button type="button" onClick={onBack} className="md:hidden text-gray-400 hover:text-white p-1.5 -ml-0.5 shrink-0 active:opacity-70 touch-manipulation" aria-label="Back">
                         <ArrowLeft className="w-5 h-5" />
                     </button>
                 )}
@@ -764,7 +764,7 @@ export default function ChatWindow({
                     <button
                         type="button"
                         onClick={() => setShowGroupInfo(true)}
-                        className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-[#2a3942] shrink-0"
+                        className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-[#2a3942] active:bg-[#2a3942] shrink-0 touch-manipulation"
                         title="Group info"
                     >
                         <Users className="w-5 h-5" />
@@ -811,9 +811,10 @@ export default function ChatWindow({
                                             </span>
                                         </div>
                                     )}
-                                    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2, ease: motionTokens.easing }}
-                                        className={`flex ${isSent ? 'justify-end' : 'justify-start'} mb-0.5 group/msg relative`}>
-                                        <div className={`w-fit max-w-[85%] sm:max-w-[65%] px-3 py-1.5 rounded-lg shadow-sm relative overflow-hidden ${isSent ? 'bg-[#005c4b]' : 'bg-[#202c33]'}`}
+                                    <div
+                                        className={`flex ${isSent ? 'justify-end' : 'justify-start'} mb-0.5 group/msg relative`}
+                                    >
+                                        <div className={`w-fit max-w-[85%] sm:max-w-[65%] px-3 py-1.5 rounded-lg shadow-sm relative overflow-hidden touch-manipulation active:opacity-90 ${isSent ? 'bg-[#005c4b]' : 'bg-[#202c33]'}`}
                                             onClick={() => isSent && setMenuMsgId(menuMsgId === msg.id ? null : msg.id)}>
                                             {showName && <p className="text-[12px] font-semibold text-emerald-400 mb-0.5">{msg.sender?.name}</p>}
 
@@ -873,20 +874,21 @@ export default function ChatWindow({
 
                                             {/* Delete menu */}
                                             {isSent && menuMsgId === msg.id && (
-                                                <motion.div initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.18, ease: motionTokens.easing }}
-                                                    className="absolute -top-10 right-0 bg-[#233138] rounded-lg shadow-xl border border-[#2a3942] z-20 overflow-hidden">
+                                                <div
+                                                    className="absolute -top-10 right-0 bg-[#233138] rounded-lg shadow-xl border border-[#2a3942] z-20 overflow-hidden"
+                                                >
                                                     <button onClick={(e) => { e.stopPropagation(); void openMessageViewInfo(msg); }}
-                                                        className="flex items-center gap-2 px-4 py-2 text-gray-200 hover:bg-[#2a3942] text-xs font-medium whitespace-nowrap w-full">
+                                                        className="flex items-center gap-2 px-4 py-2.5 text-gray-200 active:bg-[#2a3942] text-xs font-medium whitespace-nowrap w-full touch-manipulation">
                                                         <CheckCheck className="w-3.5 h-3.5 text-amber-400" /> Viewed by
                                                     </button>
                                                     <button onClick={(e) => { e.stopPropagation(); deleteMessage(msg.id); }}
-                                                        className="flex items-center gap-2 px-4 py-2 text-red-400 hover:bg-[#2a3942] text-xs font-medium whitespace-nowrap w-full">
+                                                        className="flex items-center gap-2 px-4 py-2.5 text-red-400 active:bg-[#2a3942] text-xs font-medium whitespace-nowrap w-full touch-manipulation">
                                                         <Trash2 className="w-3.5 h-3.5" /> Delete
                                                     </button>
-                                                </motion.div>
+                                                </div>
                                             )}
                                         </div>
-                                    </motion.div>
+                                    </div>
                                 </div>
                             );
                         })
@@ -903,9 +905,9 @@ export default function ChatWindow({
                     <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center" onClick={() => setViewInfoMsg(null)}>
                         <div className="absolute inset-0 bg-black/55" />
                         <motion.div
-                            initial={{ opacity: 0, y: 24 }}
+                            initial={{ opacity: 0, y: 12 }}
                             animate={{ opacity: 1, y: 0 }}
-                            transition={{ duration: 0.2, ease: motionTokens.easing }}
+                            transition={{ duration: 0.12 }}
                             className="relative w-full sm:max-w-md bg-[#1f2c34] rounded-t-2xl sm:rounded-2xl border border-[#2a3942] shadow-2xl max-h-[75dvh] flex flex-col overflow-hidden"
                             onClick={(e) => e.stopPropagation()}
                         >
@@ -1001,18 +1003,19 @@ export default function ChatWindow({
                 )}
                 <form onSubmit={sendMessage} className="flex items-center gap-0.5 sm:gap-2 min-w-0">
                 <div className="relative shrink-0">
-                    <button type="button" onClick={() => { setShowEmoji(v => !v); setShowAttach(false); }} className="p-1.5 sm:p-2 text-gray-400 hover:text-white transition-colors" aria-label="Emoji">
+                    <button type="button" onClick={() => { setShowEmoji(v => !v); setShowAttach(false); }} className="p-1.5 sm:p-2 text-gray-400 hover:text-white active:opacity-70 touch-manipulation" aria-label="Emoji">
                         <Smile className="w-5 h-5 sm:w-6 sm:h-6" />
                     </button>
                     <AnimatePresence>
                         {showEmoji && (
-                            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }} transition={{ duration: 0.2, ease: motionTokens.easing }}
-                                className="absolute bottom-12 left-0 bg-[#233138] rounded-2xl shadow-2xl p-3 grid grid-cols-6 gap-1.5 z-50 border border-[#2a3942] w-[min(280px,calc(100vw-1rem))] max-w-[calc(100vw-1rem)]">
+                            <div
+                                className="absolute bottom-12 left-0 bg-[#233138] rounded-2xl shadow-2xl p-3 grid grid-cols-6 gap-1.5 z-50 border border-[#2a3942] w-[min(280px,calc(100vw-1rem))] max-w-[calc(100vw-1rem)]"
+                            >
                                 {EMOJIS.map(e => (
                                     <button key={e} type="button" onClick={() => { setNewMessage(p => p + e); setShowEmoji(false); }}
-                                        className="text-xl sm:text-2xl hover:bg-[#2a3942] rounded-lg p-1.5 transition-colors flex items-center justify-center">{e}</button>
+                                        className="text-xl sm:text-2xl active:bg-[#2a3942] rounded-lg p-1.5 flex items-center justify-center touch-manipulation">{e}</button>
                                 ))}
-                            </motion.div>
+                            </div>
                         )}
                     </AnimatePresence>
                 </div>
@@ -1020,7 +1023,7 @@ export default function ChatWindow({
                     <button
                         type="button"
                         onClick={() => { setShowAttach(v => !v); setShowEmoji(false); }}
-                        className="p-1.5 sm:p-2 text-gray-400 hover:text-white transition-colors"
+                        className="p-1.5 sm:p-2 text-gray-400 hover:text-white active:opacity-70 touch-manipulation"
                         title="Attach"
                         aria-label="Attach"
                     >
@@ -1028,41 +1031,38 @@ export default function ChatWindow({
                     </button>
                     <AnimatePresence>
                         {showAttach && (
-                            <motion.div
-                                initial={{ opacity: 0, y: 8 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                exit={{ opacity: 0, y: 8 }}
+                            <div
                                 className="absolute bottom-12 left-0 z-50 bg-[#233138] border border-[#2a3942] rounded-xl shadow-2xl py-1 min-w-[160px]"
                             >
                                 <button
                                     type="button"
                                     onClick={() => { setShowAttach(false); galleryRef.current?.click(); }}
-                                    className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-100 hover:bg-[#2a3942] text-left"
+                                    className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-100 active:bg-[#2a3942] text-left touch-manipulation"
                                 >
                                     <ImageIcon className="w-4 h-4 text-[#00a884]" /> Gallery
                                 </button>
                                 <button
                                     type="button"
                                     onClick={() => { setShowAttach(false); cameraRef.current?.click(); }}
-                                    className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-100 hover:bg-[#2a3942] text-left"
+                                    className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-100 active:bg-[#2a3942] text-left touch-manipulation"
                                 >
                                     <Camera className="w-4 h-4 text-[#00a884]" /> Camera
                                 </button>
                                 <button
                                     type="button"
                                     onClick={() => { setShowAttach(false); fileRef.current?.click(); }}
-                                    className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-100 hover:bg-[#2a3942] text-left"
+                                    className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-100 active:bg-[#2a3942] text-left touch-manipulation"
                                 >
                                     <Paperclip className="w-4 h-4 text-[#00a884]" /> Document
                                 </button>
                                 <button
                                     type="button"
                                     onClick={() => { setShowAttach(false); setShowPoll(true); }}
-                                    className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-100 hover:bg-[#2a3942] text-left"
+                                    className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-100 active:bg-[#2a3942] text-left touch-manipulation"
                                 >
                                     <BarChart3 className="w-4 h-4 text-[#00a884]" /> Poll
                                 </button>
-                            </motion.div>
+                            </div>
                         )}
                     </AnimatePresence>
                 </div>
@@ -1089,15 +1089,15 @@ export default function ChatWindow({
                 <input type="text" value={newMessage} onChange={e => { setNewMessage(e.target.value); handleTyping(); }} placeholder="Message"
                     className="flex-1 min-w-0 px-3 py-2 sm:py-2.5 bg-[#2a3942] rounded-full sm:rounded-lg text-[15px] sm:text-base text-white placeholder-gray-500 outline-none focus:ring-1 focus:ring-emerald-500/30 transition-all" />
                 {newMessage.trim() ? (
-                    <motion.button whileHover={{ scale: 1.03 }} whileTap={motionTokens.tap} type="submit"
-                        className="w-10 h-10 rounded-full bg-[#00a884] flex items-center justify-center text-white shadow-md shrink-0">
+                    <button type="submit"
+                        className="w-10 h-10 rounded-full bg-[#00a884] flex items-center justify-center text-white shadow-md shrink-0 active:scale-95 touch-manipulation">
                         <Send className="w-4 h-4" />
-                    </motion.button>
+                    </button>
                 ) : (
                     <button
                         type="button"
                         onClick={() => (recording ? stopVoice() : void startVoice())}
-                        className={`w-10 h-10 rounded-full flex items-center justify-center text-white shadow-md shrink-0 ${recording ? 'bg-red-500 animate-pulse' : 'bg-[#00a884]'}`}
+                        className={`w-10 h-10 rounded-full flex items-center justify-center text-white shadow-md shrink-0 active:scale-95 touch-manipulation ${recording ? 'bg-red-500 animate-pulse' : 'bg-[#00a884]'}`}
                         title={recording ? 'Stop recording' : 'Voice message'}
                     >
                         {recording ? <Square className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
@@ -1109,8 +1109,8 @@ export default function ChatWindow({
             {/* Poll Modal - WhatsApp Style */}
             <AnimatePresence>
                 {showPoll && (
-                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: motionTokens.modal.duration }} className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-                        <motion.div initial={{ scale: 0.96, y: 16 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.96, y: 16 }} transition={{ duration: motionTokens.modal.duration, ease: motionTokens.easing }} className="bg-white rounded-2xl max-w-md w-full shadow-2xl overflow-hidden">
+                    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => { setShowPoll(false); setPollQ(''); setPollOpts(['', '']); setPollMultiple(false); }}>
+                        <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
                             <div className="bg-[#00a884] px-5 py-4">
                                 <h2 className="text-white font-bold text-lg">Create poll</h2>
                             </div>
@@ -1118,7 +1118,7 @@ export default function ChatWindow({
                                 <div>
                                     <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Question</label>
                                     <input type="text" value={pollQ} onChange={e => setPollQ(e.target.value)} placeholder="Ask a question"
-                                        className="w-full mt-1 border-b-2 border-gray-200 focus:border-[#00a884] outline-none py-2 text-sm transition-colors" />
+                                        className="w-full mt-1 border-b-2 border-gray-200 focus:border-[#00a884] outline-none py-2 text-sm" />
                                 </div>
                                 <div>
                                     <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Options</label>
@@ -1127,29 +1127,29 @@ export default function ChatWindow({
                                             <div key={i} className="flex items-center gap-2">
                                                 <div className="w-5 h-5 rounded-full border-2 border-gray-300 flex-shrink-0" />
                                                 <input type="text" value={o} onChange={e => { const n = [...pollOpts]; n[i] = e.target.value; setPollOpts(n); }}
-                                                    placeholder={`Option ${i + 1}`} className="flex-1 border-b border-gray-200 focus:border-[#00a884] outline-none py-1.5 text-sm transition-colors" />
+                                                    placeholder={`Option ${i + 1}`} className="flex-1 border-b border-gray-200 focus:border-[#00a884] outline-none py-1.5 text-sm" />
                                                 {pollOpts.length > 2 && (
-                                                    <button onClick={() => setPollOpts(pollOpts.filter((_, j) => j !== i))} className="text-gray-400 hover:text-red-500 text-xs">✕</button>
+                                                    <button type="button" onClick={() => setPollOpts(pollOpts.filter((_, j) => j !== i))} className="text-gray-400 active:text-red-500 text-xs touch-manipulation">✕</button>
                                                 )}
                                             </div>
                                         ))}
                                     </div>
                                     {pollOpts.length < 8 && (
-                                        <button onClick={() => setPollOpts([...pollOpts, ''])} className="text-sm text-[#00a884] font-medium mt-2 hover:underline">+ Add option</button>
+                                        <button type="button" onClick={() => setPollOpts([...pollOpts, ''])} className="text-sm text-[#00a884] font-medium mt-2 active:opacity-70 touch-manipulation">+ Add option</button>
                                     )}
                                 </div>
-                                <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+                                <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer touch-manipulation">
                                     <input type="checkbox" checked={pollMultiple} onChange={e => setPollMultiple(e.target.checked)} className="rounded text-[#00a884]" />
                                     Allow multiple answers
                                 </label>
                                 <div className="flex gap-3 pt-2">
-                                    <button onClick={sendPoll} className="flex-1 bg-[#00a884] text-white px-4 py-2.5 rounded-xl font-semibold text-sm hover:bg-[#008f72] transition-colors">Send poll</button>
-                                    <button onClick={() => { setShowPoll(false); setPollQ(''); setPollOpts(['', '']); setPollMultiple(false); }}
-                                        className="flex-1 bg-gray-100 text-gray-600 px-4 py-2.5 rounded-xl text-sm hover:bg-gray-200 transition-colors">Cancel</button>
+                                    <button type="button" onClick={sendPoll} className="flex-1 bg-[#00a884] text-white px-4 py-2.5 rounded-xl font-semibold text-sm active:scale-[0.98] touch-manipulation">Send poll</button>
+                                    <button type="button" onClick={() => { setShowPoll(false); setPollQ(''); setPollOpts(['', '']); setPollMultiple(false); }}
+                                        className="flex-1 bg-gray-100 text-gray-600 px-4 py-2.5 rounded-xl text-sm active:bg-gray-200 touch-manipulation">Cancel</button>
                                 </div>
                             </div>
-                        </motion.div>
-                    </motion.div>
+                        </div>
+                    </div>
                 )}
             </AnimatePresence>
 
@@ -1174,15 +1174,12 @@ export default function ChatWindow({
 
             <AnimatePresence>
                 {lightbox && (
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
+                    <div
                         className="fixed inset-0 z-[70] bg-black/90 flex items-center justify-center p-4"
                         onClick={() => setLightbox(null)}
                     >
                         <img src={lightbox} alt="" className="max-w-full max-h-full object-contain rounded-lg" />
-                    </motion.div>
+                    </div>
                 )}
             </AnimatePresence>
         </div>
@@ -1263,15 +1260,15 @@ function PollBubble({ poll, msgId, myId, onVote, allUsers }: { poll: any; msgId:
             {/* Vote Viewer Modal */}
             <AnimatePresence>
                 {showVoters && (
-                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: motionTokens.modal.duration }}
-                        className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-[60] p-4"
+                    <div
+                        className="fixed inset-0 bg-black/40 flex items-center justify-center z-[60] p-4"
                         onClick={() => setShowVoters(false)}>
-                        <motion.div initial={{ scale: 0.96, y: 16 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.96, y: 16 }} transition={{ duration: motionTokens.modal.duration, ease: motionTokens.easing }}
+                        <div
                             className="bg-white rounded-2xl max-w-md w-full shadow-2xl overflow-hidden max-h-[70vh] flex flex-col"
                             onClick={e => e.stopPropagation()}>
                             <div className="bg-gradient-to-r from-indigo-500 to-purple-500 px-5 py-4 flex items-center justify-between">
                                 <h2 className="text-white font-bold text-lg">Poll Results</h2>
-                                <button onClick={() => setShowVoters(false)} className="text-white/80 hover:text-white text-xl font-bold">✕</button>
+                                <button type="button" onClick={() => setShowVoters(false)} className="text-white/80 active:text-white text-xl font-bold touch-manipulation">✕</button>
                             </div>
                             <div className="p-5 overflow-y-auto flex-1">
                                 <p className="font-semibold text-gray-800 mb-4">{poll.question}</p>
@@ -1308,8 +1305,8 @@ function PollBubble({ poll, msgId, myId, onVote, allUsers }: { poll: any; msgId:
                                 </div>
                                 <p className="text-center text-xs text-gray-400 mt-4">{totalVoters} total voter{totalVoters !== 1 ? 's' : ''}</p>
                             </div>
-                        </motion.div>
-                    </motion.div>
+                        </div>
+                    </div>
                 )}
             </AnimatePresence>
         </>

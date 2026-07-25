@@ -777,6 +777,15 @@ html.chat-viewport-lock body {
   max-height: var(--chat-vvh, 100dvh);
   width: 100%;
   max-width: 100vw;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.chat-shell button,
+.chat-shell a,
+.chat-shell [role='button'] {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 /* ========== PWA / iOS standalone ========== */

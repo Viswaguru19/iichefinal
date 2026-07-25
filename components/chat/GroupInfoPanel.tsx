@@ -6,7 +6,6 @@ import { motion } from 'framer-motion';
 import { Camera, Check, LogOut, Pencil, Plus, Search, Shield, ShieldOff, Trash2, Users, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { ChatItem, UserProfile } from '@/components/chat/types';
-import { motionTokens } from '@/lib/ui/motion';
 
 type ParticipantRow = { id: string; name: string; avatar_url: string | null; is_group_admin: boolean };
 
@@ -255,14 +254,14 @@ export default function GroupInfoPanel({
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[55] bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center"
+      className="fixed inset-0 z-[55] bg-black/50 flex items-end sm:items-center justify-center"
       onClick={onClose}
     >
       <motion.div
-        initial={{ y: 40, opacity: 0 }}
+        initial={{ y: 24, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
-        exit={{ y: 40, opacity: 0 }}
-        transition={{ duration: motionTokens.modal.duration, ease: motionTokens.easing }}
+        exit={{ y: 24, opacity: 0 }}
+        transition={{ duration: 0.14 }}
         className="bg-[#111b21] w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl max-h-[90dvh] flex flex-col border border-[#2a3942] overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >

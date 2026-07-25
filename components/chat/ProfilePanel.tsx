@@ -26,7 +26,7 @@ export default function ProfilePanel({ user, isOnline, onClose }: Props) {
         initial={{ x: '100%', opacity: 0 }}
         animate={{ x: 0, opacity: 1 }}
         exit={{ x: '100%', opacity: 0 }}
-        transition={{ type: 'spring', stiffness: 320, damping: 32 }}
+        transition={{ duration: 0.15, ease: 'easeOut' }}
         className="fixed inset-y-0 right-0 w-full max-w-sm sm:relative sm:inset-auto sm:w-[340px] sm:max-w-none bg-white border-l border-gray-200 flex flex-col h-full overflow-y-auto z-50 sm:z-auto shadow-2xl sm:shadow-none pb-[env(safe-area-inset-bottom)]"
       >
         <div className="px-4 py-3 bg-[#f0f2f5] flex items-center gap-3 border-b border-gray-200 sticky top-0 z-10">

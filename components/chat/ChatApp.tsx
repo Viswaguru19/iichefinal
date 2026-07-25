@@ -131,7 +131,7 @@ function ChatAppInner({ basePath = DEFAULT_BASE, chatOnly = true }: { basePath?:
     if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current);
     reloadTimerRef.current = setTimeout(() => {
       void loadChats(uid);
-    }, 450);
+    }, 120);
   }, []);
 
   /** Avoid wiping a just-cleared badge when realtime reloads race mark-as-read. */
@@ -171,16 +171,18 @@ function ChatAppInner({ basePath = DEFAULT_BASE, chatOnly = true }: { basePath?:
       }
       userIdRef.current = user.id;
 
-      const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
+      const [{ data: profile }, { data: users }, { data: membership }] = await Promise.all([
+        supabase.from('profiles').select('*').eq('id', user.id).single(),
+        supabase.from('profiles').select('*').neq('id', user.id).order('name'),
+        supabase
+          .from('committee_members')
+          .select('position, committees(name)')
+          .eq('user_id', user.id)
+          .neq('committee_id', '00000000-0000-0000-0000-000000000001')
+          .limit(1)
+          .maybeSingle(),
+      ]);
       if (!profile) return;
-
-      const { data: membership } = await supabase
-        .from('committee_members')
-        .select('position, committees(name)')
-        .eq('user_id', user.id)
-        .neq('committee_id', '00000000-0000-0000-0000-000000000001')
-        .limit(1)
-        .single();
 
       const currentProfile: UserProfile = {
         ...profile,
@@ -188,8 +190,6 @@ function ChatAppInner({ basePath = DEFAULT_BASE, chatOnly = true }: { basePath?:
         committee_position: membership?.position || null,
       };
       setCurrentUser(currentProfile);
-
-      const { data: users } = await supabase.from('profiles').select('*').neq('id', user.id).order('name');
 
       const usersWithAvatars = (users || []).map((u: any) => {
         if (u.avatar_url && !u.avatar_url.startsWith('http')) {
@@ -199,12 +199,14 @@ function ChatAppInner({ basePath = DEFAULT_BASE, chatOnly = true }: { basePath?:
         return u;
       });
       setAllUsers(usersWithAvatars);
-
-      const { error: ensureErr } = await supabase.rpc('ensure_default_chat_memberships');
-      if (ensureErr) console.warn('ensure_default_chat_memberships:', ensureErr.message);
-
-      await loadChats(user.id);
+      // Show the chat shell immediately; load conversation list in parallel.
       setLoading(false);
+
+      void (async () => {
+        const { error: ensureErr } = await supabase.rpc('ensure_default_chat_memberships');
+        if (ensureErr) console.warn('ensure_default_chat_memberships:', ensureErr.message);
+        await loadChats(user.id);
+      })();
 
       const ch = supabase
         .channel('chat-live')
@@ -221,7 +223,7 @@ function ChatAppInner({ basePath = DEFAULT_BASE, chatOnly = true }: { basePath?:
       // Fallback: refresh the list on an interval in case DB realtime is unavailable.
       pollTimer = window.setInterval(() => {
         if (document.visibilityState === 'visible') void loadChats(user.id);
-      }, 7000);
+      }, 5000);
 
       removeRealtime = () => {
         supabase.removeChannel(ch);
@@ -496,7 +498,8 @@ function ChatAppInner({ basePath = DEFAULT_BASE, chatOnly = true }: { basePath?:
     }
     if (!uid) return;
 
-    await markConversationSeen(chat, uid);
+    // Don't block opening the chat on mark-as-read network round-trip.
+    void markConversationSeen(chat, uid);
   }
 
   function startNewChat(user: UserProfile) {
