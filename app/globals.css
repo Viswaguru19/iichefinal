@@ -1028,3 +1028,69 @@ html[data-portal-theme='light'] .dashboard-section-title {
 .portal-nav-in {
   animation: portal-nav-in-keyframes 0.3s ease-out both;
 }
+
+/* ============================================================
+   IIChE Chat light theme
+   The chat UI is authored with WhatsApp-dark hex utilities.
+   When the chat root carries data-chat-theme='light', remap
+   those exact utility classes to a WhatsApp-light palette.
+   ============================================================ */
+
+[data-chat-theme='light'] {
+  color-scheme: light;
+}
+
+/* Surfaces */
+[data-chat-theme='light'] .bg-\[\#0b141a\] { background-color: #efeae2; }
+[data-chat-theme='light'] .bg-\[\#111b21\] { background-color: #ffffff; }
+[data-chat-theme='light'] .bg-\[\#202c33\] { background-color: #f0f2f5; }
+[data-chat-theme='light'] .bg-\[\#2a3942\] { background-color: #e9edef; }
+[data-chat-theme='light'] .bg-\[\#182229\] { background-color: #f7f8fa; }
+[data-chat-theme='light'] .bg-\[\#1f2c34\] { background-color: #ffffff; }
+[data-chat-theme='light'] .bg-\[\#233138\] { background-color: #ffffff; }
+[data-chat-theme='light'] .bg-\[\#0b3d34\] { background-color: #d1f4cc; }
+[data-chat-theme='light'] .bg-\[\#005c4b\] { background-color: #d9fdd3; }
+[data-chat-theme='light'] .bg-\[\#005c4b\]\/30 { background-color: rgb(217 253 211 / 0.7); }
+[data-chat-theme='light'] .hover\:bg-\[\#202c33\]:hover { background-color: #f5f6f6; }
+[data-chat-theme='light'] .hover\:bg-\[\#202c33\]\/80:hover { background-color: rgb(245 246 246 / 0.9); }
+[data-chat-theme='light'] .hover\:bg-\[\#2a3942\]:hover { background-color: #d1d7db; }
+
+/* Borders */
+[data-chat-theme='light'] .border-\[\#2a3942\] { border-color: #d1d7db; }
+[data-chat-theme='light'] .border-\[\#1a242b\] { border-color: #e9edef; }
+[data-chat-theme='light'] .border-\[\#111b21\] { border-color: #ffffff; }
+[data-chat-theme='light'] .border-\[\#202c33\] { border-color: #ffffff; }
+
+/* Text: dark ink by default in light theme */
+[data-chat-theme='light'] .text-white { color: #111b21; }
+[data-chat-theme='light'] .hover\:text-white:hover { color: #111b21; }
+[data-chat-theme='light'] .text-gray-100 { color: #111b21; }
+[data-chat-theme='light'] .text-gray-200 { color: #202c33; }
+[data-chat-theme='light'] .text-gray-300 { color: #3b4a54; }
+[data-chat-theme='light'] .text-gray-400 { color: #54656f; }
+[data-chat-theme='light'] .text-gray-500 { color: #667781; }
+[data-chat-theme='light'] .text-gray-600 { color: #8696a0; }
+[data-chat-theme='light'] .text-emerald-300 { color: #059669; }
+[data-chat-theme='light'] .text-emerald-400 { color: #008069; }
+[data-chat-theme='light'] .text-amber-400 { color: #b45309; }
+[data-chat-theme='light'] .text-amber-400\/90 { color: rgb(180 83 9 / 0.9); }
+[data-chat-theme='light'] .text-red-400 { color: #dc2626; }
+[data-chat-theme='light'] .text-red-400\/90 { color: rgb(220 38 38 / 0.9); }
+[data-chat-theme='light'] .text-blue-400 { color: #1d4ed8; }
+[data-chat-theme='light'] .text-white\/80 { color: rgb(17 27 33 / 0.8); }
+[data-chat-theme='light'] .hover\:text-emerald-200:hover { color: #059669; }
+
+/* Keep white text on solid accent surfaces (buttons, badges, headers) */
+[data-chat-theme='light'] .bg-\[\#00a884\].text-white,
+[data-chat-theme='light'] .bg-\[\#00a884\] .text-white,
+[data-chat-theme='light'] .bg-red-500.text-white,
+[data-chat-theme='light'] .bg-emerald-500.text-white,
+[data-chat-theme='light'] .bg-emerald-600.text-white {
+  color: #ffffff;
+}
+[data-chat-theme='light'] .bg-\[\#00a884\] .text-white\/80 {
+  color: rgb(255 255 255 / 0.85);
+}
+[data-chat-theme='light'] .bg-\[\#00a884\] .hover\:text-white:hover {
+  color: #ffffff;
+}

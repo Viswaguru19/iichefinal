@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { motion } from 'framer-motion';
-import { Camera, LogOut, Plus, Search, Trash2, Users, X } from 'lucide-react';
+import { Camera, Check, LogOut, Pencil, Plus, Search, Shield, ShieldOff, Trash2, Users, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { ChatItem, UserProfile } from '@/components/chat/types';
 import { motionTokens } from '@/lib/ui/motion';
@@ -40,12 +40,17 @@ export default function GroupInfoPanel({
   const [iAmAdmin, setIAmAdmin] = useState(false);
   const [description, setDescription] = useState(chat.description || '');
   const [savingDesc, setSavingDesc] = useState(false);
+  const [editingName, setEditingName] = useState(false);
+  const [groupName, setGroupName] = useState(chat.name || '');
+  const [savingName, setSavingName] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [userSearch, setUserSearch] = useState('');
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const [roleBusyId, setRoleBusyId] = useState<string | null>(null);
   const [avatarBusy, setAvatarBusy] = useState(false);
 
   const canManage = chat.groupChatType === 'custom_group' && iAmAdmin;
+  const adminCount = participants.filter((p) => p.is_group_admin).length;
   const memberIds = new Set(participants.map((p) => p.id));
   const addCandidates = allUsers.filter(
     (u) => !memberIds.has(u.id) && (u.name ?? '').toLowerCase().includes(userSearch.toLowerCase()),
@@ -84,6 +89,28 @@ export default function GroupInfoPanel({
       cancelled = true;
     };
   }, [chat.participantGroupId, currentUser.id]);
+
+  async function saveName() {
+    if (!chat.participantGroupId || !canManage) return;
+    const trimmed = groupName.trim();
+    if (!trimmed) {
+      toast.error('Group name cannot be empty');
+      return;
+    }
+    setSavingName(true);
+    const { error } = await supabase
+      .from('chat_groups')
+      .update({ name: trimmed })
+      .eq('id', chat.participantGroupId);
+    setSavingName(false);
+    if (error) {
+      toast.error(error.message || 'Could not rename group');
+      return;
+    }
+    onMetaUpdated({ name: trimmed });
+    setEditingName(false);
+    toast.success('Group renamed');
+  }
 
   async function saveDescription() {
     if (!chat.participantGroupId || !canManage) return;
@@ -167,8 +194,36 @@ export default function GroupInfoPanel({
     toast.success('Member removed');
   }
 
+  async function setMemberAdmin(userId: string, makeAdmin: boolean) {
+    if (!chat.participantGroupId || !canManage || userId === currentUser.id) return;
+    if (!makeAdmin && adminCount <= 1) {
+      toast.error('Promote someone else before dismissing the last admin');
+      return;
+    }
+    setRoleBusyId(userId);
+    const { data, error } = await supabase
+      .from('chat_participants')
+      .update({ is_admin: makeAdmin })
+      .eq('group_id', chat.participantGroupId)
+      .eq('user_id', userId)
+      .select('user_id');
+    setRoleBusyId(null);
+    if (error || !data?.length) {
+      toast.error(error?.message || (makeAdmin ? 'Could not promote' : 'Could not demote'));
+      return;
+    }
+    setParticipants((prev) =>
+      prev.map((p) => (p.id === userId ? { ...p, is_group_admin: makeAdmin } : p)),
+    );
+    toast.success(makeAdmin ? 'Made group admin' : 'Removed as admin');
+  }
+
   async function leaveGroup() {
     if (!chat.participantGroupId) return;
+    if (iAmAdmin && adminCount <= 1 && participants.length > 1) {
+      toast.error('Promote another admin before leaving');
+      return;
+    }
     if (!confirm('Leave this group?')) return;
     const { error } = await supabase
       .from('chat_participants')
@@ -251,8 +306,63 @@ export default function GroupInfoPanel({
                 }}
               />
             </div>
-            <h3 className="text-xl font-semibold text-white">{chat.name}</h3>
+            {editingName && canManage ? (
+              <div className="flex items-center gap-2 w-full max-w-xs">
+                <input
+                  value={groupName}
+                  onChange={(e) => setGroupName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') void saveName();
+                    if (e.key === 'Escape') {
+                      setGroupName(chat.name || '');
+                      setEditingName(false);
+                    }
+                  }}
+                  autoFocus
+                  maxLength={80}
+                  className="flex-1 min-w-0 bg-[#202c33] rounded-lg px-3 py-1.5 text-base font-semibold text-white text-center outline-none focus:ring-1 focus:ring-emerald-500/40"
+                />
+                <button
+                  type="button"
+                  disabled={savingName}
+                  onClick={() => void saveName()}
+                  className="p-1.5 rounded-lg text-[#00a884] hover:bg-[#202c33] disabled:opacity-50 shrink-0"
+                  aria-label="Save name"
+                >
+                  <Check className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setGroupName(chat.name || '');
+                    setEditingName(false);
+                  }}
+                  className="p-1.5 rounded-lg text-gray-400 hover:bg-[#202c33] shrink-0"
+                  aria-label="Cancel rename"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5 max-w-full">
+                <h3 className="text-xl font-semibold text-white truncate">{chat.name}</h3>
+                {canManage && (
+                  <button
+                    type="button"
+                    onClick={() => setEditingName(true)}
+                    className="p-1 rounded-lg text-gray-400 hover:text-white hover:bg-[#202c33] shrink-0"
+                    title="Rename group"
+                    aria-label="Rename group"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            )}
             <p className="text-xs text-gray-500 mt-1">{participants.length} participants</p>
+            {chat.groupChatType === 'custom_group' && !iAmAdmin && !loading && (
+              <p className="text-[10px] text-gray-500 mt-0.5">Only group admins can edit the name, photo and description.</p>
+            )}
           </div>
 
           <div>
@@ -359,14 +469,32 @@ export default function GroupInfoPanel({
                       </div>
                     </button>
                     {canManage && p.id !== currentUser.id && (
-                      <button
-                        type="button"
-                        disabled={removingId === p.id}
-                        onClick={() => void removeMember(p.id)}
-                        className="text-xs text-red-400 px-2 py-1 shrink-0 disabled:opacity-40"
-                      >
-                        {removingId === p.id ? '…' : 'Remove'}
-                      </button>
+                      <div className="flex items-center gap-0.5 shrink-0">
+                        <button
+                          type="button"
+                          disabled={roleBusyId === p.id || (p.is_group_admin && adminCount <= 1)}
+                          onClick={() => void setMemberAdmin(p.id, !p.is_group_admin)}
+                          className="p-1.5 rounded-lg text-gray-400 hover:text-[#00a884] hover:bg-[#2a3942] disabled:opacity-40"
+                          title={p.is_group_admin ? 'Dismiss as admin' : 'Make group admin'}
+                          aria-label={p.is_group_admin ? 'Dismiss as admin' : 'Make group admin'}
+                        >
+                          {roleBusyId === p.id ? (
+                            <span className="text-[10px] px-0.5">…</span>
+                          ) : p.is_group_admin ? (
+                            <ShieldOff className="w-4 h-4" />
+                          ) : (
+                            <Shield className="w-4 h-4" />
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={removingId === p.id}
+                          onClick={() => void removeMember(p.id)}
+                          className="text-xs text-red-400 px-2 py-1 disabled:opacity-40"
+                        >
+                          {removingId === p.id ? '…' : 'Remove'}
+                        </button>
+                      </div>
                     )}
                   </li>
                 ))}

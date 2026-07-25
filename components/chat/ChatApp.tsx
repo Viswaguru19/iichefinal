@@ -49,8 +49,30 @@ function ChatAppInner({ basePath = DEFAULT_BASE, chatOnly = true }: { basePath?:
   const [profileUser, setProfileUser] = useState<UserProfile | null>(null);
   const [showProfile, setShowProfile] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [chatTheme, setChatTheme] = useState<'dark' | 'light'>('dark');
   const supabase = createClient();
   const router = useRouter();
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('chat-theme');
+      if (saved === 'light' || saved === 'dark') setChatTheme(saved);
+    } catch {
+      // localStorage unavailable — keep default dark theme.
+    }
+  }, []);
+
+  const toggleChatTheme = useCallback(() => {
+    setChatTheme((prev) => {
+      const next = prev === 'dark' ? 'light' : 'dark';
+      try {
+        localStorage.setItem('chat-theme', next);
+      } catch {
+        // Ignore persistence failure; theme still switches for this session.
+      }
+      return next;
+    });
+  }, []);
   const searchParams = useSearchParams();
   const userIdRef = useRef<string | null>(null);
   const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -621,7 +643,10 @@ function ChatAppInner({ basePath = DEFAULT_BASE, chatOnly = true }: { basePath?:
   }
 
   return (
-    <div className="h-[100dvh] flex bg-[#0b141a] overflow-hidden supports-[padding:max(0px)]:pb-[env(safe-area-inset-bottom)]">
+    <div
+      data-chat-theme={chatTheme}
+      className="h-[100dvh] flex bg-[#0b141a] overflow-hidden supports-[padding:max(0px)]:pb-[env(safe-area-inset-bottom)]"
+    >
       <div className={`${activeChat ? 'hidden sm:flex' : 'flex'} flex-col sm:w-[420px] sm:min-w-[320px] w-full min-h-0`}>
         <ChatSidebar
           chats={chats}
@@ -636,6 +661,8 @@ function ChatAppInner({ basePath = DEFAULT_BASE, chatOnly = true }: { basePath?:
           onBack={() => router.push('/dashboard')}
           chatOnly={chatOnly}
           onOpenPortal={chatOnly ? () => router.push('/dashboard') : undefined}
+          theme={chatTheme}
+          onToggleTheme={toggleChatTheme}
         />
       </div>
 

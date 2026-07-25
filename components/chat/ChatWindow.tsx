@@ -602,7 +602,7 @@ export default function ChatWindow({
     return (
         <div className="flex-1 flex flex-col h-full bg-[#0b141a]">
             {/* Header */}
-            <div className="px-2 sm:px-4 py-2.5 bg-[#202c33] flex items-center gap-2 sm:gap-3 border-b border-[#2a3942]">
+            <div className="px-2 sm:px-4 py-2.5 pt-[max(0.625rem,env(safe-area-inset-top))] bg-[#202c33] flex items-center gap-2 sm:gap-3 border-b border-[#2a3942]">
                 {onBack && (
                     <button onClick={onBack} className="sm:hidden text-gray-400 hover:text-white p-1">
                         <ArrowLeft className="w-5 h-5" />
@@ -691,7 +691,7 @@ export default function ChatWindow({
                                     )}
                                     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2, ease: motionTokens.easing }}
                                         className={`flex ${isSent ? 'justify-end' : 'justify-start'} mb-0.5 group/msg relative`}>
-                                        <div className={`max-w-[65%] px-3 py-1.5 rounded-lg shadow-sm relative ${isSent ? 'bg-[#005c4b]' : 'bg-[#202c33]'}`}
+                                        <div className={`max-w-[82%] sm:max-w-[65%] px-3 py-1.5 rounded-lg shadow-sm relative ${isSent ? 'bg-[#005c4b]' : 'bg-[#202c33]'}`}
                                             onClick={() => isSent && setMenuMsgId(menuMsgId === msg.id ? null : msg.id)}>
                                             {showName && <p className="text-[12px] font-semibold text-emerald-400 mb-0.5">{msg.sender?.name}</p>}
 

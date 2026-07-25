@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, ArrowLeft, Users, MessageSquare, Plus, LayoutDashboard, Trash2 } from 'lucide-react';
+import { Search, ArrowLeft, Users, MessageSquare, Plus, LayoutDashboard, Trash2, Sun, Moon } from 'lucide-react';
 import type { ChatItem, UserProfile } from '@/components/chat/types';
 import DynamicLogo from '@/components/DynamicLogo';
 
@@ -19,6 +19,8 @@ interface Props {
   onBack: () => void;
   chatOnly?: boolean;
   onOpenPortal?: () => void;
+  theme?: 'dark' | 'light';
+  onToggleTheme?: () => void;
 }
 
 export default function ChatSidebar({
@@ -34,6 +36,8 @@ export default function ChatSidebar({
   onBack,
   chatOnly = false,
   onOpenPortal,
+  theme = 'dark',
+  onToggleTheme,
 }: Props) {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | 'unread' | 'groups'>('all');
@@ -79,6 +83,17 @@ export default function ChatSidebar({
           </div>
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
+          {onToggleTheme && (
+            <button
+              type="button"
+              onClick={onToggleTheme}
+              className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-[#2a3942]"
+              title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+              aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+            >
+              {theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+            </button>
+          )}
           {chatOnly && onOpenPortal && (
             <button
               type="button"
