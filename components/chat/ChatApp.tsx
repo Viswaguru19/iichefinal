@@ -218,15 +218,22 @@ function ChatAppInner({ basePath = DEFAULT_BASE, chatOnly = true }: { basePath?:
         )
         .subscribe();
 
+      // Fallback: refresh the list on an interval in case DB realtime is unavailable.
+      pollTimer = window.setInterval(() => {
+        if (document.visibilityState === 'visible') void loadChats(user.id);
+      }, 7000);
+
       removeRealtime = () => {
         supabase.removeChannel(ch);
       };
     }
 
+    let pollTimer: number | undefined;
     void init();
 
     return () => {
       removeRealtime?.();
+      if (pollTimer) window.clearInterval(pollTimer);
       if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current);
     };
   }, [router, scheduleReloadChats, basePath]);

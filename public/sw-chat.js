@@ -1,6 +1,6 @@
 /* IIChE Chat — chat-scoped service worker for push + static asset caching */
 
-const CACHE_NAME = 'iiche-chat-v1';
+const CACHE_NAME = 'iiche-chat-v2';
 const STATIC_PREFIXES = ['/icons/', '/_next/static/'];
 
 self.addEventListener('install', (event) => {

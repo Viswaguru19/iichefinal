@@ -204,6 +204,15 @@ export default function ChatWindow({
         });
     }
 
+    /** Push a just-sent message to the peer instantly (independent of DB realtime). */
+    function broadcastNewMessage(row: Record<string, unknown>) {
+        channelRef.current?.send({
+            type: 'broadcast',
+            event: 'new_message',
+            payload: row,
+        });
+    }
+
     async function loadGroupMemberReads() {
         if (!chat.participantGroupId || isDirect) return;
         const { data, error } = await supabase
@@ -413,6 +422,35 @@ export default function ChatWindow({
         ch.on('broadcast', { event: 'typing' }, ({ payload }: { payload: { user_id: string; name: string } }) => {
             if (payload.user_id !== currentUser.id) { setTyping(payload.name); setTimeout(() => setTyping(null), 3000); }
         });
+        // Instant delivery that works even when DB realtime (postgres_changes) is not enabled.
+        ch.on('broadcast', { event: 'new_message' }, async ({ payload }: { payload: Record<string, unknown> }) => {
+            const msg = payload as { id: string; sender_id: string; receiver_id?: string; group_id?: string };
+            if (msg.sender_id === currentUser.id) return;
+            const isRelevant = isDirect
+                ? msg.sender_id === chat.id && msg.receiver_id === currentUser.id
+                : msg.group_id === chat.id;
+            if (!isRelevant) return;
+            const enriched = await enrichIncoming(payload);
+            setMessages((prev) => {
+                if (prev.some((m) => m.id === enriched.id)) return prev;
+                return [...prev, enriched].sort(
+                    (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+                );
+            });
+            if (isDirect) {
+                await supabase.from('direct_messages').update({ read: true } as any).eq('id', msg.id);
+                broadcastReadReceipt();
+                onMessageSent();
+            } else if (chat.participantGroupId) {
+                await supabase
+                    .from('chat_participants')
+                    .update({ last_read_at: new Date().toISOString() })
+                    .eq('group_id', chat.participantGroupId)
+                    .eq('user_id', currentUser.id);
+                broadcastReadReceipt();
+                onMessageSent();
+            }
+        });
         ch.on('broadcast', { event: 'read_receipt' }, ({ payload }: { payload: { reader_id: string; chat_id: string; chat_type: string; at?: string } }) => {
             if (payload.reader_id === currentUser.id) return;
             if (isDirect) {
@@ -474,6 +512,7 @@ export default function ChatWindow({
                 if (inserted) {
                     const realMsg = { ...inserted, sender: { name: currentUser.name, avatar_url: currentUser.avatar_url } };
                     setMessages(prev => prev.map(m => m.id === tempMsg.id ? realMsg : m));
+                    broadcastNewMessage(inserted);
                 }
             } else {
                 const { data: inserted, error } = await supabase.from('group_messages').insert({ group_id: chat.id, sender_id: currentUser.id, message: text } as any).select().single();
@@ -481,6 +520,7 @@ export default function ChatWindow({
                 if (inserted) {
                     const realMsg = { ...inserted, sender: { name: currentUser.name, avatar_url: currentUser.avatar_url } };
                     setMessages(prev => prev.map(m => m.id === tempMsg.id ? realMsg : m));
+                    broadcastNewMessage(inserted);
                 }
             }
             try {
@@ -534,6 +574,7 @@ export default function ChatWindow({
                                 : m,
                         ),
                     );
+                    broadcastNewMessage(inserted);
                 }
             } else {
                 const { data: inserted, error } = await supabase
@@ -550,6 +591,7 @@ export default function ChatWindow({
                                 : m,
                         ),
                     );
+                    broadcastNewMessage(inserted);
                 }
             }
             onMessageSent(text);
@@ -587,7 +629,7 @@ export default function ChatWindow({
                     .select()
                     .single();
                 if (error) throw error;
-                if (inserted) setMessages((prev) => prev.map((m) => m.id === tempId ? { ...inserted, sender: tempMsg.sender } : m));
+                if (inserted) { setMessages((prev) => prev.map((m) => m.id === tempId ? { ...inserted, sender: tempMsg.sender } : m)); broadcastNewMessage(inserted); }
             } else {
                 const { data: inserted, error } = await supabase
                     .from('group_messages')
@@ -595,7 +637,7 @@ export default function ChatWindow({
                     .select()
                     .single();
                 if (error) throw error;
-                if (inserted) setMessages((prev) => prev.map((m) => m.id === tempId ? { ...inserted, sender: tempMsg.sender } : m));
+                if (inserted) { setMessages((prev) => prev.map((m) => m.id === tempId ? { ...inserted, sender: tempMsg.sender } : m)); broadcastNewMessage(inserted); }
             }
             onMessageSent(text);
         } catch (err: any) {
