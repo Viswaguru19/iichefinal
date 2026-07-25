@@ -25,6 +25,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   viewportFit: 'cover',
   themeColor: '#00a884',
+  interactiveWidget: 'resizes-content',
 };
 
 export default async function ChatLayout({ children }: { children: React.ReactNode }) {

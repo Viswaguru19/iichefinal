@@ -66,7 +66,7 @@ export default function ChatSidebar({
       : [];
 
   return (
-    <div className="w-full sm:w-[420px] sm:min-w-[320px] relative flex flex-col border-r border-[#2a3942] bg-[#111b21] h-full min-h-0 text-gray-100">
+    <div className="w-full md:w-[420px] md:min-w-[320px] relative flex flex-col border-r border-[#2a3942] bg-[#111b21] h-full min-h-0 overflow-hidden text-gray-100">
       <div className="px-3 sm:px-4 py-3 bg-[#202c33] flex items-center justify-between gap-2 pt-[max(0.75rem,env(safe-area-inset-top))]">
         <div className="flex items-center gap-2.5 min-w-0">
           {!chatOnly && (
@@ -171,7 +171,7 @@ export default function ChatSidebar({
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden min-h-0 overscroll-contain">
         {searchPeople.length > 0 && (
           <div className="px-3 py-2 border-b border-[#2a3942]">
             <p className="text-[10px] uppercase tracking-wide text-gray-500 mb-1.5">Start new chat</p>

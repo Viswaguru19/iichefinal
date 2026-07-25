@@ -764,6 +764,21 @@ html[data-portal-theme='light'] .dashboard-section-title {
   }
 }
 
+/* ========== Chat mobile viewport shell ========== */
+html.chat-viewport-lock,
+html.chat-viewport-lock body {
+  height: 100%;
+  overflow: hidden !important;
+  overscroll-behavior: none;
+}
+
+.chat-shell {
+  height: var(--chat-vvh, 100dvh);
+  max-height: var(--chat-vvh, 100dvh);
+  width: 100%;
+  max-width: 100vw;
+}
+
 /* ========== PWA / iOS standalone ========== */
 .portal-app-body {
   -webkit-tap-highlight-color: transparent;

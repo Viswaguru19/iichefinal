@@ -62,6 +62,41 @@ function ChatAppInner({ basePath = DEFAULT_BASE, chatOnly = true }: { basePath?:
     }
   }, []);
 
+  /** Lock page scroll so the chat shell owns the viewport on mobile. */
+  useEffect(() => {
+    const html = document.documentElement;
+    const body = document.body;
+    const prevHtml = html.style.overflow;
+    const prevBody = body.style.overflow;
+    const prevTouch = body.style.touchAction;
+    html.style.overflow = 'hidden';
+    body.style.overflow = 'hidden';
+    body.style.touchAction = 'manipulation';
+    html.classList.add('chat-viewport-lock');
+
+    const syncViewportHeight = () => {
+      const h = Math.round(window.visualViewport?.height ?? window.innerHeight);
+      html.style.setProperty('--chat-vvh', `${h}px`);
+    };
+    syncViewportHeight();
+    window.visualViewport?.addEventListener('resize', syncViewportHeight);
+    window.visualViewport?.addEventListener('scroll', syncViewportHeight);
+    window.addEventListener('resize', syncViewportHeight);
+    window.addEventListener('orientationchange', syncViewportHeight);
+
+    return () => {
+      html.style.overflow = prevHtml;
+      body.style.overflow = prevBody;
+      body.style.touchAction = prevTouch;
+      html.classList.remove('chat-viewport-lock');
+      html.style.removeProperty('--chat-vvh');
+      window.visualViewport?.removeEventListener('resize', syncViewportHeight);
+      window.visualViewport?.removeEventListener('scroll', syncViewportHeight);
+      window.removeEventListener('resize', syncViewportHeight);
+      window.removeEventListener('orientationchange', syncViewportHeight);
+    };
+  }, []);
+
   const toggleChatTheme = useCallback(() => {
     setChatTheme((prev) => {
       const next = prev === 'dark' ? 'light' : 'dark';
@@ -645,9 +680,14 @@ function ChatAppInner({ basePath = DEFAULT_BASE, chatOnly = true }: { basePath?:
   return (
     <div
       data-chat-theme={chatTheme}
-      className="h-[100dvh] flex bg-[#0b141a] overflow-hidden supports-[padding:max(0px)]:pb-[env(safe-area-inset-bottom)]"
+      className="chat-shell fixed inset-0 z-40 flex w-full bg-[#0b141a] overflow-hidden overscroll-none"
     >
-      <div className={`${activeChat ? 'hidden sm:flex' : 'flex'} flex-col sm:w-[420px] sm:min-w-[320px] w-full min-h-0`}>
+      {/* Chat list — full screen on phone until a conversation is open */}
+      <div
+        className={`${
+          activeChat ? 'hidden md:flex' : 'flex'
+        } flex-col md:w-[420px] md:min-w-[320px] w-full min-h-0 h-full overflow-hidden`}
+      >
         <ChatSidebar
           chats={chats}
           allUsers={allUsers}
@@ -666,7 +706,14 @@ function ChatAppInner({ basePath = DEFAULT_BASE, chatOnly = true }: { basePath?:
         />
       </div>
 
-      <div className={`flex-1 flex min-w-0 min-h-0 ${activeChat ? 'flex' : 'hidden sm:flex'}`}>
+      {/* Open conversation — absolute full-bleed on phone so it always fits */}
+      <div
+        className={`${
+          activeChat
+            ? 'absolute inset-0 z-10 flex md:static md:z-auto md:flex-1'
+            : 'hidden md:flex md:flex-1'
+        } min-w-0 min-h-0 h-full overflow-hidden`}
+      >
         {activeChat ? (
           <ChatWindow
             chat={activeChat}
@@ -717,7 +764,7 @@ function ChatAppInner({ basePath = DEFAULT_BASE, chatOnly = true }: { basePath?:
         </AnimatePresence>
       </div>
 
-      {chatOnly && <InstallChatAppPrompt />}
+      {chatOnly && !activeChat && <InstallChatAppPrompt />}
     </div>
   );
 }

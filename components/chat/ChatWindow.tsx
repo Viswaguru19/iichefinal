@@ -93,6 +93,7 @@ export default function ChatWindow({
     const [loading, setLoading] = useState(true);
     const [showEmoji, setShowEmoji] = useState(false);
     const [showPoll, setShowPoll] = useState(false);
+    const [showAttach, setShowAttach] = useState(false);
     const [pollQ, setPollQ] = useState('');
     const [pollOpts, setPollOpts] = useState(['', '']);
     const [pollMultiple, setPollMultiple] = useState(false);
@@ -123,6 +124,8 @@ export default function ChatWindow({
         setPendingPreview(null);
         setMenuMsgId(null);
         setViewInfoMsg(null);
+        setShowAttach(false);
+        setShowEmoji(false);
     }, [chat.id, chat.type]);
 
     useEffect(() => {
@@ -600,16 +603,16 @@ export default function ChatWindow({
     }
 
     return (
-        <div className="flex-1 flex flex-col h-full bg-[#0b141a]">
+        <div className="flex-1 flex flex-col h-full min-h-0 w-full overflow-hidden bg-[#0b141a]">
             {/* Header */}
-            <div className="px-2 sm:px-4 py-2.5 pt-[max(0.625rem,env(safe-area-inset-top))] bg-[#202c33] flex items-center gap-2 sm:gap-3 border-b border-[#2a3942]">
+            <div className="shrink-0 px-2 sm:px-4 py-2 pt-[max(0.5rem,env(safe-area-inset-top))] bg-[#202c33] flex items-center gap-2 sm:gap-3 border-b border-[#2a3942]">
                 {onBack && (
-                    <button onClick={onBack} className="sm:hidden text-gray-400 hover:text-white p-1">
+                    <button type="button" onClick={onBack} className="md:hidden text-gray-400 hover:text-white p-1.5 -ml-0.5 shrink-0" aria-label="Back">
                         <ArrowLeft className="w-5 h-5" />
                     </button>
                 )}
                 <div
-                    className="flex items-center gap-3 flex-1 cursor-pointer min-w-0"
+                    className="flex items-center gap-2.5 sm:gap-3 flex-1 cursor-pointer min-w-0"
                     onClick={() => {
                         if (isDirect) onOpenProfile(chat.id);
                         else if (chat.participantGroupId) setShowGroupInfo(true);
@@ -617,17 +620,17 @@ export default function ChatWindow({
                 >
                     <div className="relative shrink-0">
                         {chat.avatar ? (
-                            <img src={chat.avatar} alt="" className="w-10 h-10 rounded-full object-cover" />
+                            <img src={chat.avatar} alt="" className="w-9 h-9 sm:w-10 sm:h-10 rounded-full object-cover" />
                         ) : (
-                            <div className="w-10 h-10 rounded-full bg-[#00a884] flex items-center justify-center text-white font-semibold text-sm">
+                            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-[#00a884] flex items-center justify-center text-white font-semibold text-sm">
                                 {chat.type === 'group' ? <Users className="w-5 h-5" /> : (chat.name || '?')[0]?.toUpperCase()}
                             </div>
                         )}
                         {isOnline && <div className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 rounded-full border-2 border-[#202c33]" />}
                     </div>
                     <div className="flex-1 min-w-0">
-                        <h2 className="font-semibold text-white text-base truncate">{chat.name || 'Chat'}</h2>
-                        <p className="text-xs text-gray-400 truncate">
+                        <h2 className="font-semibold text-white text-[15px] sm:text-base truncate leading-tight">{chat.name || 'Chat'}</h2>
+                        <p className="text-[11px] sm:text-xs text-gray-400 truncate">
                             {typing ? (
                                 <span className="text-emerald-400 italic">{typing} is typing...</span>
                             ) : isDirect ? (
@@ -651,11 +654,11 @@ export default function ChatWindow({
             </div>
 
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto px-4 py-3 space-y-1 relative">
+            <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain px-2.5 sm:px-4 py-2 sm:py-3 space-y-1 relative">
                 {/* IIChE Logo Watermark - fixed center */}
-                <div className="sticky top-1/2 left-1/2 -translate-y-1/2 w-full flex items-center justify-center pointer-events-none" style={{ height: 0, zIndex: 0 }}>
-                    <div className="opacity-[0.15]">
-                        <DynamicLogo width={320} height={320} />
+                <div className="pointer-events-none absolute inset-0 flex items-center justify-center z-0 overflow-hidden" aria-hidden>
+                    <div className="opacity-[0.12] w-[min(220px,55vw)] h-[min(220px,55vw)]">
+                        <DynamicLogo width={220} height={220} />
                     </div>
                 </div>
 
@@ -691,7 +694,7 @@ export default function ChatWindow({
                                     )}
                                     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2, ease: motionTokens.easing }}
                                         className={`flex ${isSent ? 'justify-end' : 'justify-start'} mb-0.5 group/msg relative`}>
-                                        <div className={`max-w-[82%] sm:max-w-[65%] px-3 py-1.5 rounded-lg shadow-sm relative ${isSent ? 'bg-[#005c4b]' : 'bg-[#202c33]'}`}
+                                        <div className={`w-fit max-w-[85%] sm:max-w-[65%] px-3 py-1.5 rounded-lg shadow-sm relative overflow-hidden ${isSent ? 'bg-[#005c4b]' : 'bg-[#202c33]'}`}
                                             onClick={() => isSent && setMenuMsgId(menuMsgId === msg.id ? null : msg.id)}>
                                             {showName && <p className="text-[12px] font-semibold text-emerald-400 mb-0.5">{msg.sender?.name}</p>}
 
@@ -702,11 +705,11 @@ export default function ChatWindow({
                                                     <img
                                                         src={msg.file_url}
                                                         alt=""
-                                                        className={`max-w-[240px] sm:max-w-[280px] max-h-64 rounded-lg object-cover ${msg._pending ? 'opacity-70' : ''}`}
+                                                        className={`w-full max-w-full max-h-64 rounded-lg object-cover ${msg._pending ? 'opacity-70' : ''}`}
                                                     />
                                                 </button>
                                             ) : msg.file_url && isAudioUrl(msg.file_url, msg.message) ? (
-                                                <audio controls preload="metadata" className="max-w-[240px] h-10" src={msg.file_url} onClick={(e) => e.stopPropagation()} />
+                                                <audio controls preload="metadata" className="w-full max-w-[220px] h-10" src={msg.file_url} onClick={(e) => e.stopPropagation()} />
                                             ) : msg.file_url ? (
                                                 <a href={msg.file_url} target="_blank" rel="noopener noreferrer"
                                                     className="flex items-center gap-2 text-[15px] text-emerald-300 hover:text-emerald-200 font-medium"
@@ -851,8 +854,7 @@ export default function ChatWindow({
             })()}
 
             {/* Input */}
-            {/* Input */}
-            <div className="px-2 sm:px-3 py-2 bg-[#202c33] relative pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+            <div className="shrink-0 px-1.5 sm:px-3 py-1.5 sm:py-2 bg-[#202c33] relative pb-[max(0.4rem,env(safe-area-inset-bottom))]">
                 {pendingPreview && (
                     <div className="mb-2 flex items-center gap-3 bg-[#111b21] rounded-xl p-2 border border-[#2a3942]">
                         <img src={pendingPreview.url} alt="" className="w-16 h-16 rounded-lg object-cover" />
@@ -878,32 +880,66 @@ export default function ChatWindow({
                         </button>
                     </div>
                 )}
-                <form onSubmit={sendMessage} className="flex items-center gap-1.5 sm:gap-2">
-                <div className="relative">
-                    <button type="button" onClick={() => setShowEmoji(v => !v)} className="p-2 text-gray-400 hover:text-white transition-colors">
-                        <Smile className="w-6 h-6" />
+                <form onSubmit={sendMessage} className="flex items-center gap-0.5 sm:gap-2 min-w-0">
+                <div className="relative shrink-0">
+                    <button type="button" onClick={() => { setShowEmoji(v => !v); setShowAttach(false); }} className="p-1.5 sm:p-2 text-gray-400 hover:text-white transition-colors" aria-label="Emoji">
+                        <Smile className="w-5 h-5 sm:w-6 sm:h-6" />
                     </button>
                     <AnimatePresence>
                         {showEmoji && (
                             <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }} transition={{ duration: 0.2, ease: motionTokens.easing }}
-                                className="absolute bottom-14 left-0 bg-[#233138] rounded-2xl shadow-2xl p-4 grid grid-cols-6 gap-2 z-50 border border-[#2a3942] w-[280px]">
+                                className="absolute bottom-12 left-0 bg-[#233138] rounded-2xl shadow-2xl p-3 grid grid-cols-6 gap-1.5 z-50 border border-[#2a3942] w-[min(280px,calc(100vw-1rem))] max-w-[calc(100vw-1rem)]">
                                 {EMOJIS.map(e => (
                                     <button key={e} type="button" onClick={() => { setNewMessage(p => p + e); setShowEmoji(false); }}
-                                        className="text-2xl hover:bg-[#2a3942] rounded-lg p-2 transition-colors flex items-center justify-center">{e}</button>
+                                        className="text-xl sm:text-2xl hover:bg-[#2a3942] rounded-lg p-1.5 transition-colors flex items-center justify-center">{e}</button>
                                 ))}
                             </motion.div>
                         )}
                     </AnimatePresence>
                 </div>
-                <button type="button" onClick={() => imageRef.current?.click()} className="p-2 text-gray-400 hover:text-white transition-colors" title="Photo">
-                    <ImageIcon className="w-5 h-5" />
-                </button>
-                <button type="button" onClick={() => fileRef.current?.click()} className="p-2 text-gray-400 hover:text-white transition-colors" title="Document">
-                    <Paperclip className="w-5 h-5" />
-                </button>
-                <button type="button" onClick={() => setShowPoll(true)} className="p-2 text-gray-400 hover:text-white transition-colors" title="Poll">
-                    <BarChart3 className="w-5 h-5" />
-                </button>
+                <div className="relative shrink-0">
+                    <button
+                        type="button"
+                        onClick={() => { setShowAttach(v => !v); setShowEmoji(false); }}
+                        className="p-1.5 sm:p-2 text-gray-400 hover:text-white transition-colors"
+                        title="Attach"
+                        aria-label="Attach"
+                    >
+                        <Paperclip className="w-5 h-5" />
+                    </button>
+                    <AnimatePresence>
+                        {showAttach && (
+                            <motion.div
+                                initial={{ opacity: 0, y: 8 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: 8 }}
+                                className="absolute bottom-12 left-0 z-50 bg-[#233138] border border-[#2a3942] rounded-xl shadow-2xl py-1 min-w-[160px]"
+                            >
+                                <button
+                                    type="button"
+                                    onClick={() => { setShowAttach(false); imageRef.current?.click(); }}
+                                    className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-100 hover:bg-[#2a3942] text-left"
+                                >
+                                    <ImageIcon className="w-4 h-4 text-[#00a884]" /> Photo
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => { setShowAttach(false); fileRef.current?.click(); }}
+                                    className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-100 hover:bg-[#2a3942] text-left"
+                                >
+                                    <Paperclip className="w-4 h-4 text-[#00a884]" /> Document
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => { setShowAttach(false); setShowPoll(true); }}
+                                    className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-100 hover:bg-[#2a3942] text-left"
+                                >
+                                    <BarChart3 className="w-4 h-4 text-[#00a884]" /> Poll
+                                </button>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+                </div>
                 <input ref={fileRef} type="file" className="hidden" accept="image/*,audio/*,.pdf,.doc,.docx" onChange={e => {
                     const f = e.target.files?.[0];
                     if (!f) return;
@@ -919,8 +955,8 @@ export default function ChatWindow({
                     if (f) setPendingPreview({ url: URL.createObjectURL(f), file: f });
                     e.target.value = '';
                 }} />
-                <input type="text" value={newMessage} onChange={e => { setNewMessage(e.target.value); handleTyping(); }} placeholder="Type a message"
-                    className="flex-1 min-w-0 px-3 sm:px-4 py-2.5 bg-[#2a3942] rounded-lg text-base text-white placeholder-gray-500 outline-none focus:ring-1 focus:ring-emerald-500/30 transition-all" />
+                <input type="text" value={newMessage} onChange={e => { setNewMessage(e.target.value); handleTyping(); }} placeholder="Message"
+                    className="flex-1 min-w-0 px-3 py-2 sm:py-2.5 bg-[#2a3942] rounded-full sm:rounded-lg text-[15px] sm:text-base text-white placeholder-gray-500 outline-none focus:ring-1 focus:ring-emerald-500/30 transition-all" />
                 {newMessage.trim() ? (
                     <motion.button whileHover={{ scale: 1.03 }} whileTap={motionTokens.tap} type="submit"
                         className="w-10 h-10 rounded-full bg-[#00a884] flex items-center justify-center text-white shadow-md shrink-0">
@@ -1045,7 +1081,7 @@ function PollBubble({ poll, msgId, myId, onVote, allUsers }: { poll: any; msgId:
 
     return (
         <>
-            <div className="min-w-[300px] max-w-[380px]">
+            <div className="w-full min-w-0 max-w-full">
                 <div className="flex items-center gap-2.5 mb-3">
                     <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center shadow-sm">
                         <span className="text-white text-base">📊</span>
