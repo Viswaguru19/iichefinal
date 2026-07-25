@@ -2,9 +2,10 @@
 
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, ArrowLeft, Users, MessageSquare, Plus, LayoutDashboard, Trash2, Sun, Moon } from 'lucide-react';
+import { Search, ArrowLeft, Users, MessageSquare, Plus, LayoutDashboard, Trash2, Sun, Moon, Pin, PinOff } from 'lucide-react';
 import type { ChatItem, UserProfile } from '@/components/chat/types';
 import DynamicLogo from '@/components/DynamicLogo';
+import { chatPinKey } from '@/lib/chat-pins';
 
 interface Props {
   chats: ChatItem[];
@@ -12,10 +13,12 @@ interface Props {
   activeChat: ChatItem | null;
   onlineUsers: Set<string>;
   showOnlinePresence: boolean;
+  pinnedKeys?: string[];
   onSelectChat: (chat: ChatItem) => void;
   onNewChat: (user: UserProfile) => void;
   onCreateGroup: (name: string, description: string, memberIds: string[]) => Promise<void>;
   onDeleteChat?: (chat: ChatItem) => void;
+  onTogglePin?: (chat: ChatItem) => void;
   onBack: () => void;
   chatOnly?: boolean;
   onOpenPortal?: () => void;
@@ -29,10 +32,12 @@ export default function ChatSidebar({
   activeChat,
   onlineUsers,
   showOnlinePresence,
+  pinnedKeys = [],
   onSelectChat,
   onNewChat,
   onCreateGroup,
   onDeleteChat,
+  onTogglePin,
   onBack,
   chatOnly = false,
   onOpenPortal,
@@ -207,10 +212,11 @@ export default function ChatSidebar({
           filtered.map((chat) => {
             const isActive = activeChat?.id === chat.id && activeChat?.type === chat.type;
             const isOnline = showOnlinePresence && chat.type === 'direct' && onlineUsers.has(chat.id);
+            const isPinned = pinnedKeys.includes(chatPinKey(chat.type, chat.id));
             return (
               <div
                 key={`${chat.type}-${chat.id}`}
-                className={`group flex items-center gap-1 px-2 border-b border-[#1a242b] transition-colors ${
+                className={`group flex items-center gap-0.5 px-1 sm:px-2 border-b border-[#1a242b] transition-colors ${
                   isActive ? 'bg-[#2a3942]' : 'hover:bg-[#202c33]/80'
                 }`}
               >
@@ -231,7 +237,10 @@ export default function ChatSidebar({
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-2">
-                      <h3 className="font-semibold text-gray-100 text-sm truncate">{chat.name}</h3>
+                      <h3 className="font-semibold text-gray-100 text-sm truncate flex items-center gap-1 min-w-0">
+                        {isPinned && <Pin className="w-3 h-3 text-[#00a884] shrink-0" aria-hidden />}
+                        <span className="truncate">{chat.name}</span>
+                      </h3>
                       <span className="text-[11px] text-gray-500 flex-shrink-0">
                         {chat.time && new Date(chat.time).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
                       </span>
@@ -246,6 +255,22 @@ export default function ChatSidebar({
                     </div>
                   </div>
                 </button>
+                {onTogglePin && (
+                  <button
+                    type="button"
+                    title={isPinned ? 'Unpin chat' : 'Pin chat'}
+                    aria-label={isPinned ? 'Unpin chat' : 'Pin chat'}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onTogglePin(chat);
+                    }}
+                    className={`p-2 rounded-lg shrink-0 transition-colors ${
+                      isPinned ? 'text-[#00a884]' : 'text-gray-600 hover:text-gray-300'
+                    }`}
+                  >
+                    {isPinned ? <PinOff className="w-4 h-4" /> : <Pin className="w-4 h-4" />}
+                  </button>
+                )}
                 {onDeleteChat && (chat.type === 'direct' || chat.groupChatType === 'custom_group') && (
                   <button
                     type="button"
@@ -254,7 +279,7 @@ export default function ChatSidebar({
                       e.stopPropagation();
                       onDeleteChat(chat);
                     }}
-                    className="p-2 text-gray-600 hover:text-red-400 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity shrink-0"
+                    className="p-2 text-gray-600 hover:text-red-400 shrink-0"
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>

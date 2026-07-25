@@ -14,6 +14,7 @@ import toast from 'react-hot-toast';
 import { groupMessagesChannelId } from '@/lib/chat-group-keys';
 import { usePortalPresence } from '@/components/dashboard/PortalPresenceContext';
 import type { ChatItem, UserProfile } from '@/components/chat/types';
+import { chatPinKey, loadPinnedChatKeys, togglePinnedChatKey } from '@/lib/chat-pins';
 
 export type { ChatItem, UserProfile };
 
@@ -50,6 +51,7 @@ function ChatAppInner({ basePath = DEFAULT_BASE, chatOnly = true }: { basePath?:
   const [showProfile, setShowProfile] = useState(false);
   const [loading, setLoading] = useState(true);
   const [chatTheme, setChatTheme] = useState<'dark' | 'light'>('dark');
+  const [pinnedKeys, setPinnedKeys] = useState<string[]>([]);
   const supabase = createClient();
   const router = useRouter();
 
@@ -61,6 +63,11 @@ function ChatAppInner({ basePath = DEFAULT_BASE, chatOnly = true }: { basePath?:
       // localStorage unavailable — keep default dark theme.
     }
   }, []);
+
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    setPinnedKeys(loadPinnedChatKeys(currentUser.id));
+  }, [currentUser?.id]);
 
   /** Lock page scroll so the chat shell owns the viewport on mobile. */
   useEffect(() => {
@@ -673,6 +680,20 @@ function ChatAppInner({ basePath = DEFAULT_BASE, chatOnly = true }: { basePath?:
     syncChatUrl(null);
   }
 
+  function togglePinChat(chat: ChatItem) {
+    if (!currentUser?.id) return;
+    const key = chatPinKey(chat.type, chat.id);
+    const next = togglePinnedChatKey(currentUser.id, key);
+    setPinnedKeys(next);
+  }
+
+  const sortedChats = [...chats].sort((a, b) => {
+    const aPin = pinnedKeys.includes(chatPinKey(a.type, a.id));
+    const bPin = pinnedKeys.includes(chatPinKey(b.type, b.id));
+    if (aPin !== bPin) return aPin ? -1 : 1;
+    return new Date(b.time || 0).getTime() - new Date(a.time || 0).getTime();
+  });
+
   if (loading) {
     return <PortalLoadingScreen message="Loading chats…" />;
   }
@@ -689,15 +710,17 @@ function ChatAppInner({ basePath = DEFAULT_BASE, chatOnly = true }: { basePath?:
         } flex-col md:w-[420px] md:min-w-[320px] w-full min-h-0 h-full overflow-hidden`}
       >
         <ChatSidebar
-          chats={chats}
+          chats={sortedChats}
           allUsers={allUsers}
           activeChat={activeChat}
           onlineUsers={onlineUserIds}
           showOnlinePresence={showOnlinePresence}
+          pinnedKeys={pinnedKeys}
           onSelectChat={(c) => void openChat(c)}
           onNewChat={startNewChat}
           onCreateGroup={createGroup}
           onDeleteChat={(c) => void deleteChat(c)}
+          onTogglePin={togglePinChat}
           onBack={() => router.push('/dashboard')}
           chatOnly={chatOnly}
           onOpenPortal={chatOnly ? () => router.push('/dashboard') : undefined}

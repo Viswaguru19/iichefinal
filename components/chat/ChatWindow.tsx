@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { Send, Smile, Paperclip, BarChart3, Users, Check, CheckCheck, ArrowLeft, Trash2, Mic, Square, Image as ImageIcon, X } from 'lucide-react';
+import { Send, Smile, Paperclip, BarChart3, Users, Check, CheckCheck, ArrowLeft, Trash2, Mic, Square, Image as ImageIcon, X, Camera } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
 import DynamicLogo from '@/components/DynamicLogo';
@@ -68,10 +68,10 @@ function ReceiptTicks({ viewed, title, onOpen }: { viewed: boolean; title: strin
                 e.stopPropagation();
                 onOpen();
             }}
-            className="inline-flex items-center p-0.5 -mr-0.5 rounded hover:bg-white/10 transition-colors"
+            className="inline-flex items-center gap-0.5 p-0.5 -mr-0.5 rounded hover:bg-white/10 transition-colors"
             aria-label={title}
         >
-            <CheckCheck className={`w-3.5 h-3.5 ${viewed ? 'text-amber-400' : 'text-red-400'}`} />
+            <CheckCheck className={`w-3.5 h-3.5 shrink-0 ${viewed ? 'text-amber-400' : 'text-red-400'}`} />
         </button>
     );
 }
@@ -107,7 +107,8 @@ export default function ChatWindow({
     const [viewInfoMsg, setViewInfoMsg] = useState<any | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const fileRef = useRef<HTMLInputElement>(null);
-    const imageRef = useRef<HTMLInputElement>(null);
+    const galleryRef = useRef<HTMLInputElement>(null);
+    const cameraRef = useRef<HTMLInputElement>(null);
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const audioChunksRef = useRef<Blob[]>([]);
     const chatKeyRef = useRef(`${chat.type}-${chat.id}`);
@@ -147,8 +148,60 @@ export default function ChatWindow({
         scrollToBottom();
     }, [messages]);
 
+    /** Keep sent-message view ticks fresh even if realtime UPDATE is delayed. */
+    useEffect(() => {
+        let cancelled = false;
+        async function refreshReceipts() {
+            if (isDirect) {
+                const { data: sent } = await supabase
+                    .from('direct_messages')
+                    .select('id, read')
+                    .eq('sender_id', currentUser.id)
+                    .eq('receiver_id', chat.id);
+                if (cancelled || !sent?.length) return;
+                const readMap = Object.fromEntries(sent.map((r: { id: string; read: boolean }) => [r.id, r.read === true]));
+                setMessages((prev) => {
+                    let changed = false;
+                    const next = prev.map((m) => {
+                        if (m.sender_id !== currentUser.id || !(m.id in readMap)) return m;
+                        if (m.read === readMap[m.id]) return m;
+                        changed = true;
+                        return { ...m, read: readMap[m.id] };
+                    });
+                    return changed ? next : prev;
+                });
+            } else {
+                await loadGroupMemberReads();
+            }
+        }
+        void refreshReceipts();
+        const timer = window.setInterval(() => void refreshReceipts(), 4000);
+        const onFocus = () => void refreshReceipts();
+        window.addEventListener('focus', onFocus);
+        document.addEventListener('visibilitychange', onFocus);
+        return () => {
+            cancelled = true;
+            window.clearInterval(timer);
+            window.removeEventListener('focus', onFocus);
+            document.removeEventListener('visibilitychange', onFocus);
+        };
+    }, [chat.id, chat.type, currentUser.id, isDirect]);
+
     function scrollToBottom() {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+
+    function broadcastReadReceipt() {
+        channelRef.current?.send({
+            type: 'broadcast',
+            event: 'read_receipt',
+            payload: {
+                reader_id: currentUser.id,
+                chat_id: chat.id,
+                chat_type: chat.type,
+                at: new Date().toISOString(),
+            },
+        });
     }
 
     async function loadGroupMemberReads() {
@@ -247,6 +300,7 @@ export default function ChatWindow({
                     .eq('receiver_id', currentUser.id)
                     .eq('sender_id', chat.id);
                 if (markErr) console.error('DM read update error:', markErr);
+                else broadcastReadReceipt();
                 onMessageSent();
             }
         } else {
@@ -275,7 +329,10 @@ export default function ChatWindow({
                     .eq('user_id', currentUser.id)
                     .select('group_id');
                 if (lrErr) console.error('last_read_at update:', lrErr);
-                else onMessageSent();
+                else {
+                    broadcastReadReceipt();
+                    onMessageSent();
+                }
                 await loadGroupMemberReads();
             }
         }
@@ -302,7 +359,11 @@ export default function ChatWindow({
             return { ...row, sender: p || { name: 'Unknown', avatar_url: null } };
         }
 
-        const ch = supabase.channel(`chat-${chat.type}-${chat.id}`);
+        const ch = supabase.channel(
+            isDirect
+                ? `chat-dm-${[currentUser.id, chat.id].sort().join('-')}`
+                : `chat-group-${chat.id}`,
+        );
         ch.on('postgres_changes', { event: 'INSERT', schema: 'public', table }, async (payload: { new: Record<string, unknown> }) => {
             const msg = payload.new as { id: string; sender_id: string; receiver_id?: string; group_id?: string };
             if (msg.sender_id === currentUser.id && isSendingRef.current) return;
@@ -321,6 +382,7 @@ export default function ChatWindow({
 
             if (isDirect) {
                 await supabase.from('direct_messages').update({ read: true } as any).eq('id', msg.id);
+                broadcastReadReceipt();
                 onMessageSent();
             } else if (chat.participantGroupId) {
                 await supabase
@@ -328,6 +390,7 @@ export default function ChatWindow({
                     .update({ last_read_at: new Date().toISOString() })
                     .eq('group_id', chat.participantGroupId)
                     .eq('user_id', currentUser.id);
+                broadcastReadReceipt();
                 onMessageSent();
                 void loadGroupMemberReads();
             }
@@ -349,6 +412,19 @@ export default function ChatWindow({
         });
         ch.on('broadcast', { event: 'typing' }, ({ payload }: { payload: { user_id: string; name: string } }) => {
             if (payload.user_id !== currentUser.id) { setTyping(payload.name); setTimeout(() => setTyping(null), 3000); }
+        });
+        ch.on('broadcast', { event: 'read_receipt' }, ({ payload }: { payload: { reader_id: string; chat_id: string; chat_type: string; at?: string } }) => {
+            if (payload.reader_id === currentUser.id) return;
+            if (isDirect) {
+                if (payload.reader_id !== chat.id) return;
+                setMessages((prev) =>
+                    prev.map((m) => (m.sender_id === currentUser.id ? { ...m, read: true } : m)),
+                );
+                return;
+            }
+            if (payload.chat_id === chat.id || payload.chat_id === chat.participantGroupId) {
+                void loadGroupMemberReads();
+            }
         });
         if (!isDirect && chat.participantGroupId) {
             ch.on(
@@ -384,6 +460,7 @@ export default function ChatWindow({
             sender_id: currentUser.id,
             message: text,
             created_at: new Date().toISOString(),
+            read: false,
             sender: { name: currentUser.name, avatar_url: currentUser.avatar_url },
             ...(isDirect ? { receiver_id: chat.id } : { group_id: chat.id }),
         };
@@ -917,10 +994,17 @@ export default function ChatWindow({
                             >
                                 <button
                                     type="button"
-                                    onClick={() => { setShowAttach(false); imageRef.current?.click(); }}
+                                    onClick={() => { setShowAttach(false); galleryRef.current?.click(); }}
                                     className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-100 hover:bg-[#2a3942] text-left"
                                 >
-                                    <ImageIcon className="w-4 h-4 text-[#00a884]" /> Photo
+                                    <ImageIcon className="w-4 h-4 text-[#00a884]" /> Gallery
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => { setShowAttach(false); cameraRef.current?.click(); }}
+                                    className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-100 hover:bg-[#2a3942] text-left"
+                                >
+                                    <Camera className="w-4 h-4 text-[#00a884]" /> Camera
                                 </button>
                                 <button
                                     type="button"
@@ -950,7 +1034,12 @@ export default function ChatWindow({
                     }
                     e.target.value = '';
                 }} />
-                <input ref={imageRef} type="file" className="hidden" accept="image/*" capture="environment" onChange={e => {
+                <input ref={galleryRef} type="file" className="hidden" accept="image/*" onChange={e => {
+                    const f = e.target.files?.[0];
+                    if (f) setPendingPreview({ url: URL.createObjectURL(f), file: f });
+                    e.target.value = '';
+                }} />
+                <input ref={cameraRef} type="file" className="hidden" accept="image/*" capture="environment" onChange={e => {
                     const f = e.target.files?.[0];
                     if (f) setPendingPreview({ url: URL.createObjectURL(f), file: f });
                     e.target.value = '';
