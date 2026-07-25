@@ -16,7 +16,10 @@ function urlBase64ToUint8Array(base64String: string) {
 
 async function registerServiceWorker() {
   if (!('serviceWorker' in navigator)) return null;
-  return navigator.serviceWorker.register('/sw.js', { scope: '/' });
+  const isChat = window.location.pathname.startsWith('/chat');
+  return navigator.serviceWorker.register(isChat ? '/sw-chat.js' : '/sw.js', {
+    scope: isChat ? '/chat' : '/dashboard',
+  });
 }
 
 export async function subscribeToPushNotifications(): Promise<boolean> {

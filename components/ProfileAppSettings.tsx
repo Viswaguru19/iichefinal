@@ -93,8 +93,11 @@ export default function ProfileAppSettings() {
           <h3 className="text-lg font-semibold text-gray-900">Install apps</h3>
         </div>
         <p className="text-sm text-gray-600">
-          You can install <strong>two separate apps</strong> on your phone — both use the IIChE logo.
+          Install <strong>two separate apps</strong>: IIChE owns the portal, while IIChE Chat owns messaging.
         </p>
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          If you installed the older combined IIChE app, remove that home-screen app once. Then follow the two steps below so your phone creates both apps separately.
+        </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="rounded-xl border border-indigo-100 bg-white p-4 space-y-2">
             <div className="flex items-center gap-2">
@@ -112,7 +115,7 @@ export default function ProfileAppSettings() {
               </p>
             ) : (
               <p className="text-[11px] text-gray-600 leading-relaxed">
-                Open the dashboard in Chrome/Edge and use Install when prompted.
+                Step 1: open this Dashboard in Chrome/Edge and install <strong>IIChE</strong>.
               </p>
             )}
             <Link href="/dashboard" className="inline-flex text-xs font-semibold text-indigo-600 hover:underline">
@@ -122,7 +125,7 @@ export default function ProfileAppSettings() {
           <div className="rounded-xl border border-emerald-100 bg-white p-4 space-y-2">
             <div className="flex items-center gap-2">
               <div className="w-9 h-9 rounded-lg bg-[#111b21] flex items-center justify-center overflow-hidden ring-1 ring-[#00a884]/40">
-                <DynamicLogo width={28} height={28} />
+                <img src="/api/pwa/chat-icon" alt="" className="w-8 h-8 rounded-md" />
               </div>
               <div>
                 <p className="text-sm font-bold text-gray-900">IIChE Chat</p>
@@ -135,7 +138,7 @@ export default function ProfileAppSettings() {
               </p>
             ) : (
               <p className="text-[11px] text-gray-600 leading-relaxed">
-                Open Chat and tap <strong>Install IIChE Chat</strong> when prompted.
+                Step 2: open Chat, then install <strong>IIChE Chat</strong> from that screen.
               </p>
             )}
             <Link

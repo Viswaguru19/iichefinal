@@ -1,6 +1,6 @@
-/* IIChE AVVU SC — service worker for Web Push + static asset caching */
+/* IIChE Chat — chat-scoped service worker for push + static asset caching */
 
-const CACHE_NAME = 'iiche-portal-v2';
+const CACHE_NAME = 'iiche-chat-v1';
 const STATIC_PREFIXES = ['/icons/', '/_next/static/'];
 
 self.addEventListener('install', (event) => {
@@ -12,55 +12,55 @@ self.addEventListener('activate', (event) => {
     caches
       .keys()
       .then((keys) =>
-        Promise.all(
-          keys
-            .filter((key) => key.startsWith('iiche-portal-') && key !== CACHE_NAME)
-            .map((key) => caches.delete(key)),
-        ),
+        Promise.all(keys.filter((key) => key.startsWith('iiche-chat-') && key !== CACHE_NAME).map((key) => caches.delete(key))),
       )
       .then(() => self.clients.claim()),
   );
 });
 
 function isStaticAsset(url) {
-  return STATIC_PREFIXES.some((p) => url.pathname.startsWith(p)) || url.pathname.endsWith('.svg');
+  return STATIC_PREFIXES.some((prefix) => url.pathname.startsWith(prefix)) || url.pathname.endsWith('.svg');
 }
 
 self.addEventListener('fetch', (event) => {
-  const req = event.request;
-  if (req.method !== 'GET') return;
+  const request = event.request;
+  if (request.method !== 'GET') return;
 
-  const url = new URL(req.url);
+  const url = new URL(request.url);
   if (url.origin !== self.location.origin || !isStaticAsset(url)) return;
 
   event.respondWith(
     caches.open(CACHE_NAME).then(async (cache) => {
-      const cached = await cache.match(req);
+      const cached = await cache.match(request);
       if (cached) return cached;
-      const res = await fetch(req);
-      if (res.ok) cache.put(req, res.clone());
-      return res;
+      const response = await fetch(request);
+      if (response.ok) cache.put(request, response.clone());
+      return response;
     }),
   );
 });
 
 self.addEventListener('push', (event) => {
-  let payload = { title: 'IIChE AVVU', body: 'You have a new notification', url: '/dashboard' };
+  let payload = {
+    title: 'IIChE Chat',
+    body: 'You have a new message',
+    url: '/chat',
+  };
   try {
     if (event.data) payload = { ...payload, ...event.data.json() };
   } catch {
-    // use defaults
+    // Use the chat defaults.
   }
 
-  const iconUrl = new URL('/api/pwa/icon', self.location.origin).href;
+  const iconUrl = new URL('/api/pwa/chat-icon', self.location.origin).href;
 
   event.waitUntil(
     self.registration.showNotification(payload.title, {
       body: payload.body,
       icon: iconUrl,
       badge: iconUrl,
-      tag: payload.tag || 'iiche-portal',
-      data: { url: payload.url || '/dashboard' },
+      tag: payload.tag || 'iiche-chat',
+      data: { url: payload.url || '/chat' },
       vibrate: [120, 60, 120],
       requireInteraction: false,
     }),
@@ -69,7 +69,7 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const target = event.notification.data?.url || '/dashboard';
+  const target = event.notification.data?.url || '/chat';
   const absolute = new URL(target, self.location.origin).href;
 
   event.waitUntil(

@@ -6,12 +6,12 @@ export const dynamic = 'force-dynamic';
 /** Portal app — separate from IIChE Chat (`/chat/manifest.webmanifest`). */
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    id: '/',
+    id: '/portal',
     name: 'IIChE',
     short_name: 'IIChE',
     description: 'IIChE AVVU SC portal — events, forms, attendance, and committee workflows.',
     start_url: '/dashboard',
-    scope: '/',
+    scope: '/dashboard',
     display: 'standalone',
     orientation: 'any',
     background_color: '#0a0a0a',

@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react';
 import { Download, Share, X } from 'lucide-react';
-import DynamicLogo from '@/components/DynamicLogo';
 import { isIOSDevice, isMobileLikeViewport, isStandaloneDisplay } from '@/lib/pwa';
 
 type BeforeInstallPromptEvent = Event & {
@@ -81,7 +80,7 @@ export default function InstallChatAppPrompt() {
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-start gap-3 min-w-0">
             <div className="w-11 h-11 rounded-xl bg-white/95 flex items-center justify-center shrink-0 overflow-hidden">
-              <DynamicLogo width={36} height={36} />
+              <img src="/api/pwa/chat-icon" alt="" className="w-10 h-10 rounded-lg" />
             </div>
             <div className="min-w-0">
               <p className="text-sm font-semibold">Install IIChE Chat</p>
@@ -92,9 +91,12 @@ export default function InstallChatAppPrompt() {
                 </p>
               ) : (
                 <p className="text-xs text-gray-300 mt-1 leading-relaxed">
-                  Install as its own app (like WhatsApp). Opens straight to chat — separate from the IIChE portal.
+                  Install from this Chat screen. It opens straight to messaging with its own icon, separate from IIChE.
                 </p>
               )}
+              <p className="text-[10px] text-gray-400 mt-1">
+                If your phone says already installed, remove the old IIChE shortcut once, then install both apps again.
+              </p>
             </div>
           </div>
           <button

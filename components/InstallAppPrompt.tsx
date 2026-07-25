@@ -83,9 +83,12 @@ export default function InstallAppPrompt() {
               </p>
             ) : (
               <p className="text-xs text-gray-600 mt-1 leading-relaxed">
-                Install the portal app. Chat is a separate app — open Chats and install <strong>IIChE Chat</strong> for WhatsApp-style messaging.
+                Install <strong>IIChE</strong> from this Dashboard screen. Then open Chat and install <strong>IIChE Chat</strong> separately.
               </p>
             )}
+            <p className="text-[10px] text-gray-500 mt-1">
+              Upgrading from the old combined install? Remove that shortcut once before installing both new apps.
+            </p>
           </div>
           <button
             type="button"

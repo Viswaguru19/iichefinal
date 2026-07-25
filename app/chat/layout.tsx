@@ -1,9 +1,9 @@
 import type { Metadata, Viewport } from 'next';
 import PortalPresenceProvider from '@/components/dashboard/PortalPresenceProvider';
 import PortalLogoProvider from '@/components/dashboard/PortalLogoProvider';
-import ServiceWorkerRegistrar from '@/components/ServiceWorkerRegistrar';
+import ChatServiceWorkerRegistrar from '@/components/chat/ChatServiceWorkerRegistrar';
 import { getCurrentLogo } from '@/lib/logo-utils-server';
-import { buildMetadataIcons } from '@/lib/pwa-icons';
+import { buildChatMetadataIcons } from '@/lib/pwa-icons';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,7 +17,7 @@ export const metadata: Metadata = {
     title: 'IIChE Chat',
     statusBarStyle: 'black-translucent',
   },
-  icons: buildMetadataIcons(),
+  icons: buildChatMetadataIcons(),
 };
 
 export const viewport: Viewport = {
@@ -37,7 +37,7 @@ export default async function ChatLayout({ children }: { children: React.ReactNo
           __html: `window.__PORTAL_LOGO__=${JSON.stringify(logoUrl)};`,
         }}
       />
-      <ServiceWorkerRegistrar />
+      <ChatServiceWorkerRegistrar />
       <PortalPresenceProvider>{children}</PortalPresenceProvider>
     </PortalLogoProvider>
   );

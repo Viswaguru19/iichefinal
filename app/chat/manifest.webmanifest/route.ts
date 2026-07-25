@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { buildPwaManifestIcons } from '@/lib/pwa-icons';
+import { buildChatPwaManifestIcons } from '@/lib/pwa-icons';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,13 +20,13 @@ export async function GET() {
     background_color: '#0b141a',
     theme_color: '#00a884',
     categories: ['social', 'communication'],
-    icons: buildPwaManifestIcons(),
+    icons: buildChatPwaManifestIcons(),
     shortcuts: [
       {
         name: 'New chat',
         short_name: 'New chat',
         url: '/chat',
-        icons: buildPwaManifestIcons()?.slice(0, 1),
+        icons: buildChatPwaManifestIcons()?.slice(0, 1),
       },
     ],
   };

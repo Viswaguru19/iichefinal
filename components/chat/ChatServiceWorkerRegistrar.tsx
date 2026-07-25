@@ -2,8 +2,8 @@
 
 import { useEffect } from 'react';
 
-/** Registers the IIChE portal worker with dashboard-only ownership. */
-export default function ServiceWorkerRegistrar() {
+/** Registers the IIChE Chat worker without claiming portal routes. */
+export default function ChatServiceWorkerRegistrar() {
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return;
 
@@ -15,7 +15,7 @@ export default function ServiceWorkerRegistrar() {
             .filter((registration) => new URL(registration.scope).pathname === '/')
             .map((registration) => registration.unregister()),
         );
-        await navigator.serviceWorker.register('/sw.js', { scope: '/dashboard' });
+        await navigator.serviceWorker.register('/sw-chat.js', { scope: '/chat' });
       } catch {
         // Service-worker support is an enhancement, not a navigation blocker.
       }
