@@ -881,55 +881,110 @@ html.chat-viewport-lock body {
   pointer-events: none;
 }
 
-.portal-loader-orbit {
+.portal-loader-iiche {
   position: relative;
   z-index: 1;
-  width: 88px;
-  height: 88px;
-  margin: 0 auto 1.25rem;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 0.35rem;
+  min-height: 4.5rem;
+  margin: 0.25rem auto 1.35rem;
+  font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
 }
 
-.portal-loader-ring {
+.portal-loader-letter {
+  position: relative;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  opacity: 0;
+  transform: translateY(14px) scale(0.88);
+  transition:
+    opacity 0.35s ease,
+    transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.portal-loader-letter.is-in {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.portal-loader-letter-glyph {
+  font-size: 2.75rem;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.04em;
+  background: linear-gradient(165deg, #9be8d8 0%, #7dd3c0 40%, #a5b4fc 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  display: inline-flex;
+  align-items: flex-end;
+  justify-content: center;
+  min-width: 1.1rem;
+  height: 2.85rem;
+}
+
+.portal-loader-i-stem {
+  display: block;
+  width: 0.28rem;
+  height: 2.05rem;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #9be8d8 0%, #7dd3c0 45%, #818cf8 100%);
+  box-shadow: 0 0 12px rgba(125, 211, 192, 0.35);
+}
+
+.portal-loader-i-dot {
+  position: absolute;
+  top: 0.05rem;
+  left: 50%;
+  width: 0.72rem;
+  height: 0.72rem;
+  margin-left: -0.36rem;
+  opacity: 0;
+  transform: scale(0.4);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  pointer-events: none;
+}
+
+.portal-loader-i-dot.is-on {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.portal-loader-i-dot-ring {
   position: absolute;
   inset: 0;
   border-radius: 50%;
-  border: 2px solid transparent;
+  border: 2px solid rgba(125, 211, 192, 0.85);
+  border-top-color: transparent;
+  animation: portal-loader-i-dot-spin 0.7s linear 1 forwards;
 }
 
-.portal-loader-ring-1 {
-  border-top-color: #7dd3c0;
-  border-right-color: rgba(125, 211, 192, 0.35);
-  animation: portal-loader-spin 1.1s linear infinite;
+.portal-loader-i-dot.is-on .portal-loader-i-dot-ring {
+  animation: portal-loader-i-dot-spin 0.7s linear 1 forwards;
 }
 
-.portal-loader-ring-2 {
-  inset: 10px;
-  border-bottom-color: #818cf8;
-  border-left-color: rgba(129, 140, 248, 0.35);
-  animation: portal-loader-spin 1.6s linear infinite reverse;
-}
-
-.portal-loader-ring-3 {
-  inset: 20px;
-  border-top-color: rgba(255, 255, 255, 0.5);
-  animation: portal-loader-spin 2.2s linear infinite;
-}
-
-.portal-loader-core {
+.portal-loader-i-dot-core {
   position: absolute;
-  inset: 32px;
+  inset: 3px;
   border-radius: 50%;
-  background: radial-gradient(circle at 35% 35%, #7dd3c0, #6366f1);
-  box-shadow: 0 0 24px rgba(125, 211, 192, 0.45);
-  animation: portal-loader-pulse 2s ease-in-out infinite;
+  background: radial-gradient(circle at 35% 30%, #b8f0e4, #7dd3c0 55%, #6366f1);
+  transform: scale(0);
+  box-shadow: 0 0 10px rgba(125, 211, 192, 0.55);
+}
+
+.portal-loader-i-dot.is-on .portal-loader-i-dot-core {
+  animation: portal-loader-i-dot-fill 0.35s ease 0.55s forwards;
 }
 
 .portal-loader-brand-text {
   position: relative;
   z-index: 1;
-  font-size: 1.125rem;
+  font-size: 0.95rem;
   font-weight: 800;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.18em;
   background: linear-gradient(90deg, #7dd3c0 0%, #a5b4fc 50%, #7dd3c0 100%);
   background-size: 200% auto;
   -webkit-background-clip: text;
@@ -1006,6 +1061,16 @@ html.chat-viewport-lock body {
 @keyframes portal-loader-pulse {
   0%, 100% { transform: scale(1); opacity: 1; }
   50% { transform: scale(0.92); opacity: 0.85; }
+}
+
+@keyframes portal-loader-i-dot-spin {
+  from { transform: rotate(0deg); opacity: 1; }
+  to { transform: rotate(360deg); opacity: 0.35; }
+}
+
+@keyframes portal-loader-i-dot-fill {
+  from { transform: scale(0); }
+  to { transform: scale(1); }
 }
 
 @keyframes portal-loader-text-shine {

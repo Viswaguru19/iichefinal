@@ -9,7 +9,7 @@ import Link from 'next/link';
 import toast from 'react-hot-toast';
 import { publicFormUrl } from '@/lib/form-public-access';
 import PageHeader from '@/components/PageHeader';
-import { canManageForm } from '@/lib/form-access';
+import { canManageForm, canViewFormResponses } from '@/lib/form-access';
 
 const container = {
   hidden: { opacity: 0 },
@@ -50,20 +50,32 @@ export default function FormsPage() {
       .order('created_at', { ascending: false });
     if (!formsData) { setLoading(false); return; }
 
-    // Get accurate response counts per form
-    const withCounts = await Promise.all(
-      formsData.map(async (f: { id: string }) => {
-        const { count } = await supabase
-          .from('form_responses')
-          .select('*', { count: 'exact', head: true })
-          .eq('form_id', f.id);
-        return {
-          ...f,
-          response_count: count || 0,
-          computed_status: getFormStatus(f),
-        };
-      })
-    );
+    // One responses query (grouped client-side) instead of N count round-trips
+    let countByForm: Record<string, number> = {};
+    const viewable = formsData.filter((f: any) => canViewFormResponses(f, user.id, userProfile));
+    if (viewable.length > 0) {
+      const { data: rows } = await supabase
+        .from('form_responses')
+        .select('form_id')
+        .in(
+          'form_id',
+          viewable.map((f: { id: string }) => f.id),
+        );
+      for (const row of rows || []) {
+        const id = String((row as { form_id: string }).form_id);
+        countByForm[id] = (countByForm[id] || 0) + 1;
+      }
+    }
+
+    const withCounts = formsData.map((f: any) => {
+      const canView = canViewFormResponses(f, user.id, userProfile);
+      return {
+        ...f,
+        response_count: canView ? countByForm[f.id] || 0 : 0,
+        can_view_responses: canView,
+        computed_status: getFormStatus(f),
+      };
+    });
     setForms(withCounts);
     setLoading(false);
   }
@@ -231,10 +243,14 @@ export default function FormsPage() {
                         {form.description && <p className="text-gray-400 text-sm line-clamp-2 mb-4">{form.description}</p>}
 
                         <div className="flex items-center gap-4 text-sm text-gray-400 mb-4">
-                          <span className="flex items-center gap-1.5">
-                            <BarChart3 className="w-4 h-4 text-indigo-400" />
-                            <span className="font-medium text-gray-600">{form.response_count}</span> responses
-                          </span>
+                          {form.can_view_responses ? (
+                            <span className="flex items-center gap-1.5">
+                              <BarChart3 className="w-4 h-4 text-indigo-400" />
+                              <span className="font-medium text-gray-600">{form.response_count}</span> responses
+                            </span>
+                          ) : (
+                            <span className="text-gray-400 text-xs">Responses restricted</span>
+                          )}
                           <span className="text-gray-300">·</span>
                           <span>{form.creator?.name || 'Unknown'}</span>
                         </div>
@@ -258,11 +274,13 @@ export default function FormsPage() {
                         )}
 
                         <div className="flex items-center gap-2 pt-4 border-t border-gray-100">
+                          {form.can_view_responses && (
                           <motion.div whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.97 }} className="flex-1">
                             <Link href={`/dashboard/forms/${form.id}/responses`} className="btn-gradient-blue px-3 py-2 rounded-xl text-xs font-semibold text-center block shadow-md shadow-blue-500/10">
                               <span className="flex items-center justify-center gap-1.5"><BarChart3 className="w-3.5 h-3.5" /> Responses</span>
                             </Link>
                           </motion.div>
+                          )}
                           {manageable && (
                           <motion.div whileHover={{ scale: 1.15 }} whileTap={{ scale: 0.9 }}>
                             <Link href={`/dashboard/forms/${form.id}/edit`} className="p-2 rounded-xl hover:bg-indigo-50 text-gray-400 hover:text-indigo-600 transition-all" title="Edit Form">

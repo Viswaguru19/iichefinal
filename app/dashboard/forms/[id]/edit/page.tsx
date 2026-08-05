@@ -5,15 +5,14 @@ import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { createClient } from '@/lib/supabase/client';
 import { ArrowLeft, Plus, X, GripVertical, Copy, Eye, Settings, ChevronDown, ChevronUp, Upload, Type, AlignLeft, List, CheckSquare, ChevronRight, Calendar, Hash, Mail, FileUp, Image as ImageIcon, Save, Phone } from 'lucide-react';
+import { defaultOptionsForFieldType, defaultValidationForFieldType, isOptionFieldType, EXACT_TWO_HINT, clampRollCount, ROLL_NO_MAX_COUNT, ROLL_NO_MIN_COUNT, rollCountFromValidation, excludedRollsFromValidation } from '@/lib/form-field-types';
+import RollExcludeChecklist from '@/components/forms/RollExcludeChecklist';
+import ResponseViewerPicker from '@/components/forms/ResponseViewerPicker';
+import { canManageForm, getResponseViewerIds } from '@/lib/form-access';
+import { EVENT_REGISTRATION_ELIGIBLE_STATUSES } from '@/lib/event-registration';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
-import {
-  hasNameAndEmailFields,
-} from '@/lib/form-responder-fields';
-import { canManageForm } from '@/lib/form-access';
-import { EVENT_REGISTRATION_ELIGIBLE_STATUSES } from '@/lib/event-registration';
-
 interface FormField {
     id: string;
     field_type: string;
@@ -30,6 +29,7 @@ interface FormField {
         maxFileSize?: number;
         maxFiles?: number;
         allowedFileTypes?: string[];
+        excludedRolls?: string[];
     };
     order_index: number;
 }
@@ -37,12 +37,14 @@ interface FormField {
 const FIELD_TYPES = [
     { value: 'text', label: 'Short Answer', icon: Type },
     { value: 'textarea', label: 'Paragraph', icon: AlignLeft },
-    { value: 'radio', label: 'Multiple Choice', icon: List },
-    { value: 'checkbox', label: 'Checkboxes', icon: CheckSquare },
-    { value: 'dropdown', label: 'Dropdown', icon: ChevronRight },
+  { value: 'radio', label: 'Multiple Choice', icon: List },
+  { value: 'checkbox', label: 'Checkboxes', icon: CheckSquare },
+  { value: 'checkbox_exact_2', label: 'Select Exactly 2', icon: CheckSquare },
+  { value: 'dropdown', label: 'Dropdown', icon: ChevronRight },
     { value: 'file', label: 'File Upload', icon: FileUp },
     { value: 'date', label: 'Date', icon: Calendar },
     { value: 'number', label: 'Number', icon: Hash },
+    { value: 'roll_no', label: 'Roll No (searchable)', icon: Hash },
     { value: 'mobile', label: 'Mobile Number', icon: Phone },
     { value: 'email', label: 'Email', icon: Mail },
 ];
@@ -76,6 +78,7 @@ export default function EditFormPage() {
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
     const [accessType, setAccessType] = useState<'public' | 'internal'>('internal');
+    const [responseViewerIds, setResponseViewerIds] = useState<string[]>([]);
     const [formType, setFormType] = useState<'normal' | 'event_registration'>('normal');
     const [initialFormType, setInitialFormType] = useState<'normal' | 'event_registration'>('normal');
     const [selectedEventId, setSelectedEventId] = useState('');
@@ -148,6 +151,7 @@ export default function EditFormPage() {
         setStartDate(s.start_date || '');
         setEndDate(s.end_date || '');
         setAccessType((s.access_type || s.accessType || 'public') as 'public' | 'internal');
+        setResponseViewerIds(getResponseViewerIds(s));
         const loadedType = (form.form_type as 'normal' | 'event_registration') || 'normal';
         setFormType(loadedType);
         setInitialFormType(loadedType);
@@ -218,9 +222,9 @@ export default function EditFormPage() {
     function addField(type: string) {
         const newField: FormField = {
             id: generateId(), field_type: type, label: '', description: '',
-            options: ['radio', 'checkbox', 'dropdown'].includes(type) ? ['Option 1'] : [],
+            options: defaultOptionsForFieldType(type),
             required: false,
-            validation: type === 'file' ? { maxFileSize: 10, maxFiles: 1, allowedFileTypes: ['pdf', 'doc', 'docx', 'jpg', 'png'] } : {},
+            validation: defaultValidationForFieldType(type),
             order_index: fields.length,
         };
         setFields([...fields, newField]);
@@ -267,7 +271,12 @@ export default function EditFormPage() {
 
     function removeOption(fieldId: string, optIndex: number) {
         const field = fields.find(f => f.id === fieldId);
-        if (!field || field.options.length <= 1) return;
+        if (!field) return;
+        const minOpts = field.field_type === 'checkbox_exact_2' ? 2 : 1;
+        if (field.options.length <= minOpts) {
+            if (field.field_type === 'checkbox_exact_2') toast.error('Exactly-2 questions need at least 2 options');
+            return;
+        }
         updateField(fieldId, { options: field.options.filter((_, i) => i !== optIndex) });
     }
 
@@ -292,10 +301,10 @@ export default function EditFormPage() {
         if (fields.length === 0) { toast.error('Add at least one question'); return; }
         const emptyLabels = fields.filter(f => !f.label.trim());
         if (emptyLabels.length > 0) { toast.error('All questions must have labels'); return; }
-        if (!hasNameAndEmailFields(fields)) {
-            toast.error('Add Name (short answer) and Email questions to the form.');
-            return;
-        }
+        const badExactTwo = fields.find(f => f.field_type === 'checkbox_exact_2' && f.options.filter(o => o.trim()).length < 2);
+        if (badExactTwo) { toast.error('"Select Exactly 2" questions need at least 2 options'); return; }
+        const badRoll = fields.find(f => f.field_type === 'roll_no' && !rollCountFromValidation(f.validation));
+        if (badRoll) { toast.error('Set how many roll numbers (1–99) for Roll No questions'); return; }
         if (formType === 'event_registration' && !selectedEventId) {
             toast.error('Select an event for event registration form');
             return;
@@ -328,6 +337,7 @@ export default function EditFormPage() {
             end_date: endDate || null,
             access_type: accessType,
             status,
+            response_viewer_ids: responseViewerIds,
             ...(formType === 'event_registration' ? { show_attendance_qr_after_submit: showAttendanceQrAfterSubmit } : {}),
         };
 
@@ -470,7 +480,7 @@ export default function EditFormPage() {
                                             </div>
                                         </div>
                                         <div className="flex flex-wrap gap-6">
-                                            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={allowMultiple} onChange={e => setAllowMultiple(e.target.checked)} className="rounded text-indigo-600" /> Allow multiple responses</label>
+                                            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={allowMultiple} onChange={e => setAllowMultiple(e.target.checked)} className="rounded text-indigo-600" /> Allow multiple responses <span className="text-gray-400 text-xs">(same email/mobile can submit again)</span></label>
                                             <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={requireLogin} onChange={e => setRequireLogin(e.target.checked)} className="rounded text-indigo-600" /> Require login</label>
                                             {formType === 'event_registration' && (
                                                 <label className="flex items-center gap-2 text-sm max-w-md">
@@ -478,6 +488,9 @@ export default function EditFormPage() {
                                                     <span>Show personal check-in QR after registration (for attendance scanning)</span>
                                                 </label>
                                             )}
+                                        </div>
+                                        <div className="pt-2 border-t border-gray-100">
+                                            <ResponseViewerPicker selectedIds={responseViewerIds} onChange={setResponseViewerIds} />
                                         </div>
                                     </div>
                                 </motion.div>
@@ -577,20 +590,52 @@ export default function EditFormPage() {
                                                 <input type="text" value={field.description} onChange={e => updateField(field.id, { description: e.target.value })} placeholder="Description / help text (optional)" className="w-full text-sm text-gray-500 bg-transparent border-b border-gray-100 focus:border-indigo-300 outline-none py-1 placeholder-gray-300" />
                                             )}
 
-                                            {['radio', 'checkbox', 'dropdown'].includes(field.field_type) && (
+                                            {isOptionFieldType(field.field_type) && (
                                                 <div className="space-y-2 mt-2">
+                                                    {field.field_type === 'checkbox_exact_2' && (
+                                                        <p className="text-xs text-indigo-600 font-medium">{EXACT_TWO_HINT} · add at least 2 options</p>
+                                                    )}
                                                     {field.options.map((opt, oi) => (
                                                         <div key={oi} className="flex items-center gap-2">
                                                             {field.field_type === 'radio' && <span className="w-4 h-4 rounded-full border-2 border-gray-400 flex-shrink-0" />}
-                                                            {field.field_type === 'checkbox' && <span className="w-4 h-4 rounded border-2 border-gray-400 flex-shrink-0" />}
+                                                            {(field.field_type === 'checkbox' || field.field_type === 'checkbox_exact_2') && <span className="w-4 h-4 rounded border-2 border-gray-400 flex-shrink-0" />}
                                                             {field.field_type === 'dropdown' && <span className="text-gray-400 text-sm w-5">{oi + 1}.</span>}
                                                             <input type="text" value={opt} onChange={e => updateOption(field.id, oi, e.target.value)} className="flex-1 bg-transparent border-b border-gray-200 focus:border-indigo-400 outline-none py-1 text-sm" />
-                                                            {field.options.length > 1 && <button onClick={() => removeOption(field.id, oi)} className="text-gray-400 hover:text-red-500"><X className="w-4 h-4" /></button>}
+                                                            {field.options.length > (field.field_type === 'checkbox_exact_2' ? 2 : 1) && <button onClick={() => removeOption(field.id, oi)} className="text-gray-400 hover:text-red-500"><X className="w-4 h-4" /></button>}
                                                         </div>
                                                     ))}
                                                     <button onClick={() => addOption(field.id)} className="text-indigo-600 text-sm hover:text-indigo-700 flex items-center gap-1 mt-1">
                                                         <Plus className="w-3.5 h-3.5" /> Add option
                                                     </button>
+                                                </div>
+                                            )}
+
+                                            {field.field_type === 'roll_no' && isActive && (
+                                                <div className="bg-gray-50 rounded-xl p-4 space-y-3 mt-2">
+                                                    <p className="text-xs font-medium text-gray-500">Roll numbers</p>
+                                                    <label className="text-xs text-gray-500">How many rolls? (generates 1 … N)</label>
+                                                    <input
+                                                        type="number"
+                                                        min={ROLL_NO_MIN_COUNT}
+                                                        max={ROLL_NO_MAX_COUNT}
+                                                        value={rollCountFromValidation(field.validation)}
+                                                        onChange={e => {
+                                                            const n = clampRollCount(parseInt(e.target.value, 10) || ROLL_NO_MIN_COUNT);
+                                                            const pruned = excludedRollsFromValidation(field.validation).filter((r) => Number(r) <= n);
+                                                            updateField(field.id, { validation: { ...field.validation, minValue: 1, maxValue: n, excludedRolls: pruned } });
+                                                        }}
+                                                        className="w-full border rounded-lg px-2 py-1.5 text-sm"
+                                                    />
+                                                    <RollExcludeChecklist
+                                                        count={rollCountFromValidation(field.validation)}
+                                                        validation={field.validation}
+                                                        onChangeExcluded={(excludedRolls) =>
+                                                            updateField(field.id, { validation: { ...field.validation, excludedRolls } })
+                                                        }
+                                                    />
+                                                    <p className="text-xs text-gray-400">
+                                                        Dropdown shows {rollCountFromValidation(field.validation) - excludedRollsFromValidation(field.validation).length} available rolls (searchable).
+                                                    </p>
                                                 </div>
                                             )}
 
@@ -606,7 +651,19 @@ export default function EditFormPage() {
 
                                             {isActive && (
                                                 <div className="flex items-center justify-between pt-3 border-t border-gray-100 mt-3">
-                                                    <select value={field.field_type} onChange={e => updateField(field.id, { field_type: e.target.value, options: ['radio', 'checkbox', 'dropdown'].includes(e.target.value) && field.options.length === 0 ? ['Option 1'] : field.options })} className="text-sm border rounded-lg px-2 py-1 bg-white/80">
+                                                    <select value={field.field_type} onChange={e => {
+                                                        const nextType = e.target.value;
+                                                        let nextOptions = field.options;
+                                                        if (isOptionFieldType(nextType)) {
+                                                            if (nextOptions.length === 0 || (nextType === 'checkbox_exact_2' && nextOptions.length < 2)) {
+                                                                nextOptions = defaultOptionsForFieldType(nextType);
+                                                            }
+                                                        }
+                                                        const nextValidation = nextType === 'roll_no' && !field.validation?.maxValue
+                                                            ? { ...field.validation, ...defaultValidationForFieldType('roll_no') }
+                                                            : field.validation;
+                                                        updateField(field.id, { field_type: nextType, options: nextOptions, validation: nextValidation });
+                                                    }} className="text-sm border rounded-lg px-2 py-1 bg-white/80">
                                                         {FIELD_TYPES.map(ft => <option key={ft.value} value={ft.value}>{ft.label}</option>)}
                                                     </select>
                                                     <div className="flex items-center gap-3">

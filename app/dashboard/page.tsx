@@ -30,16 +30,16 @@ export default async function DashboardPage() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect('/login');
 
-  const [profileResult, ensureChatResult] = await Promise.all([
-    supabase.from('profiles').select('*').eq('id', user.id).single(),
-    supabase.rpc('ensure_default_chat_memberships'),
-  ]);
+  // Do not block first paint on chat membership backfill
+  void supabase.rpc('ensure_default_chat_memberships').then(({ error }) => {
+    if (error) console.warn('ensure_default_chat_memberships:', error.message);
+  });
 
-  if (ensureChatResult.error) {
-    console.warn('ensure_default_chat_memberships:', ensureChatResult.error.message);
-  }
-
-  const { data: profile, error: profileError } = profileResult;
+  const { data: profile, error: profileError } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', user.id)
+    .single();
 
   if (profileError || !profile) {
     await supabase.auth.signOut();

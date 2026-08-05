@@ -5,6 +5,9 @@ import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { createClient } from '@/lib/supabase/client';
 import { ArrowLeft, Share2, Check, Lock, AlertTriangle, Upload } from 'lucide-react';
+import { EXACT_TWO_HINT, isValidRollNo, rollCountFromValidation, excludedRollsFromValidation } from '@/lib/form-field-types';
+import SearchableRollSelect from '@/components/forms/SearchableRollSelect';
+import { canViewFormResponses } from '@/lib/form-access';
 import Link from 'next/link';
 import { useParams, useRouter, usePathname } from 'next/navigation';
 import toast from 'react-hot-toast';
@@ -15,7 +18,9 @@ import {
   extractResponderEmail,
   extractResponderName,
   pickEmailField,
+  pickMobileField,
   pickNameField,
+  normalizeMobile,
 } from '@/lib/form-responder-fields';
 
 interface FormField {
@@ -75,6 +80,8 @@ export default function FormSubmitPage() {
   const [participantQrImage, setParticipantQrImage] = useState<string | null>(null);
   const [participantQrPayload, setParticipantQrPayload] = useState<any>(null);
   const [eventDetails, setEventDetails] = useState<any>(null);
+  /** Roll nos already used per field id — hidden from searchable dropdown. */
+  const [takenRollsByFieldId, setTakenRollsByFieldId] = useState<Record<string, string[]>>({});
   /** Set after successful event registration submit (venue QR uses source=onsite). */
   const [submittedWasOnSite, setSubmittedWasOnSite] = useState(false);
   const params = useParams();
@@ -85,6 +92,40 @@ export default function FormSubmitPage() {
 
   useEffect(() => { fetchForm(); }, []);
 
+  async function refreshTakenRolls(formFields: FormField[]) {
+    const rollFields = formFields.filter((f) => f.field_type === 'roll_no' && f.label?.trim());
+    if (rollFields.length === 0) {
+      setTakenRollsByFieldId({});
+      return;
+    }
+    const next: Record<string, string[]> = {};
+    await Promise.all(
+      rollFields.map(async (f) => {
+        const { data, error } = await supabase.rpc('form_taken_roll_numbers', {
+          p_form_id: params.id,
+          p_field_label: f.label.trim(),
+        });
+        if (error) {
+          console.error('form_taken_roll_numbers', error);
+          next[f.id] = [];
+          return;
+        }
+        next[f.id] = Array.isArray(data) ? data.map(String) : [];
+      }),
+    );
+    setTakenRollsByFieldId(next);
+  }
+
+  useEffect(() => {
+    if (!form || formClosed || submitted) return;
+    const hasRoll = fields.some((f) => f.field_type === 'roll_no');
+    if (!hasRoll) return;
+    refreshTakenRolls(fields);
+    const t = setInterval(() => refreshTakenRolls(fields), 12000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form?.id, formClosed, submitted, fields]);
+
   async function fetchForm() {
     setSubmittedWasOnSite(false);
     const { data: { user: authUser } } = await supabase.auth.getUser();
@@ -94,8 +135,7 @@ export default function FormSubmitPage() {
       const { data: prof } = await supabase.from('profiles').select('name, email, is_admin, is_faculty, executive_role, committee_members(committee_id)').eq('id', authUser.id).single();
       setProfile(prof);
       profileForPrefill = prof;
-      const p = prof as any;
-      setCanViewResponses(p?.is_admin || p?.is_faculty || p?.executive_role || (p?.committee_members?.length > 0));
+      // canViewResponses set after form loads (needs created_by + response_viewer_ids)
     }
     const { data: formData, error } = await supabase.from('forms').select('*').eq('id', params.id).single();
     if (error || !formData) { toast.error('Form not found'); setLoading(false); return; }
@@ -129,6 +169,11 @@ export default function FormSubmitPage() {
     setForm(formData);
     const formFields = formData.fields || [];
     setFields(formFields);
+    if (authUser) {
+      setCanViewResponses(canViewFormResponses(formData, authUser.id, profileForPrefill));
+    } else {
+      setCanViewResponses(false);
+    }
 
     if (!closed && formData.form_type === 'event_registration' && formData.event_id) {
       const { data: ev } = await supabase
@@ -186,17 +231,32 @@ export default function FormSubmitPage() {
     setErrors(prev => { const n = { ...prev }; delete n[fieldId]; return n; });
   }
 
-  function toggleCheckbox(fieldId: string, option: string) {
+  function toggleCheckbox(fieldId: string, option: string, exactTwo = false) {
     setAnswers(prev => {
-      const current = prev[fieldId] || [];
-      return { ...prev, [fieldId]: current.includes(option) ? current.filter((o: string) => o !== option) : [...current, option] };
+      const current: string[] = prev[fieldId] || [];
+      if (current.includes(option)) {
+        return { ...prev, [fieldId]: current.filter((o: string) => o !== option) };
+      }
+      if (exactTwo && current.length >= 2) {
+        toast.error(EXACT_TWO_HINT);
+        return prev;
+      }
+      return { ...prev, [fieldId]: [...current, option] };
     });
+    setErrors(prev => { const n = { ...prev }; delete n[fieldId]; return n; });
   }
 
   function validate(): boolean {
     const newErrors: Record<string, string> = {};
     for (const field of fields) {
       const val = answers[field.id];
+      if (field.field_type === 'checkbox_exact_2') {
+        const selected = Array.isArray(val) ? val : [];
+        if (selected.length !== 2) {
+          newErrors[field.id] = EXACT_TWO_HINT;
+        }
+        continue;
+      }
       if (field.required && (!val || (Array.isArray(val) && val.length === 0))) { newErrors[field.id] = 'This field is required'; continue; }
       if (val && field.validation) {
         const v = field.validation;
@@ -205,6 +265,11 @@ export default function FormSubmitPage() {
         if (v.email && typeof val === 'string' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)) newErrors[field.id] = 'Enter a valid email';
         if (field.field_type === 'mobile' && typeof val === 'string' && !/^[\d\s+\-()]{7,15}$/.test(val.trim())) {
           newErrors[field.id] = 'Enter a valid mobile number';
+        }
+      }
+      if (field.field_type === 'roll_no' && val != null && String(val).trim() !== '') {
+        if (!isValidRollNo(val, rollCountFromValidation(field.validation), excludedRollsFromValidation(field.validation))) {
+          newErrors[field.id] = `Select an available roll number between 1 and ${rollCountFromValidation(field.validation)}`;
         }
       }
     }
@@ -226,6 +291,20 @@ export default function FormSubmitPage() {
     return data === true;
   }
 
+  async function hasExternalMobileAlreadySubmitted(mobile: string): Promise<boolean> {
+    const normalized = normalizeMobile(mobile);
+    if (normalized.length < 7) return false;
+    const { data, error } = await supabase.rpc('form_mobile_already_submitted', {
+      p_form_id: params.id,
+      p_mobile: normalized,
+    });
+    if (error) {
+      console.error('form_mobile_already_submitted', error);
+      return false;
+    }
+    return data === true;
+  }
+
   async function handleSubmit() {
     if (!validate()) { toast.error('Please fix the errors'); return; }
     setSubmitting(true);
@@ -240,13 +319,43 @@ export default function FormSubmitPage() {
     const settings = form?.settings || {};
     const allowMultiple = !!(settings.allow_multiple ?? settings.allowMultiple);
     const emailField = pickEmailField(fields);
+    const mobileField = pickMobileField(fields);
     const emailForDedupe = emailField ? trimStr(answers[emailField.id]) : '';
-    if (!user && !allowMultiple && emailForDedupe) {
-      const exists = await hasExternalEmailAlreadySubmitted(emailForDedupe);
-      if (exists) {
+    const mobileForDedupe = mobileField ? normalizeMobile(answers[mobileField.id]) : '';
+    // Refresh taken rolls + block if selected roll was just claimed
+    await refreshTakenRolls(fields);
+    for (const field of fields) {
+      if (field.field_type !== 'roll_no') continue;
+      const roll = String(answers[field.id] ?? '').trim();
+      if (!roll) continue;
+      const { data: takenAlready, error: rollErr } = await supabase.rpc('form_roll_already_submitted', {
+        p_form_id: params.id,
+        p_field_label: field.label.trim(),
+        p_roll: roll,
+      });
+      if (rollErr) console.error('form_roll_already_submitted', rollErr);
+      if (takenAlready === true) {
         setSubmitting(false);
-        toast.error('This email has already submitted this form.');
+        toast.error(`Roll number ${roll} is already taken. Pick another.`);
+        await refreshTakenRolls(fields);
         return;
+      }
+    }
+    if (!user && !allowMultiple) {
+      if (emailForDedupe) {
+        const exists = await hasExternalEmailAlreadySubmitted(emailForDedupe);
+        if (exists) {
+          setSubmitting(false);
+          toast.error('This email has already submitted this form.');
+          return;
+        }
+      } else if (mobileForDedupe) {
+        const exists = await hasExternalMobileAlreadySubmitted(mobileForDedupe);
+        if (exists) {
+          setSubmitting(false);
+          toast.error('This mobile number has already submitted this form.');
+          return;
+        }
       }
     }
     const responses: Record<string, any> = {};
@@ -580,6 +689,16 @@ export default function FormSubmitPage() {
                     min={field.validation?.minValue} max={field.validation?.maxValue}
                     className="w-full border-b-2 border-gray-200 focus:border-indigo-500 outline-none py-2 text-gray-800 bg-transparent transition-colors placeholder-gray-300" />
                 )}
+                {field.field_type === 'roll_no' && (
+                  <SearchableRollSelect
+                    count={rollCountFromValidation(field.validation)}
+                    value={answers[field.id] ? String(answers[field.id]) : ''}
+                    onChange={(v) => updateAnswer(field.id, v)}
+                    takenRolls={takenRollsByFieldId[field.id] || []}
+                    excludedRolls={excludedRollsFromValidation(field.validation)}
+                    error={errors[field.id]}
+                  />
+                )}
                 {field.field_type === 'mobile' && (
                   <input type="tel" value={answers[field.id] || ''} onChange={e => updateAnswer(field.id, e.target.value)} placeholder="9876543210"
                     maxLength={field.validation?.maxLength || 15}
@@ -604,6 +723,20 @@ export default function FormSubmitPage() {
                     {field.options?.map((opt, j) => (
                       <motion.label key={j} whileHover={{ x: 4 }} className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-indigo-50/50 cursor-pointer transition-colors">
                         <input type="checkbox" checked={(answers[field.id] || []).includes(opt)} onChange={() => toggleCheckbox(field.id, opt)} className="w-4 h-4 text-indigo-600 rounded" />
+                        <span className="text-gray-700">{opt}</span>
+                      </motion.label>
+                    ))}
+                  </div>
+                )}
+                {field.field_type === 'checkbox_exact_2' && (
+                  <div className="space-y-2 mt-2">
+                    <p className="text-xs font-medium text-indigo-600">
+                      {EXACT_TWO_HINT}
+                      {Array.isArray(answers[field.id]) ? ` (${answers[field.id].length}/2 selected)` : ' (0/2 selected)'}
+                    </p>
+                    {field.options?.map((opt, j) => (
+                      <motion.label key={j} whileHover={{ x: 4 }} className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-indigo-50/50 cursor-pointer transition-colors">
+                        <input type="checkbox" checked={(answers[field.id] || []).includes(opt)} onChange={() => toggleCheckbox(field.id, opt, true)} className="w-4 h-4 text-indigo-600 rounded" />
                         <span className="text-gray-700">{opt}</span>
                       </motion.label>
                     ))}

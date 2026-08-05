@@ -2,20 +2,14 @@ import PortalPresenceProvider from '@/components/dashboard/PortalPresenceProvide
 import PortalLogoProvider from '@/components/dashboard/PortalLogoProvider';
 import ServiceWorkerRegistrar from '@/components/ServiceWorkerRegistrar';
 import InstallAppPrompt from '@/components/InstallAppPrompt';
-import { getCurrentLogo } from '@/lib/logo-utils-server';
 
-export const dynamic = 'force-dynamic';
-
-export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const logoUrl = await getCurrentLogo();
-
+/**
+ * Sync layout — no per-navigation server logo fetch (was a major delay with force-dynamic).
+ * Logo resolves client-side via PortalLogoProvider + session cache.
+ */
+export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
-    <PortalLogoProvider logoUrl={logoUrl}>
-      <script
-        dangerouslySetInnerHTML={{
-          __html: `window.__PORTAL_LOGO__=${JSON.stringify(logoUrl)};try{localStorage.removeItem('portal-logo-url-v1');localStorage.removeItem('portal-logo-url-v2');}catch(e){}`,
-        }}
-      />
+    <PortalLogoProvider>
       <ServiceWorkerRegistrar />
       <PortalPresenceProvider>
         {children}

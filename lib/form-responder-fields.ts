@@ -54,6 +54,21 @@ export function pickEmailField<T extends ResponderFieldLike>(fields: T[]): T | u
   );
 }
 
+export function pickMobileField<T extends ResponderFieldLike>(fields: T[]): T | undefined {
+  return fields.find(
+    (f) =>
+      f.field_type === 'mobile' ||
+      /^(mobile|phone|phone\s*number|mobile\s*number|contact\s*number|whatsapp)$/i.test((f.label || '').trim()),
+  );
+}
+
+/** Digits-only mobile key for duplicate checks (last 10 digits when longer). */
+export function normalizeMobile(raw: unknown): string {
+  const digits = String(raw ?? '').replace(/\D/g, '');
+  if (!digits) return '';
+  return digits.length > 10 ? digits.slice(-10) : digits;
+}
+
 export function hasNameAndEmailFields<T extends ResponderFieldLike>(fields: T[]): boolean {
   return !!pickNameField(fields) && !!pickEmailField(fields);
 }
@@ -126,4 +141,47 @@ export function getResponderDisplayEmail(
   profile?: { email?: string | null } | null,
 ): string {
   return extractResponderEmail(responses || {}, fields, profile) || '';
+}
+
+export function extractResponderMobile(
+  responses: Record<string, unknown>,
+  fields: ResponderFieldLike[],
+): string | null {
+  const mobileField = pickMobileField(fields);
+  if (mobileField?.label) {
+    const norm = normalizeMobile(responses[mobileField.label]);
+    if (norm.length >= 7) return norm;
+  }
+  for (const [k, raw] of Object.entries(responses)) {
+    const kl = k.toLowerCase();
+    if (!/(mobile|phone|whatsapp|contact)/.test(kl)) continue;
+    const norm = normalizeMobile(raw);
+    if (norm.length >= 7) return norm;
+  }
+  for (const f of fields) {
+    if (f.field_type !== 'mobile') continue;
+    const norm = normalizeMobile(responses[f.label]);
+    if (norm.length >= 7) return norm;
+  }
+  return null;
+}
+
+export function getResponderDisplayMobile(
+  responses: Record<string, unknown> | null | undefined,
+  fields: ResponderFieldLike[],
+): string {
+  return extractResponderMobile(responses || {}, fields) || '';
+}
+
+/** Prefer email for dedupe; if missing, use mobile. */
+export function getResponderDedupeKey(
+  responses: Record<string, unknown> | null | undefined,
+  fields: ResponderFieldLike[],
+  profile?: { email?: string | null } | null,
+): { type: 'email' | 'mobile' | null; value: string } {
+  const email = extractResponderEmail(responses || {}, fields, profile);
+  if (email) return { type: 'email', value: email.toLowerCase() };
+  const mobile = extractResponderMobile(responses || {}, fields);
+  if (mobile) return { type: 'mobile', value: mobile };
+  return { type: null, value: '' };
 }
