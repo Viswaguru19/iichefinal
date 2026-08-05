@@ -7,7 +7,7 @@ import { createClient } from '@/lib/supabase/client';
 import { ArrowLeft, Share2, Check, Lock, AlertTriangle, Upload } from 'lucide-react';
 import { EXACT_TWO_HINT, isValidRollNo, rollCountFromValidation, excludedRollsFromValidation } from '@/lib/form-field-types';
 import SearchableRollSelect from '@/components/forms/SearchableRollSelect';
-import { canViewFormResponses } from '@/lib/form-access';
+import { canViewFormResponses, shouldShowPersonalQrAfterSubmit, isFormCollecting } from '@/lib/form-access';
 import Link from 'next/link';
 import { useParams, useRouter, usePathname } from 'next/navigation';
 import toast from 'react-hot-toast';
@@ -50,15 +50,6 @@ const fieldAnim = {
   }),
 };
 
-/** Personal attendance QR after submit (event registration only); default on if unset. */
-function isAttendanceQrAfterSubmitEnabled(settings: Record<string, unknown> | null | undefined, formType: string | undefined) {
-  if (formType !== 'event_registration') return false;
-  const s = settings || {};
-  if (s.show_attendance_qr_after_submit === false) return false;
-  if (s.showAttendanceQrAfterSubmit === false) return false;
-  return true;
-}
-
 function trimStr(v: unknown): string {
   return typeof v === 'string' ? v.trim() : '';
 }
@@ -84,6 +75,9 @@ export default function FormSubmitPage() {
   const [takenRollsByFieldId, setTakenRollsByFieldId] = useState<Record<string, string[]>>({});
   /** Set after successful event registration submit (venue QR uses source=onsite). */
   const [submittedWasOnSite, setSubmittedWasOnSite] = useState(false);
+  const [isTestMode, setIsTestMode] = useState(false);
+  const [previewOnly, setPreviewOnly] = useState(false);
+  const [submittedWasTest, setSubmittedWasTest] = useState(false);
   const params = useParams();
   const router = useRouter();
   const pathname = usePathname();
@@ -92,7 +86,7 @@ export default function FormSubmitPage() {
 
   useEffect(() => { fetchForm(); }, []);
 
-  async function refreshTakenRolls(formFields: FormField[]) {
+  async function refreshTakenRolls(formFields: FormField[], asTest = isTestMode) {
     const rollFields = formFields.filter((f) => f.field_type === 'roll_no' && f.label?.trim());
     if (rollFields.length === 0) {
       setTakenRollsByFieldId({});
@@ -104,6 +98,7 @@ export default function FormSubmitPage() {
         const { data, error } = await supabase.rpc('form_taken_roll_numbers', {
           p_form_id: params.id,
           p_field_label: f.label.trim(),
+          p_is_test: asTest,
         });
         if (error) {
           console.error('form_taken_roll_numbers', error);
@@ -120,11 +115,11 @@ export default function FormSubmitPage() {
     if (!form || formClosed || submitted) return;
     const hasRoll = fields.some((f) => f.field_type === 'roll_no');
     if (!hasRoll) return;
-    refreshTakenRolls(fields);
-    const t = setInterval(() => refreshTakenRolls(fields), 12000);
+    refreshTakenRolls(fields, isTestMode);
+    const t = setInterval(() => refreshTakenRolls(fields, isTestMode), 12000);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form?.id, formClosed, submitted, fields]);
+  }, [form?.id, formClosed, submitted, fields, isTestMode]);
 
   async function fetchForm() {
     setSubmittedWasOnSite(false);
@@ -142,13 +137,16 @@ export default function FormSubmitPage() {
     const settings = formData.settings || {};
     let closed = false;
     let closedReasonLocal = '';
-    if (settings.status === 'draft' || !formData.is_active) {
-      closed = true;
-      closedReasonLocal = 'This form is not accepting responses.';
-    } else if (settings.end_date && new Date(settings.end_date) < new Date()) {
+    const collecting = isFormCollecting(formData);
+    const testMode = !collecting;
+    setIsTestMode(testMode);
+    setPreviewOnly(false);
+
+    // Draft / not collecting → open for TEST responses (not closed)
+    if (settings.end_date && collecting && new Date(settings.end_date) < new Date()) {
       closed = true;
       closedReasonLocal = 'This form has passed its deadline.';
-    } else if (settings.start_date && new Date(settings.start_date) > new Date()) {
+    } else if (settings.start_date && collecting && new Date(settings.start_date) > new Date()) {
       closed = true;
       closedReasonLocal = `This form opens on ${new Date(settings.start_date).toLocaleDateString()}.`;
     } else if ((settings.require_login ?? settings.requireLogin ?? false) && !authUser) {
@@ -158,11 +156,25 @@ export default function FormSubmitPage() {
       closed = true;
       closedReasonLocal = 'This form is only available to portal members.';
     }
-    if (!closed && !(settings.allow_multiple ?? settings.allowMultiple) && authUser) {
-      const { data: existing } = await supabase.from('form_responses').select('id').eq('form_id', params.id).eq('user_id', authUser.id).limit(1);
+
+    const isCreator = !!(authUser && formData.created_by === authUser.id);
+
+    // Live only: block repeat live submits (ignore test rows). Creator may still preview.
+    if (!closed && collecting && !(settings.allow_multiple ?? settings.allowMultiple) && authUser) {
+      const { data: existing } = await supabase
+        .from('form_responses')
+        .select('id')
+        .eq('form_id', params.id)
+        .eq('user_id', authUser.id)
+        .eq('is_test', false)
+        .limit(1);
       if (existing && existing.length > 0) {
-        closed = true;
-        closedReasonLocal = 'You have already submitted a response.';
+        if (isCreator) {
+          setPreviewOnly(true);
+        } else {
+          closed = true;
+          closedReasonLocal = 'You have already submitted a response.';
+        }
       }
     }
 
@@ -175,7 +187,8 @@ export default function FormSubmitPage() {
       setCanViewResponses(false);
     }
 
-    if (!closed && formData.form_type === 'event_registration' && formData.event_id) {
+    // Event gating: live event-reg only. Test mode still allows filling without event participant.
+    if (!closed && collecting && formData.form_type === 'event_registration' && formData.event_id) {
       const { data: ev } = await supabase
         .from('events')
         .select('id, title, event_date, date, location, poster_url, poster_status, status')
@@ -201,6 +214,23 @@ export default function FormSubmitPage() {
           }
         }
         setEventDetails({ ...ev, poster_url: posterUrl });
+      }
+    } else if (!closed && formData.form_type === 'event_registration' && formData.event_id) {
+      // Test mode: show event context without blocking
+      const { data: ev } = await supabase
+        .from('events')
+        .select('id, title, event_date, date, location, poster_url, poster_status, status')
+        .eq('id', formData.event_id)
+        .single();
+      if (ev) {
+        let posterUrl: string | null = ev.poster_url || null;
+        if (posterUrl && !posterUrl.startsWith('http')) {
+          const { data } = supabase.storage.from('event-documents').getPublicUrl(posterUrl);
+          posterUrl = data.publicUrl;
+        }
+        setEventDetails({ ...ev, poster_url: posterUrl });
+      } else {
+        setEventDetails(null);
       }
     } else {
       setEventDetails(null);
@@ -306,9 +336,16 @@ export default function FormSubmitPage() {
   }
 
   async function handleSubmit() {
+    if (previewOnly) {
+      toast('Preview only — you already submitted a live response.');
+      return;
+    }
     if (!validate()) { toast.error('Please fix the errors'); return; }
     setSubmitting(true);
-    if (form?.form_type === 'event_registration' && form?.event_id) {
+    const collecting = isFormCollecting(form);
+    const submittingAsTest = !collecting;
+
+    if (!submittingAsTest && form?.form_type === 'event_registration' && form?.event_id) {
       const { data: evCheck } = await supabase.from('events').select('status').eq('id', form.event_id).maybeSingle();
       if (!evCheck || !isEventOpenForRegistration(evCheck.status)) {
         toast.error('Registration is closed for this event.');
@@ -322,8 +359,7 @@ export default function FormSubmitPage() {
     const mobileField = pickMobileField(fields);
     const emailForDedupe = emailField ? trimStr(answers[emailField.id]) : '';
     const mobileForDedupe = mobileField ? normalizeMobile(answers[mobileField.id]) : '';
-    // Refresh taken rolls + block if selected roll was just claimed
-    await refreshTakenRolls(fields);
+    await refreshTakenRolls(fields, submittingAsTest);
     for (const field of fields) {
       if (field.field_type !== 'roll_no') continue;
       const roll = String(answers[field.id] ?? '').trim();
@@ -332,16 +368,18 @@ export default function FormSubmitPage() {
         p_form_id: params.id,
         p_field_label: field.label.trim(),
         p_roll: roll,
+        p_is_test: submittingAsTest,
       });
       if (rollErr) console.error('form_roll_already_submitted', rollErr);
       if (takenAlready === true) {
         setSubmitting(false);
         toast.error(`Roll number ${roll} is already taken. Pick another.`);
-        await refreshTakenRolls(fields);
+        await refreshTakenRolls(fields, submittingAsTest);
         return;
       }
     }
-    if (!user && !allowMultiple) {
+    // Live only: email/mobile dedupe (tests never block later live submits)
+    if (!submittingAsTest && !user && !allowMultiple) {
       if (emailForDedupe) {
         const exists = await hasExternalEmailAlreadySubmitted(emailForDedupe);
         if (exists) {
@@ -372,14 +410,13 @@ export default function FormSubmitPage() {
 
     const emailVal = extractResponderEmail(responses, fields, profile, user);
     const nameVal = extractResponderName(responses, fields, profile);
-    /** Venue on-spot QR (?source=onsite) or legacy ?source=qr → on_site (present + labeled). Public link has no param → advance. */
     const srcParam =
       typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('source') : null;
     const registrationSource =
       srcParam === 'onsite' || srcParam === 'on_site' || srcParam === 'qr' ? 'on_site' : 'advance';
 
-    /** Event registration: use DB RPC so anon submissions still get event_participants (anon cannot SELECT form_responses RETURNING id). */
-    if (form?.form_type === 'event_registration' && form?.event_id) {
+    /** Live event registration only — tests go through public/test RPC (no participants). */
+    if (!submittingAsTest && form?.form_type === 'event_registration' && form?.event_id) {
       const { data: rpcData, error: rpcError } = await supabase.rpc('submit_event_registration_response', {
         p_form_id: params.id,
         p_responses: responses,
@@ -408,7 +445,7 @@ export default function FormSubmitPage() {
         participant_email: emailVal,
         submitted_at: new Date().toISOString(),
       };
-      const showPersonalQr = isAttendanceQrAfterSubmitEnabled(form?.settings, form?.form_type);
+      const showPersonalQr = shouldShowPersonalQrAfterSubmit(form?.settings, form?.form_type);
       if (showPersonalQr) {
         setParticipantQrPayload(payload);
         setParticipantQrImage(await QRCode.toDataURL(JSON.stringify(payload), { width: 280, margin: 1 }));
@@ -417,12 +454,13 @@ export default function FormSubmitPage() {
         setParticipantQrImage(null);
       }
       setSubmittedWasOnSite(registrationSource === 'on_site');
+      setSubmittedWasTest(false);
       setSubmitted(true);
       setSubmitting(false);
       return;
     }
 
-    if (!user) {
+    if (submittingAsTest || !user) {
       const { data: rpcData, error: rpcError } = await supabase.rpc('submit_public_form_response', {
         p_form_id: params.id,
         p_responses: responses,
@@ -432,9 +470,10 @@ export default function FormSubmitPage() {
         setSubmitting(false);
         return;
       }
-      const row = rpcData as { response_id?: string } | null;
+      const row = rpcData as { response_id?: string; is_test?: boolean } | null;
       setSubmittedWasOnSite(false);
-      if (emailVal && row?.response_id) {
+      setSubmittedWasTest(!!row?.is_test || submittingAsTest);
+      if (!submittingAsTest && shouldShowPersonalQrAfterSubmit(form?.settings, form?.form_type) && row?.response_id) {
         const participantId = crypto.randomUUID();
         const payload = {
           participant_id: participantId,
@@ -442,7 +481,7 @@ export default function FormSubmitPage() {
           response_id: row.response_id,
           form_id: params.id,
           participant_name: nameVal,
-          participant_email: emailVal,
+          participant_email: emailVal || '',
           submitted_at: new Date().toISOString(),
         };
         setParticipantQrPayload(payload);
@@ -458,14 +497,15 @@ export default function FormSubmitPage() {
 
     const { data: inserted, error } = await supabase
       .from('form_responses')
-      .insert({ form_id: params.id, user_id: user?.id || null, responses })
+      .insert({ form_id: params.id, user_id: user?.id || null, responses, is_test: false })
       .select('id')
       .single();
     if (error) {
-      toast.error('Failed to submit');
+      toast.error(error.message || 'Failed to submit');
     } else {
       setSubmittedWasOnSite(false);
-      if (emailVal) {
+      setSubmittedWasTest(false);
+      if (shouldShowPersonalQrAfterSubmit(form?.settings, form?.form_type) && inserted?.id) {
         const participantId = crypto.randomUUID();
         const payload = {
           participant_id: participantId,
@@ -473,7 +513,7 @@ export default function FormSubmitPage() {
           response_id: inserted?.id,
           form_id: params.id,
           participant_name: nameVal,
-          participant_email: emailVal,
+          participant_email: emailVal || '',
           submitted_at: new Date().toISOString(),
         };
         setParticipantQrPayload(payload);
@@ -526,7 +566,17 @@ export default function FormSubmitPage() {
             <Check className="w-10 h-10 text-white" />
           </motion.div>
           <h2 className="text-2xl font-extrabold text-gray-800 mb-2">Response Submitted</h2>
-          <p className="text-gray-400 mb-4">Thank you for filling out this form.</p>
+          <p className="text-gray-400 mb-4">
+            {submittedWasTest
+              ? 'Test response saved. It will disappear when the form starts collecting real responses — you can still submit a normal response then.'
+              : 'Thank you for filling out this form.'}
+          </p>
+          {submittedWasTest && (
+            <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 text-left max-w-md mx-auto">
+              <p className="font-semibold">TEST submission</p>
+              <p className="text-amber-800/90 mt-1">Not counted as a live response. Starting collection clears all test answers.</p>
+            </div>
+          )}
           {submittedWasOnSite && form?.form_type === 'event_registration' && (
             <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 text-left max-w-md mx-auto">
               <p className="font-semibold">On-spot registration complete</p>
@@ -537,19 +587,20 @@ export default function FormSubmitPage() {
           )}
           {participantQrImage && (
             <div className="mb-8 rounded-2xl border border-emerald-100 bg-emerald-50/60 p-5">
-              <p className="text-sm font-semibold text-emerald-900 mb-1">Your check-in QR</p>
-              <p className="text-xs text-emerald-800/90 mb-3">Show this at the event — organizers will scan it on the attendance page to mark you present.</p>
-              <img src={participantQrImage} alt="Your attendance QR" className="w-52 h-52 mx-auto rounded-xl border border-white bg-white p-2 shadow-sm" />
+              <p className="text-sm font-semibold text-emerald-900 mb-1">
+                {form?.form_type === 'event_registration' ? 'Your check-in QR' : 'Your submission QR'}
+              </p>
+              <p className="text-xs text-emerald-800/90 mb-3">
+                {form?.form_type === 'event_registration'
+                  ? 'Show this at the event — organizers will scan it on the attendance page to mark you present.'
+                  : 'Save this QR if the form organizer asked you to keep a confirmation code.'}
+              </p>
+              <img src={participantQrImage} alt="Submission QR" className="w-52 h-52 mx-auto rounded-xl border border-white bg-white p-2 shadow-sm" />
               <button type="button" onClick={downloadQr} className="mt-3 text-xs font-semibold px-3 py-1.5 rounded-lg bg-white text-emerald-700 border border-emerald-200 hover:bg-emerald-50 transition">
                 Download QR
               </button>
-              <p className="text-[11px] text-emerald-800/80 mt-2">Save a screenshot or download — you may need it at the venue.</p>
+              <p className="text-[11px] text-emerald-800/80 mt-2">Save a screenshot or download — you may need it later.</p>
             </div>
-          )}
-          {form?.form_type === 'event_registration' && !participantQrImage && (
-            <p className="text-sm text-gray-500 mb-8 max-w-sm mx-auto">
-              You are registered for this event. This form does not issue a personal check-in QR — organizers will mark attendance another way.
-            </p>
           )}
           <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.97 }}>
             <Link
@@ -628,6 +679,20 @@ export default function FormSubmitPage() {
             </div>
             <h1 className="text-3xl font-extrabold text-gradient tracking-tight mb-2">{form?.title}</h1>
             {form?.description?.trim() && <p className="text-gray-400">{form.description}</p>}
+            {isTestMode && (
+              <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                <p className="font-semibold">Test mode — not collecting yet</p>
+                <p className="text-amber-800/90 mt-0.5">
+                  Answers are marked as TEST and will be cleared when Start Collecting is turned on. Live duplicate rules do not apply here.
+                </p>
+              </div>
+            )}
+            {previewOnly && (
+              <div className="mt-4 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-900">
+                <p className="font-semibold">Preview (you already submitted)</p>
+                <p className="text-indigo-800/90 mt-0.5">As the form creator you can review the form. Submit is disabled for another live response.</p>
+              </div>
+            )}
             {form?.form_type === 'event_registration' && eventDetails && (
               <div className="mt-5 rounded-2xl border border-indigo-100 bg-indigo-50/70 p-4">
                 <p className="text-xs font-semibold text-indigo-600 mb-2">Event Registration</p>
@@ -795,10 +860,16 @@ export default function FormSubmitPage() {
                 whileHover={{ scale: 1.04 }}
                 whileTap={{ scale: 0.97 }}
                 onClick={handleSubmit}
-                disabled={submitting}
+                disabled={submitting || previewOnly}
                 className="btn-gradient-purple px-8 py-2.5 rounded-2xl text-sm font-semibold shadow-lg shadow-purple-500/20 disabled:opacity-50"
               >
-                {submitting ? 'Submitting...' : 'Submit'}
+                {submitting
+                  ? 'Submitting...'
+                  : previewOnly
+                    ? 'Already submitted'
+                    : isTestMode
+                      ? 'Submit test response'
+                      : 'Submit'}
               </motion.button>
               <button onClick={() => { setAnswers({}); setErrors({}); }} type="button" className="text-sm text-gray-400 hover:text-gray-600 transition-colors">
                 Clear form

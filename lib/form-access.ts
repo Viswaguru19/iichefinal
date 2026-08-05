@@ -11,12 +11,19 @@ export function canManageForm(
   return !!userId;
 }
 
-type ResponseViewerSettings = {
+export type ResponseViewerSettings = {
+  response_viewers_all?: boolean | null;
+  responseViewersAll?: boolean | null;
   response_viewer_ids?: string[] | null;
   responseViewerIds?: string[] | null;
 };
 
-/** Admins, faculty, form creator, or members listed in settings.response_viewer_ids. */
+export function isResponseViewersAll(settings?: ResponseViewerSettings | null): boolean {
+  const s = settings || {};
+  return s.response_viewers_all === true || s.responseViewersAll === true;
+}
+
+/** Admins, faculty, form creator, all members (if enabled), or listed response_viewer_ids. */
 export function canViewFormResponses(
   form: {
     created_by?: string | null;
@@ -32,6 +39,7 @@ export function canViewFormResponses(
   if (profile?.is_admin || profile?.is_faculty) return true;
   if (form?.created_by && form.created_by === userId) return true;
   const settings = form?.settings || {};
+  if (isResponseViewersAll(settings)) return true;
   const ids = settings.response_viewer_ids || settings.responseViewerIds || [];
   if (!Array.isArray(ids)) return false;
   return ids.map(String).includes(String(userId));
@@ -41,4 +49,29 @@ export function getResponseViewerIds(settings?: ResponseViewerSettings | null): 
   const ids = settings?.response_viewer_ids || settings?.responseViewerIds || [];
   if (!Array.isArray(ids)) return [];
   return [...new Set(ids.map(String).filter(Boolean))];
+}
+
+/** Form is accepting real (live) responses. */
+export function isFormCollecting(form: {
+  is_active?: boolean | null;
+  settings?: { status?: string | null } | null;
+} | null | undefined): boolean {
+  if (!form) return false;
+  if (!form.is_active) return false;
+  if ((form.settings?.status || '') === 'draft') return false;
+  return true;
+}
+
+/**
+ * Personal QR after submit:
+ * - Event registration: always (compulsory)
+ * - Normal form: only when settings toggle is on (default off)
+ */
+export function shouldShowPersonalQrAfterSubmit(
+  settings: Record<string, unknown> | null | undefined,
+  formType: string | undefined,
+): boolean {
+  if (formType === 'event_registration') return true;
+  const s = settings || {};
+  return s.show_attendance_qr_after_submit === true || s.showAttendanceQrAfterSubmit === true;
 }

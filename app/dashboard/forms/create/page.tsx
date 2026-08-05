@@ -82,12 +82,13 @@ export default function CreateFormPage() {
   const [endDate, setEndDate] = useState('');
   const [accessType, setAccessType] = useState<'public' | 'internal'>('public');
   const [responseViewerIds, setResponseViewerIds] = useState<string[]>([]);
+  const [responseViewersAll, setResponseViewersAll] = useState(false);
   const [formType, setFormType] = useState<'normal' | 'event_registration'>('normal');
   const [activeEvents, setActiveEvents] = useState<any[]>([]);
   const [eventsLoading, setEventsLoading] = useState(false);
   const [selectedEventId, setSelectedEventId] = useState('');
-  /** Event registration: show each registrant a personal QR after submit (for attendance scan). */
-  const [showAttendanceQrAfterSubmit, setShowAttendanceQrAfterSubmit] = useState(true);
+  /** Normal forms only: optional QR after submit. Event registration always shows QR. */
+  const [showAttendanceQrAfterSubmit, setShowAttendanceQrAfterSubmit] = useState(false);
   const prevFormTypeRef = useRef<string | null>(null);
 
   const router = useRouter();
@@ -99,13 +100,16 @@ export default function CreateFormPage() {
     void loadActiveEvents();
   }, [formType]);
 
-  /** Event registration defaults: public link + attendance QR. */
+  /** Event registration defaults: public link; QR always on for events. */
   useEffect(() => {
     const prev = prevFormTypeRef.current;
     if (formType === 'event_registration' && prev !== 'event_registration') {
       setRequireLogin(false);
       setAccessType('public');
       setShowAttendanceQrAfterSubmit(true);
+    }
+    if (formType === 'normal' && prev === 'event_registration') {
+      setShowAttendanceQrAfterSubmit(false);
     }
     prevFormTypeRef.current = formType;
   }, [formType]);
@@ -257,8 +261,10 @@ export default function CreateFormPage() {
           end_date: endDate || null,
           access_type: accessType,
           status,
-          response_viewer_ids: responseViewerIds,
-          ...(formType === 'event_registration' ? { show_attendance_qr_after_submit: showAttendanceQrAfterSubmit } : {}),
+          response_viewer_ids: responseViewersAll ? [] : responseViewerIds,
+          response_viewers_all: responseViewersAll,
+          show_attendance_qr_after_submit:
+            formType === 'event_registration' ? true : showAttendanceQrAfterSubmit,
         },
         form_type: formType,
         event_id: formType === 'event_registration' ? selectedEventId : null,
@@ -450,15 +456,25 @@ export default function CreateFormPage() {
                     <div className="flex flex-wrap gap-6">
                       <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={allowMultiple} onChange={e => setAllowMultiple(e.target.checked)} className="rounded text-indigo-600" /> Allow multiple responses <span className="text-gray-400 text-xs">(same email/mobile can submit again)</span></label>
                       <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={requireLogin} onChange={e => setRequireLogin(e.target.checked)} className="rounded text-indigo-600" /> Require login</label>
-                      {formType === 'event_registration' && (
+                      {formType === 'normal' && (
                         <label className="flex items-center gap-2 text-sm max-w-md">
                           <input type="checkbox" checked={showAttendanceQrAfterSubmit} onChange={e => setShowAttendanceQrAfterSubmit(e.target.checked)} className="rounded text-indigo-600" />
-                          <span>Show personal check-in QR after registration (for attendance scanning at the event)</span>
+                          <span>Show personal QR after submit <span className="text-gray-400 text-xs">(optional)</span></span>
                         </label>
+                      )}
+                      {formType === 'event_registration' && (
+                        <p className="text-sm text-emerald-700 font-medium">Personal check-in QR is always shown after event registration.</p>
                       )}
                     </div>
                     <div className="pt-2 border-t border-gray-100">
-                      <ResponseViewerPicker selectedIds={responseViewerIds} onChange={setResponseViewerIds} />
+                      <ResponseViewerPicker
+                        allowAll={responseViewersAll}
+                        selectedIds={responseViewerIds}
+                        onChange={({ allowAll, ids }) => {
+                          setResponseViewersAll(allowAll);
+                          setResponseViewerIds(ids);
+                        }}
+                      />
                     </div>
                   </div>
                 </motion.div>

@@ -168,6 +168,7 @@ export default function FormResponsesPage() {
     const keyCounts = new Map<string, number>();
     const responseFlags = new Map<string, { key: string; type: string; count: number }>();
     for (const r of responses) {
+      if (r.is_test) continue;
       const dedupe = getResponderDedupeKey(r.responses, fields, r.user);
       if (!dedupe.type || !dedupe.value) continue;
       const k = `${dedupe.type}:${dedupe.value}`;
@@ -175,6 +176,7 @@ export default function FormResponsesPage() {
     }
     let duplicateResponseCount = 0;
     for (const r of responses) {
+      if (r.is_test) continue;
       const dedupe = getResponderDedupeKey(r.responses, fields, r.user);
       if (!dedupe.type || !dedupe.value) continue;
       const k = `${dedupe.type}:${dedupe.value}`;
@@ -190,9 +192,10 @@ export default function FormResponsesPage() {
 
   function exportCSV() {
     if (responses.length === 0) { toast.error('No responses to export'); return; }
-    const headers = ['Submitted At', 'Name', 'Email', 'Mobile', ...fields.map(f => f.label)];
+    const headers = ['Submitted At', 'Type', 'Name', 'Email', 'Mobile', ...fields.map(f => f.label)];
     const rows = responses.map(r => [
       new Date(r.submitted_at || r.created_at).toLocaleString(),
+      r.is_test ? 'TEST' : 'Live',
       getResponderDisplayName(r.responses, fields, r.user),
       getResponderDisplayEmail(r.responses, fields, r.user) || '-',
       getResponderDisplayMobile(r.responses, fields) || '-',
@@ -245,8 +248,11 @@ export default function FormResponsesPage() {
             <div className="min-w-0">
               <h1 className="text-2xl sm:text-3xl font-extrabold text-gradient tracking-tight truncate">{form?.title}</h1>
               <p className="text-gray-400 text-sm">
-                Showing all {responses.length} response{responses.length !== 1 ? 's' : ''}
-                {allowMultiple ? ' · multiple submissions allowed' : ' · duplicates blocked by email, else mobile'}
+                {responses.filter((r) => !r.is_test).length} live
+                {responses.some((r) => r.is_test) && (
+                  <> · <span className="text-amber-600 font-medium">{responses.filter((r) => r.is_test).length} test</span> (cleared when Start Collecting)</>
+                )}
+                {allowMultiple ? ' · multiple submissions allowed' : ' · live duplicates blocked by email, else mobile'}
               </p>
             </div>
           </div>
@@ -261,9 +267,9 @@ export default function FormResponsesPage() {
 
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
           {[
-            { icon: Users, value: responses.length, label: 'Total responses', gradient: 'from-indigo-500 to-purple-500' },
+            { icon: Users, value: responses.filter((r) => !r.is_test).length, label: 'Live responses', gradient: 'from-indigo-500 to-purple-500' },
+            { icon: AlertTriangle, value: responses.filter((r) => r.is_test).length, label: 'Test responses', gradient: 'from-amber-500 to-orange-500' },
             { icon: FileText, value: fields.length, label: 'Questions', gradient: 'from-emerald-500 to-green-500' },
-            { icon: BarChart3, value: responses.length > 0 ? new Date(responses[0].submitted_at || responses[0].created_at).toLocaleDateString() : '-', label: 'Latest', gradient: 'from-amber-500 to-orange-500' },
             { icon: Copy, value: duplicateMeta.duplicateGroups, label: 'Duplicate groups', gradient: 'from-rose-500 to-red-500' },
           ].map((stat, i) => (
             <div key={i} className="premium-panel rounded-2xl p-4 flex items-center gap-3 shadow-md">
@@ -472,6 +478,11 @@ export default function FormResponsesPage() {
                           <p className="font-semibold text-gray-800 truncate flex items-center gap-2 flex-wrap">
                             <span className="text-gray-300 text-xs font-semibold tabular-nums">#{idx + 1}</span>
                             {displayName}
+                            {response.is_test && (
+                              <span className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">
+                                TEST
+                              </span>
+                            )}
                             {dupe && (
                               <span className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-rose-100 text-rose-700">
                                 Duplicate {dupe.type} ({dupe.count}×)

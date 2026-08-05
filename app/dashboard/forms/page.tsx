@@ -4,7 +4,7 @@ import PortalLoadingScreen from '@/components/PortalLoadingScreen';
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { createClient } from '@/lib/supabase/client';
-import { Plus, FileText, BarChart3, Edit, Eye, Clock, CheckCircle, XCircle, Copy, Trash2, PauseCircle, PlayCircle, Pencil } from 'lucide-react';
+import { Plus, FileText, BarChart3, Edit, Eye, Clock, CheckCircle, XCircle, Copy, Trash2, PauseCircle, PlayCircle, Pencil, Share2 } from 'lucide-react';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
 import { publicFormUrl } from '@/lib/form-public-access';
@@ -52,18 +52,21 @@ export default function FormsPage() {
 
     // One responses query (grouped client-side) instead of N count round-trips
     let countByForm: Record<string, number> = {};
+    let testCountByForm: Record<string, number> = {};
     const viewable = formsData.filter((f: any) => canViewFormResponses(f, user.id, userProfile));
     if (viewable.length > 0) {
       const { data: rows } = await supabase
         .from('form_responses')
-        .select('form_id')
+        .select('form_id, is_test')
         .in(
           'form_id',
           viewable.map((f: { id: string }) => f.id),
         );
       for (const row of rows || []) {
         const id = String((row as { form_id: string }).form_id);
-        countByForm[id] = (countByForm[id] || 0) + 1;
+        const isTest = !!(row as { is_test?: boolean }).is_test;
+        if (isTest) testCountByForm[id] = (testCountByForm[id] || 0) + 1;
+        else countByForm[id] = (countByForm[id] || 0) + 1;
       }
     }
 
@@ -71,7 +74,9 @@ export default function FormsPage() {
       const canView = canViewFormResponses(f, user.id, userProfile);
       return {
         ...f,
-        response_count: canView ? countByForm[f.id] || 0 : 0,
+        response_count: canView ? (countByForm[f.id] || 0) + (testCountByForm[f.id] || 0) : 0,
+        live_count: canView ? countByForm[f.id] || 0 : 0,
+        test_count: canView ? testCountByForm[f.id] || 0 : 0,
         can_view_responses: canView,
         computed_status: getFormStatus(f),
       };
@@ -126,6 +131,21 @@ export default function FormsPage() {
     const newActive = !isCurrentlyActive;
     const newSettings = { ...(form.settings || {}), status: newActive ? 'active' : 'draft' };
 
+    if (newActive) {
+      const { data: cleared, error: clearErr } = await supabase.rpc('clear_form_test_responses', {
+        p_form_id: form.id,
+      });
+      if (clearErr) {
+        console.error('clear_form_test_responses', clearErr);
+        toast.error('Could not clear test responses. Apply migration 119 if needed.');
+        setToggling(null);
+        return;
+      }
+      if (typeof cleared === 'number' && cleared > 0) {
+        toast.success(`Cleared ${cleared} test response${cleared === 1 ? '' : 's'}`);
+      }
+    }
+
     const { data: updated, error } = await supabase
       .from('forms')
       .update({ is_active: newActive, settings: newSettings, updated_at: new Date().toISOString() })
@@ -140,12 +160,58 @@ export default function FormsPage() {
     } else {
       setForms(prev => prev.map(f => {
         if (f.id !== form.id) return f;
-        const updated = { ...f, is_active: newActive, settings: newSettings };
-        return { ...updated, computed_status: getFormStatus(updated) };
+        const next = { ...f, is_active: newActive, settings: newSettings };
+        return {
+          ...next,
+          response_count: newActive ? Math.max(0, (f.response_count || 0) - (f.test_count || 0)) : f.response_count,
+          test_count: newActive ? 0 : f.test_count,
+          computed_status: getFormStatus(next),
+        };
       }));
-      toast.success(newActive ? 'Form is now accepting responses' : 'Form stopped collecting responses');
+      toast.success(newActive ? 'Form is now accepting live responses' : 'Stopped collecting — link is in test mode');
     }
     setToggling(null);
+  }
+
+  async function duplicateForm(form: any) {
+    if (!currentUserId) {
+      toast.error('You must be logged in.');
+      return;
+    }
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const cloneSettings = {
+      ...(form.settings || {}),
+      status: 'draft',
+      banner_url: form.settings?.banner_url || form.banner_url || '',
+    };
+    const { data: created, error } = await supabase
+      .from('forms')
+      .insert({
+        title: `${form.title || 'Untitled Form'} (copy)`,
+        description: form.description || null,
+        fields: form.fields || [],
+        created_by: user.id,
+        is_active: false,
+        settings: cloneSettings,
+        form_type: form.form_type || 'normal',
+        event_id: form.form_type === 'event_registration' ? form.event_id : null,
+      })
+      .select('*, creator:profiles!forms_created_by_fkey(name)')
+      .single();
+    if (error || !created) {
+      toast.error(error?.message || 'Failed to duplicate form');
+      return;
+    }
+    const row = {
+      ...created,
+      response_count: 0,
+      test_count: 0,
+      can_view_responses: true,
+      computed_status: getFormStatus(created),
+    };
+    setForms(prev => [row, ...prev]);
+    toast.success('Form duplicated as draft');
   }
 
   const filtered = filter === 'all' ? forms : forms.filter(f => f.computed_status === filter);
@@ -246,7 +312,10 @@ export default function FormsPage() {
                           {form.can_view_responses ? (
                             <span className="flex items-center gap-1.5">
                               <BarChart3 className="w-4 h-4 text-indigo-400" />
-                              <span className="font-medium text-gray-600">{form.response_count}</span> responses
+                              <span className="font-medium text-gray-600">{form.live_count ?? form.response_count}</span> live
+                              {(form.test_count || 0) > 0 && (
+                                <span className="text-amber-600 text-xs font-semibold">· {form.test_count} test</span>
+                              )}
                             </span>
                           ) : (
                             <span className="text-gray-400 text-xs">Responses restricted</span>
@@ -288,14 +357,21 @@ export default function FormsPage() {
                             </Link>
                           </motion.div>
                           )}
+                          {manageable && (
                           <motion.div whileHover={{ scale: 1.15 }} whileTap={{ scale: 0.9 }}>
-                            <Link href={`/forms/${form.id}`} className="p-2 rounded-xl hover:bg-indigo-50 text-gray-400 hover:text-indigo-600 transition-all" title="Open public form">
+                            <button onClick={() => duplicateForm(form)} className="p-2 rounded-xl hover:bg-indigo-50 text-gray-400 hover:text-indigo-600 transition-all" title="Duplicate form">
+                              <Copy className="w-4 h-4" />
+                            </button>
+                          </motion.div>
+                          )}
+                          <motion.div whileHover={{ scale: 1.15 }} whileTap={{ scale: 0.9 }}>
+                            <Link href={`/forms/${form.id}`} className="p-2 rounded-xl hover:bg-indigo-50 text-gray-400 hover:text-indigo-600 transition-all" title={form.computed_status === 'active' ? 'Open form' : 'Preview / test form'}>
                               <Eye className="w-4 h-4" />
                             </Link>
                           </motion.div>
                           <motion.div whileHover={{ scale: 1.15 }} whileTap={{ scale: 0.9 }}>
                             <button onClick={() => copyLink(form.id)} className="p-2 rounded-xl hover:bg-indigo-50 text-gray-400 hover:text-indigo-600 transition-all" title="Copy Link">
-                              <Copy className="w-4 h-4" />
+                              <Share2 className="w-4 h-4" />
                             </button>
                           </motion.div>
                           {manageable && (

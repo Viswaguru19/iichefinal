@@ -8,7 +8,7 @@ import { ArrowLeft, Plus, X, GripVertical, Copy, Eye, Settings, ChevronDown, Che
 import { defaultOptionsForFieldType, defaultValidationForFieldType, isOptionFieldType, EXACT_TWO_HINT, clampRollCount, ROLL_NO_MAX_COUNT, ROLL_NO_MIN_COUNT, rollCountFromValidation, excludedRollsFromValidation } from '@/lib/form-field-types';
 import RollExcludeChecklist from '@/components/forms/RollExcludeChecklist';
 import ResponseViewerPicker from '@/components/forms/ResponseViewerPicker';
-import { canManageForm, getResponseViewerIds } from '@/lib/form-access';
+import { canManageForm, getResponseViewerIds, isResponseViewersAll } from '@/lib/form-access';
 import { EVENT_REGISTRATION_ELIGIBLE_STATUSES } from '@/lib/event-registration';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
@@ -79,6 +79,7 @@ export default function EditFormPage() {
     const [endDate, setEndDate] = useState('');
     const [accessType, setAccessType] = useState<'public' | 'internal'>('internal');
     const [responseViewerIds, setResponseViewerIds] = useState<string[]>([]);
+    const [responseViewersAll, setResponseViewersAll] = useState(false);
     const [formType, setFormType] = useState<'normal' | 'event_registration'>('normal');
     const [initialFormType, setInitialFormType] = useState<'normal' | 'event_registration'>('normal');
     const [selectedEventId, setSelectedEventId] = useState('');
@@ -86,7 +87,8 @@ export default function EditFormPage() {
     const [eventsLoading, setEventsLoading] = useState(false);
     const [responseCount, setResponseCount] = useState(0);
     const [convertExistingResponses, setConvertExistingResponses] = useState(true);
-    const [showAttendanceQrAfterSubmit, setShowAttendanceQrAfterSubmit] = useState(true);
+    /** Normal forms only: optional QR. Event registration always shows QR. */
+    const [showAttendanceQrAfterSubmit, setShowAttendanceQrAfterSubmit] = useState(false);
     const [baseSettings, setBaseSettings] = useState<Record<string, unknown>>({});
     const [canEdit, setCanEdit] = useState(false);
     const prevFormTypeRef = useRef<string | null>(null);
@@ -152,12 +154,16 @@ export default function EditFormPage() {
         setEndDate(s.end_date || '');
         setAccessType((s.access_type || s.accessType || 'public') as 'public' | 'internal');
         setResponseViewerIds(getResponseViewerIds(s));
+        setResponseViewersAll(isResponseViewersAll(s));
         const loadedType = (form.form_type as 'normal' | 'event_registration') || 'normal';
         setFormType(loadedType);
         setInitialFormType(loadedType);
         setSelectedEventId(form.event_id || '');
-        const qrOn = s.show_attendance_qr_after_submit !== false && s.showAttendanceQrAfterSubmit !== false;
-        setShowAttendanceQrAfterSubmit(loadedType === 'event_registration' ? qrOn : true);
+        setShowAttendanceQrAfterSubmit(
+          loadedType === 'event_registration'
+            ? true
+            : s.show_attendance_qr_after_submit === true || s.showAttendanceQrAfterSubmit === true,
+        );
 
         const { count } = await supabase
             .from('form_responses')
@@ -292,6 +298,44 @@ export default function EditFormPage() {
         toast.success('Banner uploaded');
     }
 
+    async function duplicateThisForm() {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) { toast.error('Not authenticated'); return; }
+        const { data: created, error } = await supabase
+            .from('forms')
+            .insert({
+                title: `${title.trim() || 'Untitled Form'} (copy)`,
+                description: description.trim() || null,
+                fields,
+                created_by: user.id,
+                is_active: false,
+                settings: {
+                    ...baseSettings,
+                    banner_url: bannerUrl,
+                    allow_multiple: allowMultiple,
+                    require_login: requireLogin,
+                    start_date: startDate || null,
+                    end_date: endDate || null,
+                    access_type: accessType,
+                    status: 'draft',
+                    response_viewer_ids: responseViewersAll ? [] : responseViewerIds,
+                    response_viewers_all: responseViewersAll,
+                    show_attendance_qr_after_submit:
+                        formType === 'event_registration' ? true : showAttendanceQrAfterSubmit,
+                },
+                form_type: formType,
+                event_id: formType === 'event_registration' ? selectedEventId : null,
+            })
+            .select('id')
+            .single();
+        if (error || !created) {
+            toast.error(error?.message || 'Failed to duplicate');
+            return;
+        }
+        toast.success('Duplicated as draft');
+        router.push(`/dashboard/forms/${created.id}/edit`);
+    }
+
     async function handleSave() {
         if (!canEdit) {
             toast.error('You must be logged in to edit forms');
@@ -337,8 +381,10 @@ export default function EditFormPage() {
             end_date: endDate || null,
             access_type: accessType,
             status,
-            response_viewer_ids: responseViewerIds,
-            ...(formType === 'event_registration' ? { show_attendance_qr_after_submit: showAttendanceQrAfterSubmit } : {}),
+            response_viewer_ids: responseViewersAll ? [] : responseViewerIds,
+            response_viewers_all: responseViewersAll,
+            show_attendance_qr_after_submit:
+              formType === 'event_registration' ? true : showAttendanceQrAfterSubmit,
         };
 
         const { data: updated, error } = await supabase
@@ -419,6 +465,20 @@ export default function EditFormPage() {
                         <h1 className="text-xl sm:text-2xl font-extrabold text-gradient tracking-tight truncate">Edit Form</h1>
                     </div>
                     <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+                        <Link
+                          href={`/forms/${formId}`}
+                          className="glass px-3 sm:px-4 py-2 rounded-xl text-gray-700 hover:shadow-md transition flex items-center gap-2 text-sm font-medium"
+                        >
+                            <Eye className="w-4 h-4" /> Preview
+                        </Link>
+                        <motion.button
+                          whileHover={{ scale: 1.04 }}
+                          whileTap={{ scale: 0.97 }}
+                          onClick={duplicateThisForm}
+                          className="glass px-3 sm:px-4 py-2 rounded-xl text-gray-700 hover:shadow-md transition flex items-center gap-2 text-sm font-medium"
+                        >
+                            <Copy className="w-4 h-4" /> Duplicate
+                        </motion.button>
                         <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.97 }} onClick={() => setShowSettings(!showSettings)} className="glass px-3 sm:px-4 py-2 rounded-xl text-gray-700 hover:shadow-md transition flex items-center gap-2 text-sm font-medium">
                             <Settings className="w-4 h-4" /> Settings
                         </motion.button>
@@ -482,15 +542,25 @@ export default function EditFormPage() {
                                         <div className="flex flex-wrap gap-6">
                                             <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={allowMultiple} onChange={e => setAllowMultiple(e.target.checked)} className="rounded text-indigo-600" /> Allow multiple responses <span className="text-gray-400 text-xs">(same email/mobile can submit again)</span></label>
                                             <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={requireLogin} onChange={e => setRequireLogin(e.target.checked)} className="rounded text-indigo-600" /> Require login</label>
-                                            {formType === 'event_registration' && (
+                                            {formType === 'normal' && (
                                                 <label className="flex items-center gap-2 text-sm max-w-md">
                                                     <input type="checkbox" checked={showAttendanceQrAfterSubmit} onChange={e => setShowAttendanceQrAfterSubmit(e.target.checked)} className="rounded text-indigo-600" />
-                                                    <span>Show personal check-in QR after registration (for attendance scanning)</span>
+                                                    <span>Show personal QR after submit <span className="text-gray-400 text-xs">(optional)</span></span>
                                                 </label>
+                                            )}
+                                            {formType === 'event_registration' && (
+                                                <p className="text-sm text-emerald-700 font-medium">Personal check-in QR is always shown after event registration.</p>
                                             )}
                                         </div>
                                         <div className="pt-2 border-t border-gray-100">
-                                            <ResponseViewerPicker selectedIds={responseViewerIds} onChange={setResponseViewerIds} />
+                                            <ResponseViewerPicker
+                                              allowAll={responseViewersAll}
+                                              selectedIds={responseViewerIds}
+                                              onChange={({ allowAll, ids }) => {
+                                                setResponseViewersAll(allowAll);
+                                                setResponseViewerIds(ids);
+                                              }}
+                                            />
                                         </div>
                                     </div>
                                 </motion.div>
