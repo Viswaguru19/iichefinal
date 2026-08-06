@@ -8,6 +8,13 @@ type ProfileGate = {
 };
 
 export async function middleware(request: NextRequest) {
+  const path = request.nextUrl.pathname;
+
+  // Public form fill: skip Auth entirely so ~70 concurrent opens do not stampede Supabase Auth / Edge.
+  if (path === '/forms' || path.startsWith('/forms/')) {
+    return NextResponse.next();
+  }
+
   let response = NextResponse.next({
     request: {
       headers: request.headers,
@@ -68,7 +75,7 @@ export async function middleware(request: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser();
 
     // /account-pending: only for logged-in users who are not yet approved
-    if (request.nextUrl.pathname.startsWith('/account-pending')) {
+    if (path.startsWith('/account-pending')) {
       if (!user) {
         return NextResponse.redirect(new URL('/login', request.url));
       }
@@ -89,7 +96,7 @@ export async function middleware(request: NextRequest) {
     // Hiring-only + approval gate for main dashboard + chat app
     if (
       user &&
-      (request.nextUrl.pathname.startsWith('/dashboard') || request.nextUrl.pathname.startsWith('/chat'))
+      (path.startsWith('/dashboard') || path.startsWith('/chat'))
     ) {
       const { data: prof } = await supabase
         .from('profiles')
@@ -109,7 +116,6 @@ export async function middleware(request: NextRequest) {
     }
 
     // Protected routes (dashboard, chat app, admin) — allow chat PWA manifest without auth
-    const path = request.nextUrl.pathname;
     const isChatManifest = path === '/chat/manifest.webmanifest';
     if (
       (path.startsWith('/dashboard') ||
@@ -125,7 +131,7 @@ export async function middleware(request: NextRequest) {
     }
 
     // Redirect if already logged in and trying to access login
-    if (request.nextUrl.pathname === '/login' && user) {
+    if (path === '/login' && user) {
       const { data: prof } = await supabase
         .from('profiles')
         .select('hiring_portal_only, approved, role')
@@ -151,6 +157,7 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    // Exclude public form fill so Edge never runs Auth for student QR/link opens
+    '/((?!_next/static|_next/image|favicon.ico|forms(?:/|$)|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 };

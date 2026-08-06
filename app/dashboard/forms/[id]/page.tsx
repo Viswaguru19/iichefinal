@@ -11,17 +11,19 @@ import { canViewFormResponses, shouldShowPersonalQrAfterSubmit, isFormCollecting
 import Link from 'next/link';
 import { useParams, useRouter, usePathname } from 'next/navigation';
 import toast from 'react-hot-toast';
-import QRCode from 'qrcode';
 import { isEventOpenForRegistration } from '@/lib/event-registration';
 import { publicFormUrl } from '@/lib/form-public-access';
 import {
   extractResponderEmail,
   extractResponderName,
   pickEmailField,
-  pickMobileField,
   pickNameField,
-  normalizeMobile,
 } from '@/lib/form-responder-fields';
+
+async function qrDataUrl(payload: unknown, width = 260): Promise<string> {
+  const QRCode = (await import('qrcode')).default;
+  return QRCode.toDataURL(JSON.stringify(payload), { width, margin: 1 });
+}
 
 interface FormField {
   id: string;
@@ -49,10 +51,6 @@ const fieldAnim = {
     transition: { duration: 0.4, delay: i * 0.05, ease: 'easeOut' as const },
   }),
 };
-
-function trimStr(v: unknown): string {
-  return typeof v === 'string' ? v.trim() : '';
-}
 
 export default function FormSubmitPage() {
   const [form, setForm] = useState<any>(null);
@@ -111,29 +109,37 @@ export default function FormSubmitPage() {
     setTakenRollsByFieldId(next);
   }
 
-  useEffect(() => {
-    if (!form || formClosed || submitted) return;
-    const hasRoll = fields.some((f) => f.field_type === 'roll_no');
-    if (!hasRoll) return;
-    refreshTakenRolls(fields, isTestMode);
-    const t = setInterval(() => refreshTakenRolls(fields, isTestMode), 12000);
-    return () => clearInterval(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form?.id, formClosed, submitted, fields, isTestMode]);
-
   async function fetchForm() {
     setSubmittedWasOnSite(false);
-    const { data: { user: authUser } } = await supabase.auth.getUser();
+
+    // Critical path: load form definition first (do not wait on Auth for public links)
+    const formPromise = supabase
+      .from('forms')
+      .select('id, title, description, fields, settings, is_active, form_type, event_id, created_by, banner_url')
+      .eq('id', params.id)
+      .single();
+
+    // Public route: local session only (no Auth network). Dashboard: getUser.
+    const userPromise = isPublicFormRoute
+      ? supabase.auth.getSession().then(({ data }) => data.session?.user ?? null)
+      : supabase.auth.getUser().then(({ data }) => data.user ?? null);
+
+    const [{ data: formData, error }, authUser] = await Promise.all([formPromise, userPromise]);
     setUser(authUser);
+
+    if (error || !formData) { toast.error('Form not found'); setLoading(false); return; }
+
     let profileForPrefill: any = null;
     if (authUser) {
-      const { data: prof } = await supabase.from('profiles').select('name, email, is_admin, is_faculty, executive_role, committee_members(committee_id)').eq('id', authUser.id).single();
+      // Soft / deferred profile — do not block form paint longer than needed
+      const { data: prof } = await supabase
+        .from('profiles')
+        .select('name, email, is_admin, is_faculty')
+        .eq('id', authUser.id)
+        .maybeSingle();
       setProfile(prof);
       profileForPrefill = prof;
-      // canViewResponses set after form loads (needs created_by + response_viewer_ids)
     }
-    const { data: formData, error } = await supabase.from('forms').select('*').eq('id', params.id).single();
-    if (error || !formData) { toast.error('Form not found'); setLoading(false); return; }
     const settings = formData.settings || {};
     let closed = false;
     let closedReasonLocal = '';
@@ -254,6 +260,11 @@ export default function FormSubmitPage() {
       }
     }
     setLoading(false);
+
+    // One-shot taken rolls (no continuous polling — that caused DB storms under concurrent load)
+    if (!closed && formFields.some((f) => f.field_type === 'roll_no')) {
+      void refreshTakenRolls(formFields, testMode);
+    }
   }
 
   function updateAnswer(fieldId: string, value: any) {
@@ -307,34 +318,6 @@ export default function FormSubmitPage() {
     return Object.keys(newErrors).length === 0;
   }
 
-  async function hasExternalEmailAlreadySubmitted(email: string): Promise<boolean> {
-    const normalized = email.trim();
-    if (!normalized) return false;
-    const { data, error } = await supabase.rpc('form_email_already_submitted', {
-      p_form_id: params.id,
-      p_email: normalized,
-    });
-    if (error) {
-      console.error('form_email_already_submitted', error);
-      return false;
-    }
-    return data === true;
-  }
-
-  async function hasExternalMobileAlreadySubmitted(mobile: string): Promise<boolean> {
-    const normalized = normalizeMobile(mobile);
-    if (normalized.length < 7) return false;
-    const { data, error } = await supabase.rpc('form_mobile_already_submitted', {
-      p_form_id: params.id,
-      p_mobile: normalized,
-    });
-    if (error) {
-      console.error('form_mobile_already_submitted', error);
-      return false;
-    }
-    return data === true;
-  }
-
   async function handleSubmit() {
     if (previewOnly) {
       toast('Preview only — you already submitted a live response.');
@@ -353,49 +336,7 @@ export default function FormSubmitPage() {
         return;
       }
     }
-    const settings = form?.settings || {};
-    const allowMultiple = !!(settings.allow_multiple ?? settings.allowMultiple);
-    const emailField = pickEmailField(fields);
-    const mobileField = pickMobileField(fields);
-    const emailForDedupe = emailField ? trimStr(answers[emailField.id]) : '';
-    const mobileForDedupe = mobileField ? normalizeMobile(answers[mobileField.id]) : '';
-    await refreshTakenRolls(fields, submittingAsTest);
-    for (const field of fields) {
-      if (field.field_type !== 'roll_no') continue;
-      const roll = String(answers[field.id] ?? '').trim();
-      if (!roll) continue;
-      const { data: takenAlready, error: rollErr } = await supabase.rpc('form_roll_already_submitted', {
-        p_form_id: params.id,
-        p_field_label: field.label.trim(),
-        p_roll: roll,
-        p_is_test: submittingAsTest,
-      });
-      if (rollErr) console.error('form_roll_already_submitted', rollErr);
-      if (takenAlready === true) {
-        setSubmitting(false);
-        toast.error(`Roll number ${roll} is already taken. Pick another.`);
-        await refreshTakenRolls(fields, submittingAsTest);
-        return;
-      }
-    }
-    // Live only: email/mobile dedupe (tests never block later live submits)
-    if (!submittingAsTest && !user && !allowMultiple) {
-      if (emailForDedupe) {
-        const exists = await hasExternalEmailAlreadySubmitted(emailForDedupe);
-        if (exists) {
-          setSubmitting(false);
-          toast.error('This email has already submitted this form.');
-          return;
-        }
-      } else if (mobileForDedupe) {
-        const exists = await hasExternalMobileAlreadySubmitted(mobileForDedupe);
-        if (exists) {
-          setSubmitting(false);
-          toast.error('This mobile number has already submitted this form.');
-          return;
-        }
-      }
-    }
+
     const responses: Record<string, any> = {};
     for (const field of fields) {
       const val = answers[field.id];
@@ -415,6 +356,14 @@ export default function FormSubmitPage() {
     const registrationSource =
       srcParam === 'onsite' || srcParam === 'on_site' || srcParam === 'qr' ? 'on_site' : 'advance';
 
+    const onSubmitConflict = async (message: string) => {
+      toast.error(message);
+      if (fields.some((f) => f.field_type === 'roll_no')) {
+        await refreshTakenRolls(fields, submittingAsTest);
+      }
+      setSubmitting(false);
+    };
+
     /** Live event registration only — tests go through public/test RPC (no participants). */
     if (!submittingAsTest && form?.form_type === 'event_registration' && form?.event_id) {
       const { data: rpcData, error: rpcError } = await supabase.rpc('submit_event_registration_response', {
@@ -426,8 +375,7 @@ export default function FormSubmitPage() {
       });
       if (rpcError) {
         console.error('submit_event_registration_response', rpcError);
-        toast.error(rpcError.message || 'Failed to submit registration');
-        setSubmitting(false);
+        await onSubmitConflict(rpcError.message || 'Failed to submit registration');
         return;
       }
       const row = rpcData as { response_id?: string; participant_id?: string } | null;
@@ -448,7 +396,7 @@ export default function FormSubmitPage() {
       const showPersonalQr = shouldShowPersonalQrAfterSubmit(form?.settings, form?.form_type);
       if (showPersonalQr) {
         setParticipantQrPayload(payload);
-        setParticipantQrImage(await QRCode.toDataURL(JSON.stringify(payload), { width: 280, margin: 1 }));
+        setParticipantQrImage(await qrDataUrl(payload, 280));
       } else {
         setParticipantQrPayload(null);
         setParticipantQrImage(null);
@@ -466,8 +414,7 @@ export default function FormSubmitPage() {
         p_responses: responses,
       });
       if (rpcError) {
-        toast.error(rpcError.message || 'Failed to submit');
-        setSubmitting(false);
+        await onSubmitConflict(rpcError.message || 'Failed to submit');
         return;
       }
       const row = rpcData as { response_id?: string; is_test?: boolean } | null;
@@ -485,7 +432,7 @@ export default function FormSubmitPage() {
           submitted_at: new Date().toISOString(),
         };
         setParticipantQrPayload(payload);
-        setParticipantQrImage(await QRCode.toDataURL(JSON.stringify(payload), { width: 260, margin: 1 }));
+        setParticipantQrImage(await qrDataUrl(payload, 260));
       } else {
         setParticipantQrPayload(null);
         setParticipantQrImage(null);
@@ -501,29 +448,29 @@ export default function FormSubmitPage() {
       .select('id')
       .single();
     if (error) {
-      toast.error(error.message || 'Failed to submit');
-    } else {
-      setSubmittedWasOnSite(false);
-      setSubmittedWasTest(false);
-      if (shouldShowPersonalQrAfterSubmit(form?.settings, form?.form_type) && inserted?.id) {
-        const participantId = crypto.randomUUID();
-        const payload = {
-          participant_id: participantId,
-          event_id: form?.event_id || null,
-          response_id: inserted?.id,
-          form_id: params.id,
-          participant_name: nameVal,
-          participant_email: emailVal || '',
-          submitted_at: new Date().toISOString(),
-        };
-        setParticipantQrPayload(payload);
-        setParticipantQrImage(await QRCode.toDataURL(JSON.stringify(payload), { width: 260, margin: 1 }));
-      } else {
-        setParticipantQrPayload(null);
-        setParticipantQrImage(null);
-      }
-      setSubmitted(true);
+      await onSubmitConflict(error.message || 'Failed to submit');
+      return;
     }
+    setSubmittedWasOnSite(false);
+    setSubmittedWasTest(false);
+    if (shouldShowPersonalQrAfterSubmit(form?.settings, form?.form_type) && inserted?.id) {
+      const participantId = crypto.randomUUID();
+      const payload = {
+        participant_id: participantId,
+        event_id: form?.event_id || null,
+        response_id: inserted?.id,
+        form_id: params.id,
+        participant_name: nameVal,
+        participant_email: emailVal || '',
+        submitted_at: new Date().toISOString(),
+      };
+      setParticipantQrPayload(payload);
+      setParticipantQrImage(await qrDataUrl(payload, 260));
+    } else {
+      setParticipantQrPayload(null);
+      setParticipantQrImage(null);
+    }
+    setSubmitted(true);
     setSubmitting(false);
   }
 
