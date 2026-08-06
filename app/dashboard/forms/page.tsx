@@ -32,38 +32,93 @@ export default function FormsPage() {
   const [profile, setProfile] = useState<{ is_admin?: boolean; is_faculty?: boolean; executive_role?: string | null } | null>(null);
   const supabase = createClient();
 
-  useEffect(() => { fetchForms(); }, []);
+  useEffect(() => {
+    let cancelled = false;
+    let unsub: (() => void) | undefined;
 
-  async function fetchForms() {
-    setLoading(true);
-    try {
-      const sessionUser = await withTimeout(
-        supabase.auth.getSession().then(({ data }) => data.session?.user ?? null),
-        3000,
-      );
-      let user = sessionUser;
-      if (!user) {
-        user = await withTimeout(
-          supabase.auth.getUser().then(({ data }) => data.user ?? null),
-          2500,
-        );
+    async function loadForUser(user: { id: string }) {
+      if (cancelled) return;
+      await fetchFormsForUser(user);
+    }
+
+    async function init() {
+      setLoading(true);
+      let resolved = false;
+
+      const markLoaded = async (user: { id: string }) => {
+        if (cancelled || resolved) return;
+        resolved = true;
+        unsub?.();
+        await loadForUser(user);
+      };
+
+      // Prefer cookie session (no network). Retry a few times — Auth lock can lag after middleware.
+      for (let i = 0; i < 4; i++) {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (cancelled) return;
+        if (session?.user) {
+          await markLoaded(session.user);
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 200 + i * 150));
       }
-      if (!user) {
-        toast.error('Please sign in to view forms');
-        setForms([]);
+
+      // Wait for client Auth hydration
+      const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+        if (session?.user) void markLoaded(session.user);
+      });
+      unsub = () => subscription.unsubscribe();
+
+      // Network check — do not short-timeout (that falsely looked signed-out)
+      const { data: { user } } = await supabase.auth.getUser();
+      if (cancelled) return;
+      if (user) {
+        await markLoaded(user);
         return;
       }
-      setCurrentUserId(user.id);
 
-      const formsResult = await withTimeout(
+      await new Promise((r) => setTimeout(r, 2000));
+      if (cancelled || resolved) return;
+      unsub?.();
+      toast.error('Please sign in to view forms');
+      setForms([]);
+      setLoading(false);
+    }
+
+    void init();
+    return () => {
+      cancelled = true;
+      unsub?.();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function fetchFormsForUser(user: { id: string }) {
+    setLoading(true);
+    setCurrentUserId(user.id);
+    try {
+      let formsResult = await withTimeout(
         Promise.resolve(
           supabase
             .from('forms')
             .select('id, title, description, fields, settings, is_active, form_type, event_id, created_by, created_at, creator:profiles!forms_created_by_fkey(name)')
             .order('created_at', { ascending: false }),
         ),
-        8000,
+        12000,
       );
+
+      // Fallback if join/columns fail
+      if (!formsResult?.data || formsResult.error) {
+        formsResult = await withTimeout(
+          Promise.resolve(
+            supabase
+              .from('forms')
+              .select('id, title, description, fields, settings, is_active, form_type, event_id, created_by, created_at')
+              .order('created_at', { ascending: false }),
+          ),
+          12000,
+        );
+      }
 
       const formsData = formsResult?.data;
       if (!formsData) {
@@ -78,7 +133,7 @@ export default function FormsPage() {
         response_count: 0,
         live_count: 0,
         test_count: 0,
-        can_view_responses: false,
+        can_view_responses: true,
         computed_status: getFormStatus(f),
       }));
       setForms(baseRows);
@@ -92,12 +147,12 @@ export default function FormsPage() {
             .eq('id', user.id)
             .maybeSingle(),
         ),
-        2500,
+        4000,
       );
       const userProfile = profileResult?.data ?? null;
       setProfile(userProfile);
 
-      const viewable = formsData.filter((f: any) => canViewFormResponses(f, user!.id, userProfile));
+      const viewable = formsData.filter((f: any) => canViewFormResponses(f, user.id, userProfile));
       let countByForm: Record<string, number> = {};
       let testCountByForm: Record<string, number> = {};
 
@@ -114,12 +169,11 @@ export default function FormsPage() {
                 viewable.map((f: { id: string }) => f.id),
               ),
           ),
-          5000,
+          8000,
         );
         if (withTest && !withTest.error && withTest.data) {
           rows = withTest.data as CountRow[];
         } else {
-          // Migration 119 not applied yet → retry without is_test
           const withoutTest = await withTimeout(
             Promise.resolve(
               supabase
@@ -130,7 +184,7 @@ export default function FormsPage() {
                   viewable.map((f: { id: string }) => f.id),
                 ),
             ),
-            5000,
+            8000,
           );
           rows = (withoutTest?.data || []) as CountRow[];
         }
@@ -143,7 +197,7 @@ export default function FormsPage() {
 
       setForms(
         formsData.map((f: any) => {
-          const canView = canViewFormResponses(f, user!.id, userProfile);
+          const canView = canViewFormResponses(f, user.id, userProfile);
           return {
             ...f,
             response_count: canView ? (countByForm[f.id] || 0) + (testCountByForm[f.id] || 0) : 0,
