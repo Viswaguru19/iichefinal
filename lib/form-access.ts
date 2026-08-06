@@ -62,6 +62,17 @@ export function isFormCollecting(form: {
   return true;
 }
 
+/** Explicit test mode: link accepts TEST responses (cleared when Start Collecting). */
+export function isFormTestMode(form: {
+  settings?: {
+    test_mode?: boolean | null;
+    testMode?: boolean | null;
+  } | null;
+} | null | undefined): boolean {
+  const s = form?.settings || {};
+  return s.test_mode === true || s.testMode === true;
+}
+
 /**
  * Personal QR after submit:
  * - Event registration: always (compulsory)

@@ -7,7 +7,7 @@ import { createClient } from '@/lib/supabase/client';
 import { ArrowLeft, Share2, Check, Lock, AlertTriangle, Upload } from 'lucide-react';
 import { EXACT_TWO_HINT, isValidRollNo, rollCountFromValidation, excludedRollsFromValidation } from '@/lib/form-field-types';
 import SearchableRollSelect from '@/components/forms/SearchableRollSelect';
-import { canViewFormResponses, shouldShowPersonalQrAfterSubmit, isFormCollecting } from '@/lib/form-access';
+import { canViewFormResponses, shouldShowPersonalQrAfterSubmit, isFormCollecting, isFormTestMode } from '@/lib/form-access';
 import Link from 'next/link';
 import { useParams, useRouter, usePathname } from 'next/navigation';
 import toast from 'react-hot-toast';
@@ -152,12 +152,15 @@ export default function FormSubmitPage() {
     let closed = false;
     let closedReasonLocal = '';
     const collecting = isFormCollecting(formData);
-    const testMode = !collecting;
+    const testMode = isFormTestMode(formData);
     setIsTestMode(testMode);
     setPreviewOnly(false);
 
-    // Draft / not collecting → open for TEST responses (not closed)
-    if (settings.end_date && collecting && new Date(settings.end_date) < new Date()) {
+    // Neither live nor test → closed (preview-only for creator still handled below via already-submitted)
+    if (!collecting && !testMode) {
+      closed = true;
+      closedReasonLocal = 'This form is not accepting responses. Turn on Test mode or Start Collecting.';
+    } else if (settings.end_date && collecting && new Date(settings.end_date) < new Date()) {
       closed = true;
       closedReasonLocal = 'This form has passed its deadline.';
     } else if (settings.start_date && collecting && new Date(settings.start_date) > new Date()) {
@@ -334,7 +337,7 @@ export default function FormSubmitPage() {
     if (!validate()) { toast.error('Please fix the errors'); return; }
     setSubmitting(true);
     const collecting = isFormCollecting(form);
-    const submittingAsTest = !collecting;
+    const submittingAsTest = isFormTestMode(form) && !collecting;
 
     if (!submittingAsTest && form?.form_type === 'event_registration' && form?.event_id) {
       const { data: evCheck } = await supabase.from('events').select('status').eq('id', form.event_id).maybeSingle();
@@ -636,7 +639,7 @@ export default function FormSubmitPage() {
             {form?.description?.trim() && <p className="text-gray-400">{form.description}</p>}
             {isTestMode && (
               <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                <p className="font-semibold">Test mode — not collecting yet</p>
+                <p className="font-semibold">Test mode</p>
                 <p className="text-amber-800/90 mt-0.5">
                   Answers are marked as TEST and will be cleared when Start Collecting is turned on. Live duplicate rules do not apply here.
                 </p>

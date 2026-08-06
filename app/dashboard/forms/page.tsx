@@ -4,12 +4,12 @@ import PortalLoadingScreen from '@/components/PortalLoadingScreen';
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { createClient } from '@/lib/supabase/client';
-import { Plus, FileText, BarChart3, Edit, Eye, Clock, CheckCircle, XCircle, Copy, Trash2, PauseCircle, PlayCircle, Pencil, Share2 } from 'lucide-react';
+import { Plus, FileText, BarChart3, Edit, Eye, Clock, CheckCircle, XCircle, Copy, Trash2, PauseCircle, PlayCircle, Pencil, Share2, FlaskConical } from 'lucide-react';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
 import { publicFormUrl } from '@/lib/form-public-access';
 import PageHeader from '@/components/PageHeader';
-import { canManageForm, canViewFormResponses } from '@/lib/form-access';
+import { canManageForm, canViewFormResponses, isFormTestMode } from '@/lib/form-access';
 
 const container = {
   hidden: { opacity: 0 },
@@ -26,6 +26,7 @@ export default function FormsPage() {
   const [filter, setFilter] = useState<'all' | 'active' | 'draft' | 'closed'>('all');
   const [deleting, setDeleting] = useState<string | null>(null);
   const [toggling, setToggling] = useState<string | null>(null);
+  const [togglingTest, setTogglingTest] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [profile, setProfile] = useState<{ is_admin?: boolean; is_faculty?: boolean; executive_role?: string | null } | null>(null);
   const supabase = createClient();
@@ -129,7 +130,13 @@ export default function FormsPage() {
     setToggling(form.id);
     const isCurrentlyActive = form.is_active && (form.settings?.status !== 'draft');
     const newActive = !isCurrentlyActive;
-    const newSettings = { ...(form.settings || {}), status: newActive ? 'active' : 'draft' };
+    const newSettings = {
+      ...(form.settings || {}),
+      status: newActive ? 'active' : 'draft',
+      // Starting live collection turns test mode off
+      test_mode: newActive ? false : !!(form.settings?.test_mode || form.settings?.testMode),
+    };
+    delete (newSettings as any).testMode;
 
     if (newActive) {
       const { data: cleared, error: clearErr } = await supabase.rpc('clear_form_test_responses', {
@@ -144,6 +151,7 @@ export default function FormsPage() {
       if (typeof cleared === 'number' && cleared > 0) {
         toast.success(`Cleared ${cleared} test response${cleared === 1 ? '' : 's'}`);
       }
+      newSettings.test_mode = false;
     }
 
     const { data: updated, error } = await supabase
@@ -168,9 +176,46 @@ export default function FormsPage() {
           computed_status: getFormStatus(next),
         };
       }));
-      toast.success(newActive ? 'Form is now accepting live responses' : 'Stopped collecting — link is in test mode');
+      toast.success(newActive ? 'Form is now accepting live responses' : 'Stopped collecting');
     }
     setToggling(null);
+  }
+
+  async function toggleTestMode(form: any) {
+    if (!canManageForm(form, currentUserId, profile)) {
+      toast.error('You must be logged in to change this form.');
+      return;
+    }
+    const isCurrentlyActive = form.is_active && (form.settings?.status !== 'draft');
+    if (isCurrentlyActive) {
+      toast.error('Stop collecting first — test mode is only for when the form is not live.');
+      return;
+    }
+    setTogglingTest(form.id);
+    const nextOn = !isFormTestMode(form);
+    const newSettings = { ...(form.settings || {}), test_mode: nextOn };
+    delete (newSettings as any).testMode;
+
+    const { data: updated, error } = await supabase
+      .from('forms')
+      .update({ settings: newSettings, updated_at: new Date().toISOString() })
+      .eq('id', form.id)
+      .select('id')
+      .maybeSingle();
+
+    if (error) {
+      toast.error('Failed to update test mode');
+    } else if (!updated) {
+      toast.error('Could not update this form. Please try again.');
+    } else {
+      setForms(prev => prev.map(f => {
+        if (f.id !== form.id) return f;
+        const next = { ...f, settings: newSettings };
+        return { ...next, computed_status: getFormStatus(next) };
+      }));
+      toast.success(nextOn ? 'Test mode on — share the link to try the form' : 'Test mode off');
+    }
+    setTogglingTest(null);
   }
 
   async function duplicateForm(form: any) {
@@ -290,6 +335,7 @@ export default function FormsPage() {
                 const cfg = statusConfig[form.computed_status] || statusConfig.draft;
                 const StatusIcon = cfg.icon;
                 const isActive = form.computed_status === 'active';
+                const testModeOn = isFormTestMode(form);
                 const manageable = canManageForm(form, currentUserId, profile);
                 return (
                   <motion.div key={form.id} variants={item} whileHover={{ y: -6, transition: { duration: 0.2 } }} className="group relative">
@@ -300,10 +346,17 @@ export default function FormsPage() {
                       <div className="p-6 relative z-10">
                         <div className="flex items-start justify-between mb-3">
                           <h3 className="text-lg font-bold text-gray-800 line-clamp-2 flex-1 mr-3">{form.title || 'Untitled Form'}</h3>
-                          <span className={`px-2.5 py-1 rounded-full text-xs font-semibold flex items-center gap-1 whitespace-nowrap border ${cfg.bg}`}>
-                            <StatusIcon className={`w-3 h-3 ${cfg.color}`} />
-                            <span className={cfg.color}>{form.computed_status}</span>
-                          </span>
+                          <div className="flex flex-col items-end gap-1 shrink-0">
+                            <span className={`px-2.5 py-1 rounded-full text-xs font-semibold flex items-center gap-1 whitespace-nowrap border ${cfg.bg}`}>
+                              <StatusIcon className={`w-3 h-3 ${cfg.color}`} />
+                              <span className={cfg.color}>{form.computed_status}</span>
+                            </span>
+                            {testModeOn && !isActive && (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold border border-amber-200 bg-amber-50 text-amber-700">
+                                Test mode
+                              </span>
+                            )}
+                          </div>
                         </div>
 
                         {form.description && <p className="text-gray-400 text-sm line-clamp-2 mb-4">{form.description}</p>}
@@ -324,22 +377,38 @@ export default function FormsPage() {
                           <span>{form.creator?.name || 'Unknown'}</span>
                         </div>
 
-                        {/* Stop / Start collecting toggle */}
                         {manageable && (
-                        <button
-                          onClick={() => toggleAccepting(form)}
-                          disabled={toggling === form.id}
-                          className={`w-full mb-4 flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${isActive
-                            ? 'bg-amber-50 text-amber-600 hover:bg-amber-100 border border-amber-200'
-                            : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100 border border-emerald-200'
-                            } disabled:opacity-50`}
-                        >
-                          {toggling === form.id ? '...' : isActive ? (
-                            <><PauseCircle className="w-3.5 h-3.5" /> Stop Collecting</>
-                          ) : (
-                            <><PlayCircle className="w-3.5 h-3.5" /> Start Collecting</>
+                        <div className="flex flex-col gap-2 mb-4">
+                          <button
+                            onClick={() => toggleAccepting(form)}
+                            disabled={toggling === form.id || togglingTest === form.id}
+                            className={`w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${isActive
+                              ? 'bg-amber-50 text-amber-600 hover:bg-amber-100 border border-amber-200'
+                              : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100 border border-emerald-200'
+                              } disabled:opacity-50`}
+                          >
+                            {toggling === form.id ? '...' : isActive ? (
+                              <><PauseCircle className="w-3.5 h-3.5" /> Stop Collecting</>
+                            ) : (
+                              <><PlayCircle className="w-3.5 h-3.5" /> Start Collecting</>
+                            )}
+                          </button>
+                          {!isActive && (
+                            <button
+                              onClick={() => toggleTestMode(form)}
+                              disabled={togglingTest === form.id || toggling === form.id}
+                              className={`w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold transition-all disabled:opacity-50 ${
+                                testModeOn
+                                  ? 'bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200'
+                                  : 'bg-white text-gray-600 hover:bg-gray-50 border border-gray-200'
+                              }`}
+                            >
+                              {togglingTest === form.id ? '...' : (
+                                <><FlaskConical className="w-3.5 h-3.5" /> {testModeOn ? 'Turn off Test mode' : 'Turn on Test mode'}</>
+                              )}
+                            </button>
                           )}
-                        </button>
+                        </div>
                         )}
 
                         <div className="flex items-center gap-2 pt-4 border-t border-gray-100">
@@ -365,7 +434,7 @@ export default function FormsPage() {
                           </motion.div>
                           )}
                           <motion.div whileHover={{ scale: 1.15 }} whileTap={{ scale: 0.9 }}>
-                            <Link href={`/forms/${form.id}`} className="p-2 rounded-xl hover:bg-indigo-50 text-gray-400 hover:text-indigo-600 transition-all" title={form.computed_status === 'active' ? 'Open form' : 'Preview / test form'}>
+                            <Link href={`/forms/${form.id}`} className="p-2 rounded-xl hover:bg-indigo-50 text-gray-400 hover:text-indigo-600 transition-all" title={isActive ? 'Open form' : testModeOn ? 'Open test form' : 'Preview form'}>
                               <Eye className="w-4 h-4" />
                             </Link>
                           </motion.div>
