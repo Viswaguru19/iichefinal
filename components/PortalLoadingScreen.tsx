@@ -16,7 +16,7 @@ export default function PortalLoadingScreen({
   fullPage = true,
   className = '',
 }: PortalLoadingScreenProps) {
-  const [visibleCount, setVisibleCount] = useState(LETTERS.length);
+  const [visibleCount, setVisibleCount] = useState<number>(0);
 
   useEffect(() => {
     // One-shot reveal only (no endless letter reset — felt like endless loading)
