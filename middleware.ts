@@ -140,11 +140,13 @@ export async function middleware(request: NextRequest) {
 
     async function loadProfile(): Promise<ProfileGate | null> {
       const result = await withBudget(
-        supabase
-          .from('profiles')
-          .select('hiring_portal_only, approved, role')
-          .eq('id', user!.id)
-          .maybeSingle(),
+        Promise.resolve(
+          supabase
+            .from('profiles')
+            .select('hiring_portal_only, approved, role')
+            .eq('id', user!.id)
+            .maybeSingle(),
+        ),
       );
       return (result?.data as ProfileGate | null) ?? null;
     }
