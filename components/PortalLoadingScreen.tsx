@@ -1,6 +1,19 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { Syne, Outfit } from 'next/font/google';
+
+const display = Syne({
+  subsets: ['latin'],
+  weight: ['700', '800'],
+  display: 'swap',
+});
+
+const body = Outfit({
+  subsets: ['latin'],
+  weight: ['400', '500', '600'],
+  display: 'swap',
+});
 
 interface PortalLoadingScreenProps {
   message?: string;
@@ -8,10 +21,8 @@ interface PortalLoadingScreenProps {
   className?: string;
 }
 
-const LETTERS = ['I', 'I', 'C', 'H', 'E'] as const;
-/** Stagger: I → I → C → H → E */
-const LETTER_DELAY_MS = 160;
-const DOT_DELAY_AFTER_LETTER_MS = 120;
+const LETTERS = ['I', 'I', 'C', 'h', 'E'] as const;
+const LETTER_DELAY_MS = 90;
 
 export default function PortalLoadingScreen({
   message = 'Loading portal…',
@@ -19,30 +30,18 @@ export default function PortalLoadingScreen({
   className = '',
 }: PortalLoadingScreenProps) {
   const [visibleCount, setVisibleCount] = useState(0);
-  const [dotsOn, setDotsOn] = useState(false);
 
   useEffect(() => {
     setVisibleCount(0);
-    setDotsOn(false);
     const timers: ReturnType<typeof setTimeout>[] = [];
-    LETTERS.forEach((_, i) => {
-      timers.push(setTimeout(() => setVisibleCount(i + 1), LETTER_DELAY_MS * (i + 1)));
-    });
-    // After both I's are on screen, draw the tittle dots via circle
-    timers.push(
-      setTimeout(() => setDotsOn(true), LETTER_DELAY_MS * 2 + DOT_DELAY_AFTER_LETTER_MS),
-    );
-    // Loop the sequence so long loads keep animating
-    const loop = setInterval(() => {
+    const run = () => {
       setVisibleCount(0);
-      setDotsOn(false);
       LETTERS.forEach((_, i) => {
         timers.push(setTimeout(() => setVisibleCount(i + 1), LETTER_DELAY_MS * (i + 1)));
       });
-      timers.push(
-        setTimeout(() => setDotsOn(true), LETTER_DELAY_MS * 2 + DOT_DELAY_AFTER_LETTER_MS),
-      );
-    }, LETTER_DELAY_MS * LETTERS.length + 1200);
+    };
+    run();
+    const loop = setInterval(run, LETTER_DELAY_MS * LETTERS.length + 1600);
     return () => {
       timers.forEach(clearTimeout);
       clearInterval(loop);
@@ -50,43 +49,38 @@ export default function PortalLoadingScreen({
   }, []);
 
   const card = (
-    <div className={`portal-loader-shell ${className}`.trim()} role="status" aria-live="polite" aria-busy="true">
-      <div className="portal-loader-shimmer" aria-hidden />
-
-      <div className="portal-loader-iiche" aria-label="IIChE">
-        {LETTERS.map((letter, i) => {
-          const show = i < visibleCount;
-          const isI = letter === 'I';
-          return (
-            <span
-              key={`${letter}-${i}`}
-              className={`portal-loader-letter ${show ? 'is-in' : ''} ${isI ? 'is-i' : ''}`}
-              data-letter={letter}
-            >
-              <span className="portal-loader-letter-glyph" aria-hidden>
-                {isI ? <span className="portal-loader-i-stem" /> : letter}
-              </span>
-              {isI && (
-                <span
-                  className={`portal-loader-i-dot ${dotsOn && show ? 'is-on' : ''}`}
-                  aria-hidden
-                >
-                  <span className="portal-loader-i-dot-ring" />
-                  <span className="portal-loader-i-dot-core" />
-                </span>
-              )}
-            </span>
-          );
-        })}
+    <div
+      className={`portal-loader-shell ${display.className} ${className}`.trim()}
+      role="status"
+      aria-live="polite"
+      aria-busy="true"
+    >
+      <div className="portal-loader-orbit" aria-hidden>
+        <span className="portal-loader-orbit-ring portal-loader-orbit-ring-a" />
+        <span className="portal-loader-orbit-ring portal-loader-orbit-ring-b" />
+        <span className="portal-loader-orbit-bead" />
       </div>
 
-      <p className="portal-loader-brand-text">AVVU SC</p>
-      <p className="portal-loader-tagline">Student Chapter Portal</p>
-      <p className="portal-loader-message">{message}</p>
-      <div className="portal-loader-dots" aria-hidden>
-        <span />
-        <span />
-        <span />
+      <div className="portal-loader-core">
+        <div className="portal-loader-iiche" aria-label="IIChE">
+          {LETTERS.map((letter, i) => (
+            <span
+              key={`${letter}-${i}`}
+              className={`portal-loader-letter ${i < visibleCount ? 'is-in' : ''}`}
+            >
+              {letter}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      <div className={`portal-loader-meta ${body.className}`}>
+        <p className="portal-loader-brand-text">AVVU SC</p>
+        <p className="portal-loader-tagline">Student Chapter Portal</p>
+        <p className="portal-loader-message">{message}</p>
+        <div className="portal-loader-track" aria-hidden>
+          <span className="portal-loader-track-fill" />
+        </div>
       </div>
     </div>
   );
@@ -95,6 +89,7 @@ export default function PortalLoadingScreen({
 
   return (
     <div className="portal-loader-page portal-fade-in">
+      <div className="portal-loader-bg-grid" aria-hidden />
       <div className="portal-loader-bg-orb portal-loader-bg-orb-1" aria-hidden />
       <div className="portal-loader-bg-orb portal-loader-bg-orb-2" aria-hidden />
       {card}
