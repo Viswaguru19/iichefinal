@@ -112,11 +112,14 @@ export default function FormSubmitPage() {
   async function fetchForm() {
     setSubmittedWasOnSite(false);
 
+    const formId = Array.isArray(params.id) ? params.id[0] : String(params.id || '');
+
     // Critical path: load form definition first (do not wait on Auth for public links)
+    // banner lives in settings.banner_url — there is no forms.banner_url column
     const formPromise = supabase
       .from('forms')
-      .select('id, title, description, fields, settings, is_active, form_type, event_id, created_by, banner_url')
-      .eq('id', params.id)
+      .select('id, title, description, fields, settings, is_active, form_type, event_id, created_by')
+      .eq('id', formId)
       .single();
 
     // Public route: local session only (no Auth network). Dashboard: getUser.
@@ -127,7 +130,12 @@ export default function FormSubmitPage() {
     const [{ data: formData, error }, authUser] = await Promise.all([formPromise, userPromise]);
     setUser(authUser);
 
-    if (error || !formData) { toast.error('Form not found'); setLoading(false); return; }
+    if (error || !formData) {
+      console.error('fetchForm', error);
+      toast.error(error?.code === 'PGRST116' ? 'Form not found' : (error?.message || 'Form not found'));
+      setLoading(false);
+      return;
+    }
 
     let profileForPrefill: any = null;
     if (authUser) {
@@ -170,7 +178,7 @@ export default function FormSubmitPage() {
       const { data: existing } = await supabase
         .from('form_responses')
         .select('id')
-        .eq('form_id', params.id)
+        .eq('form_id', formId)
         .eq('user_id', authUser.id)
         .eq('is_test', false)
         .limit(1);
