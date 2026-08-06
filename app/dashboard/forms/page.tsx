@@ -102,7 +102,9 @@ export default function FormsPage() {
       let testCountByForm: Record<string, number> = {};
 
       if (viewable.length > 0) {
-        let rowsResult = await withTimeout(
+        type CountRow = { form_id: string; is_test?: boolean };
+        let rows: CountRow[] = [];
+        const withTest = await withTimeout(
           Promise.resolve(
             supabase
               .from('form_responses')
@@ -114,9 +116,11 @@ export default function FormsPage() {
           ),
           5000,
         );
-        // Migration 119 not applied yet → retry without is_test
-        if (rowsResult?.error) {
-          rowsResult = await withTimeout(
+        if (withTest && !withTest.error && withTest.data) {
+          rows = withTest.data as CountRow[];
+        } else {
+          // Migration 119 not applied yet → retry without is_test
+          const withoutTest = await withTimeout(
             Promise.resolve(
               supabase
                 .from('form_responses')
@@ -128,11 +132,11 @@ export default function FormsPage() {
             ),
             5000,
           );
+          rows = (withoutTest?.data || []) as CountRow[];
         }
-        for (const row of rowsResult?.data || []) {
-          const id = String((row as { form_id: string }).form_id);
-          const isTest = !!(row as { is_test?: boolean }).is_test;
-          if (isTest) testCountByForm[id] = (testCountByForm[id] || 0) + 1;
+        for (const row of rows) {
+          const id = String(row.form_id);
+          if (row.is_test) testCountByForm[id] = (testCountByForm[id] || 0) + 1;
           else countByForm[id] = (countByForm[id] || 0) + 1;
         }
       }
