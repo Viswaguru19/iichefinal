@@ -97,7 +97,24 @@ export default function FormsPage() {
     setLoading(true);
     setCurrentUserId(user.id);
     try {
-      let formsResult = await withTimeout(
+      type FormRow = {
+        id: string;
+        title?: string | null;
+        description?: string | null;
+        fields?: unknown;
+        settings?: Record<string, unknown> | null;
+        is_active?: boolean | null;
+        form_type?: string | null;
+        event_id?: string | null;
+        created_by?: string | null;
+        created_at?: string | null;
+        creator?: { name?: string | null } | { name?: string | null }[] | null;
+      };
+
+      let formsData: FormRow[] | null = null;
+      let formsError: { message?: string } | null = null;
+
+      const withCreator = await withTimeout(
         Promise.resolve(
           supabase
             .from('forms')
@@ -106,10 +123,11 @@ export default function FormsPage() {
         ),
         12000,
       );
-
-      // Fallback if join/columns fail
-      if (!formsResult?.data || formsResult.error) {
-        formsResult = await withTimeout(
+      if (withCreator && !withCreator.error && withCreator.data) {
+        formsData = withCreator.data as FormRow[];
+      } else {
+        formsError = withCreator?.error ?? null;
+        const plain = await withTimeout(
           Promise.resolve(
             supabase
               .from('forms')
@@ -118,11 +136,16 @@ export default function FormsPage() {
           ),
           12000,
         );
+        if (plain && !plain.error && plain.data) {
+          formsData = plain.data as FormRow[];
+          formsError = null;
+        } else {
+          formsError = plain?.error ?? formsError;
+        }
       }
 
-      const formsData = formsResult?.data;
       if (!formsData) {
-        if (formsResult?.error) toast.error(formsResult.error.message || 'Failed to load forms');
+        if (formsError) toast.error(formsError.message || 'Failed to load forms');
         setForms([]);
         return;
       }
