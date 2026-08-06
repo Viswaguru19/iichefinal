@@ -185,7 +185,7 @@ export default function FormSubmitPage() {
     }
 
     setForm(formData);
-    const formFields = formData.fields || [];
+    const formFields = (formData.fields || []) as FormField[];
     setFields(formFields);
     if (authUser) {
       setCanViewResponses(canViewFormResponses(formData, authUser.id, profileForPrefill));
