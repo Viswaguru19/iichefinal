@@ -192,11 +192,7 @@ export default function SearchableRollSelect({
           </ul>
         </div>
       )}
-      <p className="text-xs text-gray-400 mt-1">
-        {ROLL_NO_HINT} · {availableCount} available
-        {takenRolls.length > 0 ? ` · ${takenRolls.length} taken` : ''}
-        {excludedRolls.length > 0 ? ` · ${excludedRolls.length} discontinued` : ''}
-      </p>
+      <p className="text-xs text-gray-400 mt-1">{ROLL_NO_HINT}</p>
     </div>
   );
 }
