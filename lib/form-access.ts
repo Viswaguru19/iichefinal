@@ -73,6 +73,50 @@ export function isFormTestMode(form: {
 }
 
 /**
+ * Parse form schedule strings (date or datetime-local) as local wall time.
+ * Avoids UTC mistreatment that blocked same-day opens in India.
+ */
+export function parseFormScheduleLocal(raw: unknown, endOfDay = false): Date | null {
+  if (raw == null) return null;
+  const s = String(raw).trim();
+  if (!s) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const [y, m, d] = s.split('-').map(Number);
+    if (endOfDay) return new Date(y, m - 1, d, 23, 59, 59, 999);
+    return new Date(y, m - 1, d, 0, 0, 0, 0);
+  }
+  if (/Z|[+-]\d{2}:?\d{2}$/.test(s)) {
+    const dt = new Date(s);
+    return Number.isNaN(dt.getTime()) ? null : dt;
+  }
+  // datetime-local: YYYY-MM-DDTHH:mm or with seconds
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (m) {
+    return new Date(
+      Number(m[1]),
+      Number(m[2]) - 1,
+      Number(m[3]),
+      Number(m[4]),
+      Number(m[5]),
+      Number(m[6] || 0),
+      0,
+    );
+  }
+  const fallback = new Date(s);
+  return Number.isNaN(fallback.getTime()) ? null : fallback;
+}
+
+export function isFormBeforeStart(settings?: { start_date?: string | null } | null): boolean {
+  const start = parseFormScheduleLocal(settings?.start_date, false);
+  return !!(start && start.getTime() > Date.now());
+}
+
+export function isFormPastDeadline(settings?: { end_date?: string | null } | null): boolean {
+  const end = parseFormScheduleLocal(settings?.end_date, true);
+  return !!(end && end.getTime() < Date.now());
+}
+
+/**
  * Personal QR after submit:
  * - Event registration: always (compulsory)
  * - Normal form: only when settings toggle is on (default off)

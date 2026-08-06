@@ -7,7 +7,7 @@ import { createClient } from '@/lib/supabase/client';
 import { ArrowLeft, Share2, Check, Lock, AlertTriangle, Upload } from 'lucide-react';
 import { EXACT_TWO_HINT, isValidRollNo, rollCountFromValidation, excludedRollsFromValidation } from '@/lib/form-field-types';
 import SearchableRollSelect from '@/components/forms/SearchableRollSelect';
-import { canViewFormResponses, shouldShowPersonalQrAfterSubmit, isFormCollecting, isFormTestMode } from '@/lib/form-access';
+import { canViewFormResponses, shouldShowPersonalQrAfterSubmit, isFormCollecting, isFormTestMode, isFormBeforeStart, isFormPastDeadline, parseFormScheduleLocal } from '@/lib/form-access';
 import Link from 'next/link';
 import { useParams, usePathname } from 'next/navigation';
 import toast from 'react-hot-toast';
@@ -166,12 +166,13 @@ export default function FormSubmitPage() {
       if (!collecting && !testMode) {
         closed = true;
         closedReasonLocal = 'This form is not accepting responses. Turn on Test mode or Start Collecting.';
-      } else if (settings.end_date && collecting && new Date(settings.end_date) < new Date()) {
+      } else if (collecting && isFormPastDeadline(settings)) {
         closed = true;
         closedReasonLocal = 'This form has passed its deadline.';
-      } else if (settings.start_date && collecting && new Date(settings.start_date) > new Date()) {
+      } else if (collecting && isFormBeforeStart(settings)) {
+        const start = parseFormScheduleLocal(settings.start_date, false);
         closed = true;
-        closedReasonLocal = `This form opens on ${new Date(settings.start_date).toLocaleDateString()}.`;
+        closedReasonLocal = `This form opens on ${start ? start.toLocaleString() : 'the scheduled date'}.`;
       }
 
       setForm(formData);

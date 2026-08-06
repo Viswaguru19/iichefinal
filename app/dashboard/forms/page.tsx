@@ -9,7 +9,7 @@ import Link from 'next/link';
 import toast from 'react-hot-toast';
 import { publicFormUrl } from '@/lib/form-public-access';
 import PageHeader from '@/components/PageHeader';
-import { canManageForm, canViewFormResponses, isFormTestMode } from '@/lib/form-access';
+import { canManageForm, canViewFormResponses, isFormTestMode, isFormBeforeStart, isFormPastDeadline } from '@/lib/form-access';
 import { withTimeout } from '@/lib/with-timeout';
 
 const container = {
@@ -244,8 +244,8 @@ export default function FormsPage() {
     const s = form.settings || {};
     // is_active is the live switch (ignore leftover status=draft)
     if (!form.is_active) return 'draft';
-    if (s.end_date && new Date(s.end_date) < new Date()) return 'closed';
-    if (s.start_date && new Date(s.start_date) > new Date()) return 'scheduled';
+    if (isFormPastDeadline(s)) return 'closed';
+    if (isFormBeforeStart(s)) return 'scheduled';
     return 'active';
   }
 
