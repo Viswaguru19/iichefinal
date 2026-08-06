@@ -17,6 +17,7 @@ import {
 import SimplePieChart, { pieColors } from '@/components/forms/SimplePieChart';
 import { generateAvailableRollOptions, rollCountFromValidation, excludedRollsFromValidation } from '@/lib/form-field-types';
 import { canViewFormResponses } from '@/lib/form-access';
+import { withTimeout } from '@/lib/with-timeout';
 
 interface FormField {
   id: string;
@@ -44,38 +45,81 @@ export default function FormResponsesPage() {
   useEffect(() => { void checkAccess(); }, []);
 
   async function checkAccess() {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setLoading(false); return; }
-    const formId = String(params.id);
-    const [{ data: profile }, { data: formData }] = await Promise.all([
-      supabase.from('profiles').select('is_admin, is_faculty').eq('id', user.id).single(),
-      supabase.from('forms').select('*').eq('id', formId).single(),
-    ]);
-    if (!formData) {
+    setLoading(true);
+    try {
+      const formId = String(params.id);
+      let user =
+        (await supabase.auth.getSession()).data.session?.user ?? null;
+      if (!user) {
+        user = (await withTimeout(
+          supabase.auth.getUser().then(({ data }) => data.user ?? null),
+          8000,
+        )) ?? null;
+      }
+      if (!user) {
+        toast.error('Please sign in to view responses');
+        setCanView(false);
+        setLoading(false);
+        return;
+      }
+
+      const [profilePack, formPack] = await Promise.all([
+        withTimeout(
+          Promise.resolve(
+            supabase.from('profiles').select('is_admin, is_faculty').eq('id', user.id).maybeSingle(),
+          ),
+          5000,
+        ),
+        withTimeout(
+          Promise.resolve(supabase.from('forms').select('*').eq('id', formId).single()),
+          8000,
+        ),
+      ]);
+
+      const profile = profilePack?.data ?? null;
+      const formData = formPack?.data ?? null;
+      if (!formData) {
+        toast.error(formPack?.error?.message || 'Form not found');
+        setLoading(false);
+        return;
+      }
+
+      const hasAccess = canViewFormResponses(formData, user.id, profile);
+      setCanView(hasAccess);
+      if (hasAccess) await fetchData(formData);
+      else setLoading(false);
+    } catch (err) {
+      console.error('checkAccess', err);
+      toast.error('Could not load responses');
       setLoading(false);
-      return;
     }
-    const hasAccess = canViewFormResponses(formData, user.id, profile);
-    setCanView(hasAccess);
-    if (hasAccess) await fetchData(formData);
-    else setLoading(false);
   }
 
   async function fetchAllResponses(formId: string) {
     const all: any[] = [];
     let from = 0;
     for (;;) {
-      const { data, error } = await supabase
-        .from('form_responses')
-        .select('*')
-        .eq('form_id', formId)
-        .order('created_at', { ascending: false })
-        .range(from, from + PAGE_SIZE - 1);
-      if (error) {
-        console.error('Responses query error:', error.message, error.code);
+      const pack = await withTimeout(
+        Promise.resolve(
+          supabase
+            .from('form_responses')
+            .select('*')
+            .eq('form_id', formId)
+            .order('created_at', { ascending: false })
+            .range(from, from + PAGE_SIZE - 1),
+        ),
+        15000,
+      );
+      if (!pack) {
+        toast.error('Loading responses timed out');
         break;
       }
-      const batch = data || [];
+      if (pack.error) {
+        console.error('Responses query error:', pack.error.message, pack.error.code);
+        toast.error(pack.error.message || 'Could not load responses');
+        break;
+      }
+      const batch = pack.data || [];
       all.push(...batch);
       if (batch.length < PAGE_SIZE) break;
       from += PAGE_SIZE;

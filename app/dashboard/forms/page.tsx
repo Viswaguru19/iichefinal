@@ -242,15 +242,21 @@ export default function FormsPage() {
 
   function getFormStatus(form: any): string {
     const s = form.settings || {};
-    if (s.status === 'draft' || !form.is_active) return 'draft';
+    // is_active is the live switch (ignore leftover status=draft)
+    if (!form.is_active) return 'draft';
     if (s.end_date && new Date(s.end_date) < new Date()) return 'closed';
     if (s.start_date && new Date(s.start_date) > new Date()) return 'scheduled';
     return 'active';
   }
 
   function copyLink(formId: string) {
+    const form = forms.find((f) => f.id === formId);
     navigator.clipboard.writeText(publicFormUrl(window.location.origin, formId));
-    toast.success('Public link copied!');
+    if (form && !form.is_active && !isFormTestMode(form)) {
+      toast.error('Copied — but form is CLOSED. Click Start Collecting before sharing with students.');
+    } else {
+      toast.success('Public link copied!');
+    }
   }
 
   async function deleteForm(formId: string) {
@@ -282,12 +288,11 @@ export default function FormsPage() {
       return;
     }
     setToggling(form.id);
-    const isCurrentlyActive = form.is_active && (form.settings?.status !== 'draft');
+    const isCurrentlyActive = !!form.is_active;
     const newActive = !isCurrentlyActive;
     const newSettings = {
       ...(form.settings || {}),
       status: newActive ? 'active' : 'draft',
-      // Starting live collection turns test mode off
       test_mode: newActive ? false : !!(form.settings?.test_mode || form.settings?.testMode),
     };
     delete (newSettings as any).testMode;
@@ -340,7 +345,7 @@ export default function FormsPage() {
       toast.error('You must be logged in to change this form.');
       return;
     }
-    const isCurrentlyActive = form.is_active && (form.settings?.status !== 'draft');
+    const isCurrentlyActive = !!form.is_active;
     if (isCurrentlyActive) {
       toast.error('Stop collecting first — test mode is only for when the form is not live.');
       return;

@@ -51,15 +51,14 @@ export function getResponseViewerIds(settings?: ResponseViewerSettings | null): 
   return [...new Set(ids.map(String).filter(Boolean))];
 }
 
-/** Form is accepting real (live) responses. */
+/** Form is accepting real (live) responses. `is_active` is the source of truth. */
 export function isFormCollecting(form: {
   is_active?: boolean | null;
   settings?: { status?: string | null } | null;
 } | null | undefined): boolean {
   if (!form) return false;
-  if (!form.is_active) return false;
-  if ((form.settings?.status || '') === 'draft') return false;
-  return true;
+  // Prefer is_active — older rows sometimes kept status:'draft' after Start Collecting.
+  return form.is_active === true;
 }
 
 /** Explicit test mode: link accepts TEST responses (cleared when Start Collecting). */

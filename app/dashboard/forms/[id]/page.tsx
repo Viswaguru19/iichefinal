@@ -415,13 +415,24 @@ export default function FormSubmitPage() {
 
     /** Live event registration only — tests go through public/test RPC (no participants). */
     if (!submittingAsTest && form?.form_type === 'event_registration' && form?.event_id) {
-      const { data: rpcData, error: rpcError } = await supabase.rpc('submit_event_registration_response', {
-        p_form_id: params.id,
-        p_responses: responses,
-        p_participant_name: String(nameVal || 'Participant'),
-        p_participant_email: emailVal ? String(emailVal) : '',
-        p_registration_source: registrationSource,
-      });
+      const rpcPack = await withTimeout(
+        Promise.resolve(
+          supabase.rpc('submit_event_registration_response', {
+            p_form_id: formId,
+            p_responses: responses,
+            p_participant_name: String(nameVal || 'Participant'),
+            p_participant_email: emailVal ? String(emailVal) : '',
+            p_registration_source: registrationSource,
+          }),
+        ),
+        20000,
+      );
+      if (!rpcPack) {
+        toast.error('Registration timed out. Please try again.');
+        setSubmitting(false);
+        return;
+      }
+      const { data: rpcData, error: rpcError } = rpcPack;
       if (rpcError) {
         console.error('submit_event_registration_response', rpcError);
         await onSubmitConflict(rpcError.message || 'Failed to submit registration');
@@ -437,7 +448,7 @@ export default function FormSubmitPage() {
         participant_id: row.participant_id,
         event_id: form.event_id,
         response_id: row.response_id,
-        form_id: params.id,
+        form_id: formId,
         participant_name: nameVal,
         participant_email: emailVal,
         submitted_at: new Date().toISOString(),
@@ -445,7 +456,11 @@ export default function FormSubmitPage() {
       const showPersonalQr = shouldShowPersonalQrAfterSubmit(form?.settings, form?.form_type);
       if (showPersonalQr) {
         setParticipantQrPayload(payload);
-        setParticipantQrImage(await qrDataUrl(payload, 280));
+        try {
+          setParticipantQrImage(await withTimeout(qrDataUrl(payload, 280), 8000));
+        } catch {
+          setParticipantQrImage(null);
+        }
       } else {
         setParticipantQrPayload(null);
         setParticipantQrImage(null);
@@ -457,64 +472,46 @@ export default function FormSubmitPage() {
       return;
     }
 
-    if (submittingAsTest || !user) {
-      const { data: rpcData, error: rpcError } = await supabase.rpc('submit_public_form_response', {
-        p_form_id: params.id,
-        p_responses: responses,
-      });
-      if (rpcError) {
-        await onSubmitConflict(rpcError.message || 'Failed to submit');
-        return;
-      }
-      const row = rpcData as { response_id?: string; is_test?: boolean } | null;
-      setSubmittedWasOnSite(false);
-      setSubmittedWasTest(!!row?.is_test || submittingAsTest);
-      if (!submittingAsTest && shouldShowPersonalQrAfterSubmit(form?.settings, form?.form_type) && row?.response_id) {
-        const participantId = crypto.randomUUID();
-        const payload = {
-          participant_id: participantId,
-          event_id: form?.event_id || null,
-          response_id: row.response_id,
-          form_id: params.id,
-          participant_name: nameVal,
-          participant_email: emailVal || '',
-          submitted_at: new Date().toISOString(),
-        };
-        setParticipantQrPayload(payload);
-        setParticipantQrImage(await qrDataUrl(payload, 260));
-      } else {
-        setParticipantQrPayload(null);
-        setParticipantQrImage(null);
-      }
-      setSubmitted(true);
+    // All normal (and test) submits go through the public RPC — reliable under concurrent load
+    const rpcPack = await withTimeout(
+      Promise.resolve(
+        supabase.rpc('submit_public_form_response', {
+          p_form_id: formId,
+          p_responses: responses,
+        }),
+      ),
+      20000,
+    );
+    if (!rpcPack) {
+      toast.error('Submit timed out. Please try again.');
       setSubmitting(false);
       return;
     }
-
-    const { data: inserted, error } = await supabase
-      .from('form_responses')
-      .insert({ form_id: params.id, user_id: user?.id || null, responses, is_test: false })
-      .select('id')
-      .single();
-    if (error) {
-      await onSubmitConflict(error.message || 'Failed to submit');
+    const { data: rpcData, error: rpcError } = rpcPack;
+    if (rpcError) {
+      await onSubmitConflict(rpcError.message || 'Failed to submit');
       return;
     }
+    const row = rpcData as { response_id?: string; is_test?: boolean } | null;
     setSubmittedWasOnSite(false);
-    setSubmittedWasTest(false);
-    if (shouldShowPersonalQrAfterSubmit(form?.settings, form?.form_type) && inserted?.id) {
+    setSubmittedWasTest(!!row?.is_test || submittingAsTest);
+    if (!submittingAsTest && shouldShowPersonalQrAfterSubmit(form?.settings, form?.form_type) && row?.response_id) {
       const participantId = crypto.randomUUID();
       const payload = {
         participant_id: participantId,
         event_id: form?.event_id || null,
-        response_id: inserted?.id,
-        form_id: params.id,
+        response_id: row.response_id,
+        form_id: formId,
         participant_name: nameVal,
         participant_email: emailVal || '',
         submitted_at: new Date().toISOString(),
       };
       setParticipantQrPayload(payload);
-      setParticipantQrImage(await qrDataUrl(payload, 260));
+      try {
+        setParticipantQrImage(await withTimeout(qrDataUrl(payload, 260), 8000));
+      } catch {
+        setParticipantQrImage(null);
+      }
     } else {
       setParticipantQrPayload(null);
       setParticipantQrImage(null);
