@@ -949,6 +949,7 @@ html.chat-viewport-lock body {
   justify-content: center;
   gap: 0.08em;
   letter-spacing: -0.03em;
+  font-family: "Avenir Next", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
 }
 
 .portal-loader-letter {
@@ -978,6 +979,7 @@ html.chat-viewport-lock body {
 .portal-loader-meta {
   position: relative;
   z-index: 1;
+  font-family: "Avenir Next", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
 }
 
 .portal-loader-brand-text {

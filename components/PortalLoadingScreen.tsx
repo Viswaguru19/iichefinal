@@ -1,19 +1,6 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Syne, Outfit } from 'next/font/google';
-
-const display = Syne({
-  subsets: ['latin'],
-  weight: ['700', '800'],
-  display: 'swap',
-});
-
-const body = Outfit({
-  subsets: ['latin'],
-  weight: ['400', '500', '600'],
-  display: 'swap',
-});
 
 interface PortalLoadingScreenProps {
   message?: string;
@@ -22,35 +9,27 @@ interface PortalLoadingScreenProps {
 }
 
 const LETTERS = ['I', 'I', 'C', 'h', 'E'] as const;
-const LETTER_DELAY_MS = 90;
 
+/** Lightweight loader — CSS only (no Google font round-trips). */
 export default function PortalLoadingScreen({
   message = 'Loading portal…',
   fullPage = true,
   className = '',
 }: PortalLoadingScreenProps) {
-  const [visibleCount, setVisibleCount] = useState(0);
+  const [visibleCount, setVisibleCount] = useState(LETTERS.length);
 
   useEffect(() => {
+    // One-shot reveal only (no endless letter reset — felt like endless loading)
     setVisibleCount(0);
-    const timers: ReturnType<typeof setTimeout>[] = [];
-    const run = () => {
-      setVisibleCount(0);
-      LETTERS.forEach((_, i) => {
-        timers.push(setTimeout(() => setVisibleCount(i + 1), LETTER_DELAY_MS * (i + 1)));
-      });
-    };
-    run();
-    const loop = setInterval(run, LETTER_DELAY_MS * LETTERS.length + 1600);
-    return () => {
-      timers.forEach(clearTimeout);
-      clearInterval(loop);
-    };
+    const timers = LETTERS.map((_, i) =>
+      setTimeout(() => setVisibleCount(i + 1), 70 * (i + 1)),
+    );
+    return () => timers.forEach(clearTimeout);
   }, []);
 
   const card = (
     <div
-      className={`portal-loader-shell ${display.className} ${className}`.trim()}
+      className={`portal-loader-shell ${className}`.trim()}
       role="status"
       aria-live="polite"
       aria-busy="true"
@@ -74,7 +53,7 @@ export default function PortalLoadingScreen({
         </div>
       </div>
 
-      <div className={`portal-loader-meta ${body.className}`}>
+      <div className="portal-loader-meta">
         <p className="portal-loader-brand-text">AVVU SC</p>
         <p className="portal-loader-tagline">Student Chapter Portal</p>
         <p className="portal-loader-message">{message}</p>

@@ -10,6 +10,7 @@ import toast from 'react-hot-toast';
 import { publicFormUrl } from '@/lib/form-public-access';
 import PageHeader from '@/components/PageHeader';
 import { canManageForm, canViewFormResponses, isFormTestMode } from '@/lib/form-access';
+import { withTimeout } from '@/lib/with-timeout';
 
 const container = {
   hidden: { opacity: 0 },
@@ -34,56 +35,128 @@ export default function FormsPage() {
   useEffect(() => { fetchForms(); }, []);
 
   async function fetchForms() {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    setCurrentUserId(user.id);
-
-    const { data: userProfile } = await supabase
-      .from('profiles')
-      .select('is_admin, is_faculty, executive_role')
-      .eq('id', user.id)
-      .maybeSingle();
-    setProfile(userProfile);
-
-    const { data: formsData } = await supabase
-      .from('forms')
-      .select('*, creator:profiles!forms_created_by_fkey(name)')
-      .order('created_at', { ascending: false });
-    if (!formsData) { setLoading(false); return; }
-
-    // One responses query (grouped client-side) instead of N count round-trips
-    let countByForm: Record<string, number> = {};
-    let testCountByForm: Record<string, number> = {};
-    const viewable = formsData.filter((f: any) => canViewFormResponses(f, user.id, userProfile));
-    if (viewable.length > 0) {
-      const { data: rows } = await supabase
-        .from('form_responses')
-        .select('form_id, is_test')
-        .in(
-          'form_id',
-          viewable.map((f: { id: string }) => f.id),
+    setLoading(true);
+    try {
+      const sessionUser = await withTimeout(
+        supabase.auth.getSession().then(({ data }) => data.session?.user ?? null),
+        3000,
+      );
+      let user = sessionUser;
+      if (!user) {
+        user = await withTimeout(
+          supabase.auth.getUser().then(({ data }) => data.user ?? null),
+          2500,
         );
-      for (const row of rows || []) {
-        const id = String((row as { form_id: string }).form_id);
-        const isTest = !!(row as { is_test?: boolean }).is_test;
-        if (isTest) testCountByForm[id] = (testCountByForm[id] || 0) + 1;
-        else countByForm[id] = (countByForm[id] || 0) + 1;
       }
-    }
+      if (!user) {
+        toast.error('Please sign in to view forms');
+        setForms([]);
+        return;
+      }
+      setCurrentUserId(user.id);
 
-    const withCounts = formsData.map((f: any) => {
-      const canView = canViewFormResponses(f, user.id, userProfile);
-      return {
+      const formsResult = await withTimeout(
+        Promise.resolve(
+          supabase
+            .from('forms')
+            .select('id, title, description, fields, settings, is_active, form_type, event_id, created_by, created_at, creator:profiles!forms_created_by_fkey(name)')
+            .order('created_at', { ascending: false }),
+        ),
+        8000,
+      );
+
+      const formsData = formsResult?.data;
+      if (!formsData) {
+        if (formsResult?.error) toast.error(formsResult.error.message || 'Failed to load forms');
+        setForms([]);
+        return;
+      }
+
+      // Paint list immediately — counts load in the background
+      const baseRows = formsData.map((f: any) => ({
         ...f,
-        response_count: canView ? (countByForm[f.id] || 0) + (testCountByForm[f.id] || 0) : 0,
-        live_count: canView ? countByForm[f.id] || 0 : 0,
-        test_count: canView ? testCountByForm[f.id] || 0 : 0,
-        can_view_responses: canView,
+        response_count: 0,
+        live_count: 0,
+        test_count: 0,
+        can_view_responses: false,
         computed_status: getFormStatus(f),
-      };
-    });
-    setForms(withCounts);
-    setLoading(false);
+      }));
+      setForms(baseRows);
+      setLoading(false);
+
+      const profileResult = await withTimeout(
+        Promise.resolve(
+          supabase
+            .from('profiles')
+            .select('is_admin, is_faculty, executive_role')
+            .eq('id', user.id)
+            .maybeSingle(),
+        ),
+        2500,
+      );
+      const userProfile = profileResult?.data ?? null;
+      setProfile(userProfile);
+
+      const viewable = formsData.filter((f: any) => canViewFormResponses(f, user!.id, userProfile));
+      let countByForm: Record<string, number> = {};
+      let testCountByForm: Record<string, number> = {};
+
+      if (viewable.length > 0) {
+        let rowsResult = await withTimeout(
+          Promise.resolve(
+            supabase
+              .from('form_responses')
+              .select('form_id, is_test')
+              .in(
+                'form_id',
+                viewable.map((f: { id: string }) => f.id),
+              ),
+          ),
+          5000,
+        );
+        // Migration 119 not applied yet → retry without is_test
+        if (rowsResult?.error) {
+          rowsResult = await withTimeout(
+            Promise.resolve(
+              supabase
+                .from('form_responses')
+                .select('form_id')
+                .in(
+                  'form_id',
+                  viewable.map((f: { id: string }) => f.id),
+                ),
+            ),
+            5000,
+          );
+        }
+        for (const row of rowsResult?.data || []) {
+          const id = String((row as { form_id: string }).form_id);
+          const isTest = !!(row as { is_test?: boolean }).is_test;
+          if (isTest) testCountByForm[id] = (testCountByForm[id] || 0) + 1;
+          else countByForm[id] = (countByForm[id] || 0) + 1;
+        }
+      }
+
+      setForms(
+        formsData.map((f: any) => {
+          const canView = canViewFormResponses(f, user!.id, userProfile);
+          return {
+            ...f,
+            response_count: canView ? (countByForm[f.id] || 0) + (testCountByForm[f.id] || 0) : 0,
+            live_count: canView ? countByForm[f.id] || 0 : 0,
+            test_count: canView ? testCountByForm[f.id] || 0 : 0,
+            can_view_responses: canView,
+            computed_status: getFormStatus(f),
+          };
+        }),
+      );
+    } catch (err) {
+      console.error('fetchForms', err);
+      toast.error('Could not load forms');
+      setForms([]);
+    } finally {
+      setLoading(false);
+    }
   }
 
   function getFormStatus(form: any): string {

@@ -9,10 +9,11 @@ import { EXACT_TWO_HINT, isValidRollNo, rollCountFromValidation, excludedRollsFr
 import SearchableRollSelect from '@/components/forms/SearchableRollSelect';
 import { canViewFormResponses, shouldShowPersonalQrAfterSubmit, isFormCollecting, isFormTestMode } from '@/lib/form-access';
 import Link from 'next/link';
-import { useParams, useRouter, usePathname } from 'next/navigation';
+import { useParams, usePathname } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { isEventOpenForRegistration } from '@/lib/event-registration';
 import { publicFormUrl } from '@/lib/form-public-access';
+import { withTimeout } from '@/lib/with-timeout';
 import {
   extractResponderEmail,
   extractResponderName,
@@ -77,12 +78,21 @@ export default function FormSubmitPage() {
   const [previewOnly, setPreviewOnly] = useState(false);
   const [submittedWasTest, setSubmittedWasTest] = useState(false);
   const params = useParams();
-  const router = useRouter();
   const pathname = usePathname();
   const isPublicFormRoute = pathname?.startsWith('/forms/');
+  const formId = Array.isArray(params.id) ? params.id[0] : String(params.id || '');
   const supabase = createClient();
 
-  useEffect(() => { fetchForm(); }, []);
+  useEffect(() => {
+    if (!formId) {
+      setLoading(false);
+      setFormClosed(true);
+      setClosedReason('Invalid form link.');
+      return;
+    }
+    void fetchForm();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load once per form id
+  }, [formId]);
 
   async function refreshTakenRolls(formFields: FormField[], asTest = isTestMode) {
     const rollFields = formFields.filter((f) => f.field_type === 'roll_no' && f.label?.trim());
@@ -93,17 +103,22 @@ export default function FormSubmitPage() {
     const next: Record<string, string[]> = {};
     await Promise.all(
       rollFields.map(async (f) => {
-        const { data, error } = await supabase.rpc('form_taken_roll_numbers', {
-          p_form_id: params.id,
-          p_field_label: f.label.trim(),
-          p_is_test: asTest,
-        });
-        if (error) {
-          console.error('form_taken_roll_numbers', error);
+        const result = await withTimeout(
+          Promise.resolve(
+            supabase.rpc('form_taken_roll_numbers', {
+              p_form_id: formId,
+              p_field_label: f.label.trim(),
+              p_is_test: asTest,
+            }),
+          ),
+          3500,
+        );
+        if (!result || result.error) {
+          if (result?.error) console.error('form_taken_roll_numbers', result.error);
           next[f.id] = [];
           return;
         }
-        next[f.id] = Array.isArray(data) ? data.map(String) : [];
+        next[f.id] = Array.isArray(result.data) ? result.data.map(String) : [];
       }),
     );
     setTakenRollsByFieldId(next);
@@ -111,170 +126,193 @@ export default function FormSubmitPage() {
 
   async function fetchForm() {
     setSubmittedWasOnSite(false);
+    setLoading(true);
 
-    const formId = Array.isArray(params.id) ? params.id[0] : String(params.id || '');
+    try {
+      // Critical path ONLY: form definition (never wait on Auth)
+      const formResult = await withTimeout(
+        Promise.resolve(
+          supabase
+            .from('forms')
+            .select('id, title, description, fields, settings, is_active, form_type, event_id, created_by')
+            .eq('id', formId)
+            .single(),
+        ),
+        8000,
+      );
 
-    // Critical path: load form definition first (do not wait on Auth for public links)
-    // banner lives in settings.banner_url — there is no forms.banner_url column
-    const formPromise = supabase
-      .from('forms')
-      .select('id, title, description, fields, settings, is_active, form_type, event_id, created_by')
-      .eq('id', formId)
-      .single();
-
-    // Public route: local session only (no Auth network). Dashboard: getUser.
-    const userPromise = isPublicFormRoute
-      ? supabase.auth.getSession().then(({ data }) => data.session?.user ?? null)
-      : supabase.auth.getUser().then(({ data }) => data.user ?? null);
-
-    const [{ data: formData, error }, authUser] = await Promise.all([formPromise, userPromise]);
-    setUser(authUser);
-
-    if (error || !formData) {
-      console.error('fetchForm', error);
-      toast.error(error?.code === 'PGRST116' ? 'Form not found' : (error?.message || 'Form not found'));
-      setLoading(false);
-      return;
-    }
-
-    let profileForPrefill: any = null;
-    if (authUser) {
-      // Soft / deferred profile — do not block form paint longer than needed
-      const { data: prof } = await supabase
-        .from('profiles')
-        .select('name, email, is_admin, is_faculty')
-        .eq('id', authUser.id)
-        .maybeSingle();
-      setProfile(prof);
-      profileForPrefill = prof;
-    }
-    const settings = formData.settings || {};
-    let closed = false;
-    let closedReasonLocal = '';
-    const collecting = isFormCollecting(formData);
-    const testMode = isFormTestMode(formData);
-    setIsTestMode(testMode);
-    setPreviewOnly(false);
-
-    // Neither live nor test → closed (preview-only for creator still handled below via already-submitted)
-    if (!collecting && !testMode) {
-      closed = true;
-      closedReasonLocal = 'This form is not accepting responses. Turn on Test mode or Start Collecting.';
-    } else if (settings.end_date && collecting && new Date(settings.end_date) < new Date()) {
-      closed = true;
-      closedReasonLocal = 'This form has passed its deadline.';
-    } else if (settings.start_date && collecting && new Date(settings.start_date) > new Date()) {
-      closed = true;
-      closedReasonLocal = `This form opens on ${new Date(settings.start_date).toLocaleDateString()}.`;
-    } else if ((settings.require_login ?? settings.requireLogin ?? false) && !authUser) {
-      closed = true;
-      closedReasonLocal = 'You must be logged in to fill this form.';
-    } else if ((settings.access_type ?? settings.accessType ?? 'public') === 'internal' && !authUser) {
-      closed = true;
-      closedReasonLocal = 'This form is only available to portal members.';
-    }
-
-    const isCreator = !!(authUser && formData.created_by === authUser.id);
-
-    // Live only: block repeat live submits (ignore test rows). Creator may still preview.
-    if (!closed && collecting && !(settings.allow_multiple ?? settings.allowMultiple) && authUser) {
-      const { data: existing } = await supabase
-        .from('form_responses')
-        .select('id')
-        .eq('form_id', formId)
-        .eq('user_id', authUser.id)
-        .eq('is_test', false)
-        .limit(1);
-      if (existing && existing.length > 0) {
-        if (isCreator) {
-          setPreviewOnly(true);
-        } else {
-          closed = true;
-          closedReasonLocal = 'You have already submitted a response.';
-        }
+      if (!formResult || formResult.error || !formResult.data) {
+        console.error('fetchForm', formResult?.error);
+        toast.error(
+          formResult?.error?.code === 'PGRST116'
+            ? 'Form not found'
+            : formResult?.error?.message || 'Form not found or timed out',
+        );
+        setForm(null);
+        setFormClosed(true);
+        setClosedReason('Form not found. Check the link, or apply migration 120 if this is a draft.');
+        setLoading(false);
+        return;
       }
-    }
 
-    setForm(formData);
-    const formFields = (formData.fields || []) as FormField[];
-    setFields(formFields);
-    if (authUser) {
+      const formData = formResult.data;
+      const settings = formData.settings || {};
+      const formFields = (formData.fields || []) as FormField[];
+      const collecting = isFormCollecting(formData);
+      const testMode = isFormTestMode(formData);
+
+      let closed = false;
+      let closedReasonLocal = '';
+      if (!collecting && !testMode) {
+        closed = true;
+        closedReasonLocal = 'This form is not accepting responses. Turn on Test mode or Start Collecting.';
+      } else if (settings.end_date && collecting && new Date(settings.end_date) < new Date()) {
+        closed = true;
+        closedReasonLocal = 'This form has passed its deadline.';
+      } else if (settings.start_date && collecting && new Date(settings.start_date) > new Date()) {
+        closed = true;
+        closedReasonLocal = `This form opens on ${new Date(settings.start_date).toLocaleDateString()}.`;
+      }
+
+      setForm(formData);
+      setFields(formFields);
+      setIsTestMode(testMode);
+      setPreviewOnly(false);
+      setFormClosed(closed);
+      setClosedReason(closedReasonLocal);
+      setLoading(false); // Paint immediately — enrich below
+
+      // Soft session (cookie-local on public; budgeted getUser on dashboard)
+      const authUser = await withTimeout(
+        isPublicFormRoute
+          ? supabase.auth.getSession().then(({ data }) => data.session?.user ?? null)
+          : supabase.auth.getUser().then(({ data }) => data.user ?? null),
+        2500,
+      );
+      setUser(authUser);
+
+      if (!authUser) {
+        if (!closed && (settings.require_login ?? settings.requireLogin ?? false)) {
+          setFormClosed(true);
+          setClosedReason('You must be logged in to fill this form.');
+        } else if (!closed && (settings.access_type ?? settings.accessType ?? 'public') === 'internal') {
+          setFormClosed(true);
+          setClosedReason('This form is only available to portal members.');
+        }
+        setCanViewResponses(false);
+        if (!closed && formFields.some((f) => f.field_type === 'roll_no')) {
+          void refreshTakenRolls(formFields, testMode);
+        }
+        return;
+      }
+
+      const profResult = await withTimeout(
+        Promise.resolve(
+          supabase
+            .from('profiles')
+            .select('name, email, is_admin, is_faculty')
+            .eq('id', authUser.id)
+            .maybeSingle(),
+        ),
+        2500,
+      );
+      const profileForPrefill = profResult?.data ?? null;
+      setProfile(profileForPrefill);
       setCanViewResponses(canViewFormResponses(formData, authUser.id, profileForPrefill));
-    } else {
-      setCanViewResponses(false);
-    }
 
-    // Event gating: live event-reg only. Test mode still allows filling without event participant.
-    if (!closed && collecting && formData.form_type === 'event_registration' && formData.event_id) {
-      const { data: ev } = await supabase
-        .from('events')
-        .select('id, title, event_date, date, location, poster_url, poster_status, status')
-        .eq('id', formData.event_id)
-        .single();
-      if (!ev) {
-        closed = true;
-        closedReasonLocal = 'This registration form is not linked to a valid event.';
-      } else if (!isEventOpenForRegistration(ev.status)) {
-        closed = true;
-        closedReasonLocal =
-          'Registration is not open for this event. It may be completed, cancelled, or not yet published for sign-ups.';
-      } else {
-        const posterApproved =
-          ev.poster_status === 'approved' ||
-          (ev.poster_url && (ev.poster_status == null || ev.poster_status === ''));
-        let posterUrl: string | null = null;
-        if (posterApproved && ev.poster_url) {
-          posterUrl = ev.poster_url;
-          if (posterUrl && !posterUrl.startsWith('http')) {
-            const { data } = supabase.storage.from('event-documents').getPublicUrl(posterUrl);
-            posterUrl = data.publicUrl;
+      const isCreator = formData.created_by === authUser.id;
+
+      if (!closed && collecting && !(settings.allow_multiple ?? settings.allowMultiple)) {
+        const existingResult = await withTimeout(
+          Promise.resolve(
+            supabase
+              .from('form_responses')
+              .select('id')
+              .eq('form_id', formId)
+              .eq('user_id', authUser.id)
+              .eq('is_test', false)
+              .limit(1),
+          ),
+          2500,
+        );
+        const existing = existingResult?.data;
+        if (existing && existing.length > 0) {
+          if (isCreator) setPreviewOnly(true);
+          else {
+            setFormClosed(true);
+            setClosedReason('You have already submitted a response.');
+            closed = true;
           }
         }
-        setEventDetails({ ...ev, poster_url: posterUrl });
       }
-    } else if (!closed && formData.form_type === 'event_registration' && formData.event_id) {
-      // Test mode: show event context without blocking
-      const { data: ev } = await supabase
-        .from('events')
-        .select('id, title, event_date, date, location, poster_url, poster_status, status')
-        .eq('id', formData.event_id)
-        .single();
-      if (ev) {
-        let posterUrl: string | null = ev.poster_url || null;
-        if (posterUrl && !posterUrl.startsWith('http')) {
-          const { data } = supabase.storage.from('event-documents').getPublicUrl(posterUrl);
-          posterUrl = data.publicUrl;
+
+      if (profileForPrefill && formFields.length > 0) {
+        const nameField = pickNameField(formFields);
+        const emailField = pickEmailField(formFields);
+        const prefill: Record<string, string> = {};
+        if (nameField) prefill[nameField.id] = profileForPrefill?.name || '';
+        if (emailField) prefill[emailField.id] = profileForPrefill?.email || '';
+        if (Object.keys(prefill).length > 0) {
+          setAnswers((prev) => ({ ...prev, ...prefill }));
         }
-        setEventDetails({ ...ev, poster_url: posterUrl });
+      }
+
+      if (!closed && formData.form_type === 'event_registration' && formData.event_id) {
+        const evResult = await withTimeout(
+          Promise.resolve(
+            supabase
+              .from('events')
+              .select('id, title, event_date, date, location, poster_url, poster_status, status')
+              .eq('id', formData.event_id)
+              .maybeSingle(),
+          ),
+          3000,
+        );
+        const ev = evResult?.data;
+        if (collecting) {
+          if (!ev) {
+            setFormClosed(true);
+            setClosedReason('This registration form is not linked to a valid event.');
+          } else if (!isEventOpenForRegistration(ev.status)) {
+            setFormClosed(true);
+            setClosedReason(
+              'Registration is not open for this event. It may be completed, cancelled, or not yet published for sign-ups.',
+            );
+          } else {
+            const posterApproved =
+              ev.poster_status === 'approved' ||
+              (ev.poster_url && (ev.poster_status == null || ev.poster_status === ''));
+            let posterUrl: string | null = null;
+            if (posterApproved && ev.poster_url) {
+              posterUrl = ev.poster_url;
+              if (posterUrl && !posterUrl.startsWith('http')) {
+                posterUrl = supabase.storage.from('event-documents').getPublicUrl(posterUrl).data.publicUrl;
+              }
+            }
+            setEventDetails({ ...ev, poster_url: posterUrl });
+          }
+        } else if (ev) {
+          let posterUrl: string | null = ev.poster_url || null;
+          if (posterUrl && !posterUrl.startsWith('http')) {
+            posterUrl = supabase.storage.from('event-documents').getPublicUrl(posterUrl).data.publicUrl;
+          }
+          setEventDetails({ ...ev, poster_url: posterUrl });
+        } else {
+          setEventDetails(null);
+        }
       } else {
         setEventDetails(null);
       }
-    } else {
-      setEventDetails(null);
-    }
 
-    if (closed) {
-      setFormClosed(true);
-      setClosedReason(closedReasonLocal);
-    } else {
-      setFormClosed(false);
-      setClosedReason('');
-    }
-    if (authUser && profileForPrefill && formFields.length > 0) {
-      const nameField = pickNameField(formFields);
-      const emailField = pickEmailField(formFields);
-      const prefill: Record<string, string> = {};
-      if (nameField) prefill[nameField.id] = profileForPrefill?.name || '';
-      if (emailField) prefill[emailField.id] = profileForPrefill?.email || '';
-      if (Object.keys(prefill).length > 0) {
-        setAnswers((prev) => ({ ...prev, ...prefill }));
+      if (!closed && formFields.some((f) => f.field_type === 'roll_no')) {
+        void refreshTakenRolls(formFields, testMode);
       }
-    }
-    setLoading(false);
-
-    // One-shot taken rolls (no continuous polling — that caused DB storms under concurrent load)
-    if (!closed && formFields.some((f) => f.field_type === 'roll_no')) {
-      void refreshTakenRolls(formFields, testMode);
+    } catch (err) {
+      console.error('fetchForm fatal', err);
+      toast.error('Could not load form');
+      setFormClosed(true);
+      setClosedReason('Could not load this form. Please try again.');
+      setLoading(false);
     }
   }
 
