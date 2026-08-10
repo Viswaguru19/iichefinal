@@ -598,7 +598,6 @@ export default function FormResponsesPage() {
               {filteredResponses.map((response, idx) => {
                 const isExpanded = expandAll || expandedResponse === 'all' || expandedResponse === response.id;
                 const shown = visibleAnswers(response);
-                const official = officialAnswers(response);
                 const displayName = getResponderDisplayName(shown, fields, response.user);
                 const displayEmail = getResponderDisplayEmail(shown, fields, response.user);
                 const displayMobile = getResponderDisplayMobile(shown, fields);
@@ -675,8 +674,6 @@ export default function FormResponsesPage() {
                             )}
                             {fields.map(field => {
                               const val = shown?.[field.label];
-                              const officialVal = official?.[field.label];
-                              const differs = hasAmend && JSON.stringify(val) !== JSON.stringify(officialVal);
                               return (
                                 <div key={field.id} className="pt-3">
                                   <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">{field.label}</p>
@@ -687,11 +684,6 @@ export default function FormResponsesPage() {
                                     </a>
                                   ) : (
                                     <p className="text-sm text-gray-800 break-words">{Array.isArray(val) ? val.join(', ') : val || <span className="text-gray-300">—</span>}</p>
-                                  )}
-                                  {differs && response.admin_edit_keeps_result && (
-                                    <p className="text-[11px] text-gray-400 mt-1">
-                                      Official result (charts): {Array.isArray(officialVal) ? officialVal.join(', ') : String(officialVal ?? '—')}
-                                    </p>
                                   )}
                                 </div>
                               );
