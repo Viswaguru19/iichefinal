@@ -4,7 +4,7 @@ import PortalLoadingScreen from '@/components/PortalLoadingScreen';
 import { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { createClient } from '@/lib/supabase/client';
-import { ArrowLeft, Download, BarChart3, Users, FileText, Search, ChevronDown, ExternalLink, Copy, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Download, BarChart3, Users, FileText, Search, ChevronDown, ExternalLink, Copy, AlertTriangle, Pencil } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import toast from 'react-hot-toast';
@@ -15,9 +15,10 @@ import {
   getResponderDedupeKey,
 } from '@/lib/form-responder-fields';
 import SimplePieChart, { pieColors } from '@/components/forms/SimplePieChart';
-import { generateAvailableRollOptions, rollCountFromValidation, excludedRollsFromValidation } from '@/lib/form-field-types';
+import { generateAvailableRollOptions, rollCountFromValidation, excludedRollsFromValidation, EXACT_TWO_HINT } from '@/lib/form-field-types';
 import { canViewFormResponses } from '@/lib/form-access';
 import { withTimeout } from '@/lib/with-timeout';
+import { isSuperAdmin } from '@/lib/permissions';
 
 interface FormField {
   id: string;
@@ -29,16 +30,32 @@ interface FormField {
 
 const PAGE_SIZE = 1000;
 
+function officialAnswers(r: any): Record<string, any> {
+  return (r?.responses && typeof r.responses === 'object' ? r.responses : {}) as Record<string, any>;
+}
+
+function visibleAnswers(r: any): Record<string, any> {
+  if (r?.amended_responses && typeof r.amended_responses === 'object') {
+    return r.amended_responses as Record<string, any>;
+  }
+  return officialAnswers(r);
+}
+
 export default function FormResponsesPage() {
   const [form, setForm] = useState<any>(null);
   const [fields, setFields] = useState<FormField[]>([]);
   const [responses, setResponses] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [canView, setCanView] = useState(false);
+  const [isSuper, setIsSuper] = useState(false);
   const [view, setView] = useState<'summary' | 'individual'>('summary');
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedResponse, setExpandedResponse] = useState<string | null>(null);
   const [expandAll, setExpandAll] = useState(false);
+  const [editing, setEditing] = useState<any | null>(null);
+  const [editDraft, setEditDraft] = useState<Record<string, any>>({});
+  const [editMode, setEditMode] = useState<'change' | 'keep'>('change');
+  const [savingEdit, setSavingEdit] = useState(false);
   const params = useParams();
   const supabase = createClient();
 
@@ -66,7 +83,7 @@ export default function FormResponsesPage() {
       const [profilePack, formPack] = await Promise.all([
         withTimeout(
           Promise.resolve(
-            supabase.from('profiles').select('is_admin, is_faculty').eq('id', user.id).maybeSingle(),
+            supabase.from('profiles').select('is_admin, is_faculty, role').eq('id', user.id).maybeSingle(),
           ),
           5000,
         ),
@@ -84,6 +101,7 @@ export default function FormResponsesPage() {
         return;
       }
 
+      setIsSuper(isSuperAdmin(String(profile?.role || '')));
       const hasAccess = canViewFormResponses(formData, user.id, profile);
       setCanView(hasAccess);
       if (hasAccess) await fetchData(formData);
@@ -160,7 +178,7 @@ export default function FormResponsesPage() {
   }
 
   function getFieldSummary(field: FormField) {
-    const vals = responses.map(r => r.responses?.[field.label]).filter(v => v !== null && v !== undefined && v !== '');
+    const vals = responses.map(r => officialAnswers(r)?.[field.label]).filter(v => v !== null && v !== undefined && v !== '');
     if (field.field_type === 'roll_no') {
       const options = generateAvailableRollOptions(
         rollCountFromValidation(field.validation),
@@ -213,7 +231,8 @@ export default function FormResponsesPage() {
     const responseFlags = new Map<string, { key: string; type: string; count: number }>();
     for (const r of responses) {
       if (r.is_test) continue;
-      const dedupe = getResponderDedupeKey(r.responses, fields, r.user);
+      const answers = officialAnswers(r);
+      const dedupe = getResponderDedupeKey(answers, fields, r.user);
       if (!dedupe.type || !dedupe.value) continue;
       const k = `${dedupe.type}:${dedupe.value}`;
       keyCounts.set(k, (keyCounts.get(k) || 0) + 1);
@@ -221,7 +240,8 @@ export default function FormResponsesPage() {
     let duplicateResponseCount = 0;
     for (const r of responses) {
       if (r.is_test) continue;
-      const dedupe = getResponderDedupeKey(r.responses, fields, r.user);
+      const answers = officialAnswers(r);
+      const dedupe = getResponderDedupeKey(answers, fields, r.user);
       if (!dedupe.type || !dedupe.value) continue;
       const k = `${dedupe.type}:${dedupe.value}`;
       const count = keyCounts.get(k) || 0;
@@ -234,17 +254,93 @@ export default function FormResponsesPage() {
     return { responseFlags, duplicateResponseCount, duplicateGroups };
   }, [responses, fields]);
 
+  function openEdit(response: any) {
+    if (!isSuper) return;
+    const base = visibleAnswers(response);
+    const draft: Record<string, any> = {};
+    for (const f of fields) {
+      draft[f.label] = base[f.label] ?? (f.field_type === 'checkbox' || f.field_type === 'checkbox_exact_2' ? [] : '');
+    }
+    setEditDraft(draft);
+    setEditMode('change');
+    setEditing(response);
+  }
+
+  async function saveEdit() {
+    if (!editing) return;
+    setSavingEdit(true);
+    try {
+      for (const f of fields) {
+        if (f.field_type === 'checkbox_exact_2') {
+          const sel = Array.isArray(editDraft[f.label]) ? editDraft[f.label] : [];
+          if (sel.length !== 2) {
+            toast.error(`${f.label}: ${EXACT_TWO_HINT}`);
+            setSavingEdit(false);
+            return;
+          }
+        }
+      }
+      const changeResult = editMode === 'change';
+      const pack = await withTimeout(
+        Promise.resolve(
+          supabase.rpc('admin_edit_form_response', {
+            p_response_id: editing.id,
+            p_responses: editDraft,
+            p_change_result: changeResult,
+          }),
+        ),
+        15000,
+      );
+      if (!pack) {
+        toast.error('Save timed out');
+        return;
+      }
+      if (pack.error) {
+        toast.error(pack.error.message || 'Could not save edit');
+        return;
+      }
+      setResponses((prev) =>
+        prev.map((r) => {
+          if (r.id !== editing.id) return r;
+          if (changeResult) {
+            return {
+              ...r,
+              responses: editDraft,
+              amended_responses: null,
+              admin_edit_keeps_result: false,
+              admin_edited_at: new Date().toISOString(),
+            };
+          }
+          return {
+            ...r,
+            amended_responses: editDraft,
+            admin_edit_keeps_result: true,
+            admin_edited_at: new Date().toISOString(),
+          };
+        }),
+      );
+      toast.success(changeResult ? 'Result updated (summary will change)' : 'Answer updated — official result kept for summary');
+      setEditing(null);
+    } finally {
+      setSavingEdit(false);
+    }
+  }
+
   function exportCSV() {
     if (responses.length === 0) { toast.error('No responses to export'); return; }
-    const headers = ['Submitted At', 'Type', 'Name', 'Email', 'Mobile', ...fields.map(f => f.label)];
-    const rows = responses.map(r => [
-      new Date(r.submitted_at || r.created_at).toLocaleString(),
-      r.is_test ? 'TEST' : 'Live',
-      getResponderDisplayName(r.responses, fields, r.user),
-      getResponderDisplayEmail(r.responses, fields, r.user) || '-',
-      getResponderDisplayMobile(r.responses, fields) || '-',
-      ...fields.map(f => { const val = r.responses?.[f.label]; return Array.isArray(val) ? val.join('; ') : val ?? ''; }),
-    ]);
+    const headers = ['Submitted At', 'Type', 'Name', 'Email', 'Mobile', 'Admin amend', ...fields.map(f => f.label)];
+    const rows = responses.map(r => {
+      const shown = visibleAnswers(r);
+      return [
+        new Date(r.submitted_at || r.created_at).toLocaleString(),
+        r.is_test ? 'TEST' : 'Live',
+        getResponderDisplayName(shown, fields, r.user),
+        getResponderDisplayEmail(shown, fields, r.user) || '-',
+        getResponderDisplayMobile(shown, fields) || '-',
+        r.amended_responses ? (r.admin_edit_keeps_result ? 'Yes (result unchanged)' : 'Yes (result changed)') : '',
+        ...fields.map(f => { const val = shown?.[f.label]; return Array.isArray(val) ? val.join('; ') : val ?? ''; }),
+      ];
+    });
     const csv = [headers, ...rows].map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
@@ -256,9 +352,10 @@ export default function FormResponsesPage() {
   const filteredResponses = searchTerm
     ? responses.filter(r => {
       const t = searchTerm.toLowerCase();
-      const name = getResponderDisplayName(r.responses, fields, r.user).toLowerCase();
-      const email = getResponderDisplayEmail(r.responses, fields, r.user).toLowerCase();
-      const mobile = getResponderDisplayMobile(r.responses, fields);
+      const shown = visibleAnswers(r);
+      const name = getResponderDisplayName(shown, fields, r.user).toLowerCase();
+      const email = getResponderDisplayEmail(shown, fields, r.user).toLowerCase();
+      const mobile = getResponderDisplayMobile(shown, fields);
       return name.includes(t) || email.includes(t) || mobile.includes(t);
     })
     : responses;
@@ -500,10 +597,13 @@ export default function FormResponsesPage() {
             <div className="space-y-3">
               {filteredResponses.map((response, idx) => {
                 const isExpanded = expandAll || expandedResponse === 'all' || expandedResponse === response.id;
-                const displayName = getResponderDisplayName(response.responses, fields, response.user);
-                const displayEmail = getResponderDisplayEmail(response.responses, fields, response.user);
-                const displayMobile = getResponderDisplayMobile(response.responses, fields);
+                const shown = visibleAnswers(response);
+                const official = officialAnswers(response);
+                const displayName = getResponderDisplayName(shown, fields, response.user);
+                const displayEmail = getResponderDisplayEmail(shown, fields, response.user);
+                const displayMobile = getResponderDisplayMobile(shown, fields);
                 const dupe = duplicateMeta.responseFlags.get(response.id);
+                const hasAmend = !!response.amended_responses;
                 return (
                   <div key={response.id} className="premium-panel rounded-2xl overflow-hidden shadow-md">
                     <button
@@ -525,6 +625,16 @@ export default function FormResponsesPage() {
                             {response.is_test && (
                               <span className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">
                                 TEST
+                              </span>
+                            )}
+                            {hasAmend && (
+                              <span className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-sky-100 text-sky-800">
+                                {response.admin_edit_keeps_result ? 'Amended · result kept' : 'Amended · result changed'}
+                              </span>
+                            )}
+                            {!hasAmend && response.admin_edited_at && (
+                              <span className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-800">
+                                Result edited
                               </span>
                             )}
                             {dupe && (
@@ -552,8 +662,21 @@ export default function FormResponsesPage() {
                           className="overflow-hidden"
                         >
                           <div className="px-4 sm:px-5 pb-5 space-y-3 border-t border-gray-100">
+                            {isSuper && (
+                              <div className="pt-3 flex justify-end">
+                                <button
+                                  type="button"
+                                  onClick={() => openEdit(response)}
+                                  className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-xl border border-indigo-200 text-indigo-600 hover:bg-indigo-50"
+                                >
+                                  <Pencil className="w-3.5 h-3.5" /> Edit response
+                                </button>
+                              </div>
+                            )}
                             {fields.map(field => {
-                              const val = response.responses?.[field.label];
+                              const val = shown?.[field.label];
+                              const officialVal = official?.[field.label];
+                              const differs = hasAmend && JSON.stringify(val) !== JSON.stringify(officialVal);
                               return (
                                 <div key={field.id} className="pt-3">
                                   <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">{field.label}</p>
@@ -564,6 +687,11 @@ export default function FormResponsesPage() {
                                     </a>
                                   ) : (
                                     <p className="text-sm text-gray-800 break-words">{Array.isArray(val) ? val.join(', ') : val || <span className="text-gray-300">—</span>}</p>
+                                  )}
+                                  {differs && response.admin_edit_keeps_result && (
+                                    <p className="text-[11px] text-gray-400 mt-1">
+                                      Official result (charts): {Array.isArray(officialVal) ? officialVal.join(', ') : String(officialVal ?? '—')}
+                                    </p>
                                   )}
                                 </div>
                               );
@@ -579,6 +707,152 @@ export default function FormResponsesPage() {
           </div>
         )}
       </div>
+
+      {editing && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/40">
+          <div className="bg-white w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-t-3xl sm:rounded-3xl shadow-2xl p-5 sm:p-6">
+            <h3 className="text-lg font-extrabold text-gray-800 mb-1">Edit response</h3>
+            <p className="text-xs text-gray-500 mb-4">Super admin only · works even when the form is closed</p>
+
+            <div className="grid grid-cols-2 gap-2 mb-4">
+              <button
+                type="button"
+                onClick={() => setEditMode('change')}
+                className={`rounded-xl px-3 py-2.5 text-xs font-semibold border transition ${
+                  editMode === 'change'
+                    ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
+                    : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                Change result
+                <span className="block font-normal text-[10px] mt-0.5 opacity-80">Updates summary / charts</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditMode('keep')}
+                className={`rounded-xl px-3 py-2.5 text-xs font-semibold border transition ${
+                  editMode === 'keep'
+                    ? 'border-amber-500 bg-amber-50 text-amber-800'
+                    : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                No change result
+                <span className="block font-normal text-[10px] mt-0.5 opacity-80">Keep official result for charts</span>
+              </button>
+            </div>
+
+            <div className="space-y-3 mb-5">
+              {fields.map((field) => {
+                const val = editDraft[field.label];
+                if (field.field_type === 'file') {
+                  return (
+                    <div key={field.id}>
+                      <label className="text-xs font-semibold text-gray-500">{field.label}</label>
+                      <p className="text-sm text-gray-400 mt-1">File answers can’t be re-uploaded here</p>
+                    </div>
+                  );
+                }
+                if (field.field_type === 'radio' || field.field_type === 'dropdown') {
+                  return (
+                    <div key={field.id}>
+                      <label className="text-xs font-semibold text-gray-500">{field.label}</label>
+                      <select
+                        value={val ?? ''}
+                        onChange={(e) => setEditDraft((d) => ({ ...d, [field.label]: e.target.value }))}
+                        className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2 text-sm"
+                      >
+                        <option value="">—</option>
+                        {(field.options || []).map((o) => (
+                          <option key={o} value={o}>{o}</option>
+                        ))}
+                      </select>
+                    </div>
+                  );
+                }
+                if (field.field_type === 'checkbox' || field.field_type === 'checkbox_exact_2') {
+                  const selected: string[] = Array.isArray(val) ? val : [];
+                  return (
+                    <div key={field.id}>
+                      <label className="text-xs font-semibold text-gray-500">
+                        {field.label}
+                        {field.field_type === 'checkbox_exact_2' ? ` (${EXACT_TWO_HINT})` : ''}
+                      </label>
+                      <div className="mt-1 space-y-1">
+                        {(field.options || []).map((o) => {
+                          const checked = selected.includes(o);
+                          return (
+                            <label key={o} className="flex items-center gap-2 text-sm text-gray-700">
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => {
+                                  setEditDraft((d) => {
+                                    const cur: string[] = Array.isArray(d[field.label]) ? [...d[field.label]] : [];
+                                    if (checked) return { ...d, [field.label]: cur.filter((x) => x !== o) };
+                                    if (field.field_type === 'checkbox_exact_2' && cur.length >= 2) {
+                                      toast.error(EXACT_TWO_HINT);
+                                      return d;
+                                    }
+                                    return { ...d, [field.label]: [...cur, o] };
+                                  });
+                                }}
+                              />
+                              {o}
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                }
+                if (field.field_type === 'textarea') {
+                  return (
+                    <div key={field.id}>
+                      <label className="text-xs font-semibold text-gray-500">{field.label}</label>
+                      <textarea
+                        value={val ?? ''}
+                        onChange={(e) => setEditDraft((d) => ({ ...d, [field.label]: e.target.value }))}
+                        rows={3}
+                        className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2 text-sm"
+                      />
+                    </div>
+                  );
+                }
+                return (
+                  <div key={field.id}>
+                    <label className="text-xs font-semibold text-gray-500">{field.label}</label>
+                    <input
+                      type={field.field_type === 'number' ? 'number' : field.field_type === 'date' ? 'date' : 'text'}
+                      value={val ?? ''}
+                      onChange={(e) => setEditDraft((d) => ({ ...d, [field.label]: e.target.value }))}
+                      className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2 text-sm"
+                    />
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                type="button"
+                disabled={savingEdit}
+                onClick={() => setEditing(null)}
+                className="flex-1 rounded-xl border border-gray-200 py-2.5 text-sm font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={savingEdit}
+                onClick={() => void saveEdit()}
+                className="flex-1 rounded-xl bg-indigo-600 text-white py-2.5 text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50"
+              >
+                {savingEdit ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
