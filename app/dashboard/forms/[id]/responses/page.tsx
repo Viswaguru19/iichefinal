@@ -602,7 +602,6 @@ export default function FormResponsesPage() {
                 const displayEmail = getResponderDisplayEmail(shown, fields, response.user);
                 const displayMobile = getResponderDisplayMobile(shown, fields);
                 const dupe = duplicateMeta.responseFlags.get(response.id);
-                const hasAmend = !!response.amended_responses;
                 return (
                   <div key={response.id} className="premium-panel rounded-2xl overflow-hidden shadow-md">
                     <button
@@ -624,16 +623,6 @@ export default function FormResponsesPage() {
                             {response.is_test && (
                               <span className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">
                                 TEST
-                              </span>
-                            )}
-                            {hasAmend && (
-                              <span className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-sky-100 text-sky-800">
-                                {response.admin_edit_keeps_result ? 'Amended · result kept' : 'Amended · result changed'}
-                              </span>
-                            )}
-                            {!hasAmend && response.admin_edited_at && (
-                              <span className="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-800">
-                                Result edited
                               </span>
                             )}
                             {dupe && (
