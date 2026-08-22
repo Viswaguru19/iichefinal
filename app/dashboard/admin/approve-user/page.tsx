@@ -11,6 +11,7 @@ import {
   committeePositionToUserRole,
   parseExecutiveOffice,
 } from '@/lib/user-approval';
+import PortalLoadingScreen from '@/components/PortalLoadingScreen';
 
 function ApproveUserContent() {
   const [user, setUser] = useState<any>(null);
@@ -117,7 +118,7 @@ function ApproveUserContent() {
     }
   }
 
-  if (!user) return <div className="min-h-screen bg-gray-50 flex items-center justify-center">Loading...</div>;
+  if (!user) return <PortalLoadingScreen message="Loading user…" />;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -247,7 +248,7 @@ function ApproveUserContent() {
 
 export default function ApproveUserPage() {
   return (
-    <Suspense fallback={<div className="min-h-screen bg-gray-50 flex items-center justify-center">Loading...</div>}>
+    <Suspense fallback={<PortalLoadingScreen message="Loading…" />}>
       <ApproveUserContent />
     </Suspense>
   );

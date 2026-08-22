@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
 import PageHeader from '@/components/PageHeader';
 import DashboardAtmosphere from '@/components/react-bits/DashboardAtmosphere';
+import PortalLoadingScreen from '@/components/PortalLoadingScreen';
 import { Upload, Image as ImageIcon, ExternalLink } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
@@ -141,11 +142,7 @@ export default function PostersPage() {
   }
 
   if (pageLoading) {
-    return (
-      <div className="min-h-screen bg-mesh flex items-center justify-center">
-        <p className="text-gray-400">Loading…</p>
-      </div>
-    );
+    return <PortalLoadingScreen message="Loading posters…" />;
   }
 
   if (!isGraphics && !isAdmin) return null;
