@@ -545,12 +545,8 @@ html[data-portal-theme='light'] .premium-panel {
 }
 
 /* Dashboard heading readability on dark/light themes */
-.dashboard-hero-name {
-  background: linear-gradient(135deg, #fef3c7, #fbbf24, #b45309);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  text-shadow: 0 0 14px rgba(251, 191, 36, 0.35);
+.dashboard-hero-hi {
+  color: #fbbf24;
 }
 
 .dashboard-hero-role,
@@ -558,16 +554,8 @@ html[data-portal-theme='light'] .premium-panel {
   color: rgba(255, 255, 255, 0.86);
 }
 
-.dashboard-section-title {
-  color: #f3f4f6;
-}
-
-html[data-portal-theme='light'] .dashboard-hero-name {
-  background: linear-gradient(135deg, #d97706, #f59e0b, #78350f);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  text-shadow: none;
+html[data-portal-theme='light'] .dashboard-hero-hi {
+  color: #d97706;
 }
 
 html[data-portal-theme='light'] .dashboard-hero-role {
@@ -576,6 +564,10 @@ html[data-portal-theme='light'] .dashboard-hero-role {
 
 html[data-portal-theme='light'] .dashboard-hero-welcome {
   color: #4b5563;
+}
+
+.dashboard-section-title {
+  color: #f3f4f6;
 }
 
 html[data-portal-theme='light'] .dashboard-section-title {

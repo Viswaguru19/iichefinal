@@ -191,7 +191,7 @@ export default async function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-mesh relative overflow-hidden">
-      <GradientMesh className="opacity-45" />
+      <GradientMesh className="opacity-30" fade="none" />
       <DashboardNav
         userName={profileName || 'Member'}
         userRole={String((profile as any).role ?? 'member')}
