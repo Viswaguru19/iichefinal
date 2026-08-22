@@ -189,7 +189,7 @@ export default function MeetingDetailPage() {
         other: 'Other',
     };
 
-    if (loading) return <PortalLoadingScreen message="Loading meetings…" />;
+    if (loading) return <PortalLoadingScreen message="Loading meetings…" variant="home" />;
 
     if (!meeting) return null;
 

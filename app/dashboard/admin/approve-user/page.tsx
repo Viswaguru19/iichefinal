@@ -118,7 +118,7 @@ function ApproveUserContent() {
     }
   }
 
-  if (!user) return <PortalLoadingScreen message="Loading user…" />;
+  if (!user) return <PortalLoadingScreen message="Loading user…" variant="home" />;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -248,7 +248,7 @@ function ApproveUserContent() {
 
 export default function ApproveUserPage() {
   return (
-    <Suspense fallback={<PortalLoadingScreen message="Loading…" />}>
+    <Suspense fallback={<PortalLoadingScreen message="Loading…" variant="home" />}>
       <ApproveUserContent />
     </Suspense>
   );

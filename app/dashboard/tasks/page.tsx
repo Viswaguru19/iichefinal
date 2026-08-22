@@ -408,7 +408,7 @@ export default function TasksPage() {
   return (
     <div className="min-h-screen bg-mesh relative overflow-hidden">
       <DashboardAtmosphere subtitle="Assign work and track committee progress." />
-      {pageLoading && <PortalLoadingScreen message="Loading tasks…" />}
+      {pageLoading && <PortalLoadingScreen message="Loading tasks…" variant="home" />}
       {!pageLoading && (
         <>
           <PageHeader

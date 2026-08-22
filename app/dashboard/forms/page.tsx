@@ -436,7 +436,7 @@ export default function FormsPage() {
     closed: forms.filter(f => f.computed_status === 'closed').length,
   };
 
-  if (loading) return <PortalLoadingScreen message="Loading forms…" />;
+  if (loading) return <PortalLoadingScreen message="Loading forms…" variant="resources" />;
 
   return (
     <div className="min-h-screen bg-mesh py-8 px-4 relative overflow-hidden">

@@ -362,7 +362,7 @@ export default function FormResponsesPage() {
 
   const allowMultiple = !!(form?.settings?.allow_multiple ?? form?.settings?.allowMultiple);
 
-  if (loading) return <PortalLoadingScreen message="Loading responses…" />;
+  if (loading) return <PortalLoadingScreen message="Loading responses…" variant="resources" />;
 
   if (!canView) {
     return (

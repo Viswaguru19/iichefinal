@@ -312,7 +312,7 @@ html[data-portal-theme='dark'] .premium-card .bg-white\/40 {
   background: rgba(71, 85, 105, 0.18) !important;
 }
 
-/* Native controls + form copy that stayed â€œlight-theme colorsâ€ on dark panels */
+/* Native controls + form copy that stayed “light-theme colors” on dark panels */
 html[data-portal-theme='dark'] {
   color-scheme: dark;
 }
@@ -714,7 +714,7 @@ html[data-portal-theme='light'] .dashboard-section-title {
     border-radius: 14px;
   }
 
-  /* Backdrop blur is expensive on mobile GPUs â€” use solid panels instead */
+  /* Backdrop blur is expensive on mobile GPUs — use solid panels instead */
   .premium-panel,
   .glass,
   .glass-strong,
@@ -803,156 +803,361 @@ html.chat-viewport-lock body {
   }
 }
 
-/* ========== Unified sleek portal loading screen ========== */
-.pl-page {
+/* ========== Brand loading screens (light + dark) ========== */
+.pl-page,
+.pl-inline {
   position: relative;
-  min-height: 100vh;
-  min-height: 100dvh;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 1.5rem;
   overflow: hidden;
-  background:
-    radial-gradient(ellipse 80% 55% at 50% -10%, rgba(45, 212, 191, 0.16), transparent 55%),
-    radial-gradient(ellipse 50% 40% at 100% 100%, rgba(56, 189, 248, 0.08), transparent 50%),
-    #06080b;
+  transition: background 0.25s ease, color 0.25s ease;
+}
+
+.pl-page {
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: 1.5rem;
 }
 
 .pl-inline {
-  position: relative;
-  min-height: 220px;
+  min-height: 240px;
   width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
   border-radius: 1rem;
+}
+
+.pl-theme-dark.pl-page,
+.pl-theme-dark.pl-inline {
   background:
-    radial-gradient(ellipse 70% 60% at 50% 30%, rgba(45, 212, 191, 0.1), transparent 60%),
-    #06080b;
+    radial-gradient(ellipse 75% 50% at 50% 0%, rgba(34, 211, 238, 0.14), transparent 55%),
+    radial-gradient(ellipse 55% 40% at 80% 100%, rgba(132, 204, 22, 0.1), transparent 50%),
+    #05070a;
+  color: #e2e8f0;
+}
+
+.pl-theme-light.pl-page,
+.pl-theme-light.pl-inline {
+  background:
+    radial-gradient(ellipse 70% 45% at 50% 0%, rgba(59, 130, 246, 0.1), transparent 55%),
+    radial-gradient(ellipse 50% 40% at 90% 100%, rgba(34, 197, 94, 0.08), transparent 50%),
+    #ffffff;
+  color: #0f172a;
 }
 
 .pl-root {
   position: relative;
   z-index: 1;
+  width: min(100%, 340px);
   display: flex;
   flex-direction: column;
   align-items: center;
-  width: min(100%, 300px);
   text-align: center;
 }
 
-.pl-orbiter {
+.pl-brand-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1.35rem;
+}
+
+.pl-brand-text {
+  text-align: left;
+}
+
+.pl-brand-name {
+  margin: 0;
+  font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  font-weight: 800;
+  font-size: 1.05rem;
+  letter-spacing: 0.02em;
+  line-height: 1.15;
+}
+
+.pl-brand-name-lg {
+  font-size: 1.35rem;
+  margin-top: 0.85rem;
+}
+
+.pl-brand-iiche {
+  color: #1d4ed8;
+}
+
+.pl-theme-dark .pl-brand-iiche {
+  color: #93c5fd;
+}
+
+.pl-brand-avvu {
+  color: #0d9488;
+}
+
+.pl-theme-dark .pl-brand-avvu {
+  color: #5eead4;
+}
+
+.pl-tagline {
+  margin: 0.2rem 0 0;
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+
+.pl-theme-dark .pl-tagline {
+  color: rgba(148, 163, 184, 0.85);
+}
+
+.pl-logo-img {
+  border-radius: 999px;
+  object-fit: contain;
+}
+
+.pl-home-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.pl-home-logo-wrap {
   position: relative;
-  width: 112px;
-  height: 112px;
-  margin-bottom: 1.6rem;
+  width: 96px;
+  height: 96px;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-.pl-bloom {
+.pl-home-glow-ring {
   position: absolute;
-  inset: 8%;
+  inset: 0;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(45, 212, 191, 0.35) 0%, rgba(56, 189, 248, 0.12) 45%, transparent 70%);
-  filter: blur(10px);
-  pointer-events: none;
+  border: 1.5px solid transparent;
+  border-top-color: #22d3ee;
+  border-right-color: #84cc16;
+  opacity: 0.85;
+  box-shadow: 0 0 24px rgba(34, 211, 238, 0.25);
 }
 
-.pl-svg {
+.pl-skyline {
+  width: min(100%, 300px);
+  margin: 0.5rem 0 0.85rem;
+  opacity: 0.55;
+}
+
+.pl-skyline-line {
+  stroke: #64748b;
+}
+
+.pl-theme-dark .pl-skyline-line {
+  stroke: #94a3b8;
+}
+
+.pl-motto {
+  margin: 0 0 1.25rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.pl-theme-dark .pl-motto {
+  color: #f1f5f9;
+}
+
+.pl-motto span {
+  color: #16a34a;
+}
+
+.pl-theme-dark .pl-motto span {
+  color: #4ade80;
+}
+
+.pl-section-heading {
+  align-self: flex-start;
+  margin: 0 0 1rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #334155;
+}
+
+.pl-theme-dark .pl-section-heading {
+  color: #cbd5e1;
+}
+
+.pl-section-heading span {
+  background: linear-gradient(90deg, #2563eb, #16a34a);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.pl-accent-events span { background: linear-gradient(90deg, #2563eb, #22d3ee); -webkit-background-clip: text; background-clip: text; }
+.pl-accent-community span { background: linear-gradient(90deg, #16a34a, #84cc16); -webkit-background-clip: text; background-clip: text; }
+.pl-accent-resources span { background: linear-gradient(90deg, #0d9488, #22d3ee); -webkit-background-clip: text; background-clip: text; }
+.pl-accent-updates span { background: linear-gradient(90deg, #0284c7, #14b8a6); -webkit-background-clip: text; background-clip: text; }
+
+.pl-section-orbiter {
+  position: relative;
+  width: 128px;
+  height: 128px;
+  margin: 0.25rem 0 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pl-section-ring-svg {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
-  overflow: visible;
 }
 
-.pl-track {
-  stroke: rgba(148, 163, 184, 0.14);
-  stroke-width: 1.25;
+.pl-section-track {
+  stroke: rgba(148, 163, 184, 0.25);
+  stroke-width: 2;
+  stroke-dasharray: 6 7;
 }
 
-.pl-track-inner {
-  stroke: rgba(148, 163, 184, 0.1);
+.pl-theme-dark .pl-section-track {
+  stroke: rgba(148, 163, 184, 0.2);
 }
 
-.pl-arc {
-  fill: none;
+.pl-section-arc {
+  stroke-width: 2.25;
   stroke-linecap: round;
-  transform-origin: 48px 48px;
+  stroke-dasharray: 80 250;
+  transform-origin: 60px 60px;
+  filter: drop-shadow(0 0 6px rgba(34, 211, 238, 0.45));
 }
 
-.pl-arc-a {
-  stroke: #2dd4bf;
-  stroke-width: 1.75;
-  stroke-dasharray: 62 190;
-  filter: drop-shadow(0 0 6px rgba(45, 212, 191, 0.55));
-}
-
-.pl-arc-b {
-  stroke: #38bdf8;
-  stroke-width: 1.35;
-  stroke-dasharray: 40 150;
-  filter: drop-shadow(0 0 5px rgba(56, 189, 248, 0.4));
-}
-
-.pl-mark {
+.pl-section-icon {
   position: relative;
   z-index: 1;
-  font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
-  font-size: 0.92rem;
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  color: #f8fafc;
-  text-shadow: 0 0 20px rgba(45, 212, 191, 0.25);
-}
-
-.pl-brand {
-  margin: 0 0 0.4rem;
-  font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
-  font-size: 0.7rem;
-  font-weight: 600;
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
-  color: #5eead4;
-}
-
-.pl-message {
-  margin: 0 0 1.15rem;
-  font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
-  font-size: 0.875rem;
-  font-weight: 400;
-  color: rgba(203, 213, 225, 0.8);
-}
-
-.pl-dots {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 0.4rem;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(148, 163, 184, 0.2);
 }
 
-.pl-dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: #2dd4bf;
-  box-shadow: 0 0 8px rgba(45, 212, 191, 0.5);
+.pl-theme-dark .pl-section-icon {
+  background: rgba(15, 23, 42, 0.65);
+  border-color: rgba(148, 163, 184, 0.18);
+}
+
+.pl-section-lucide {
+  width: 34px;
+  height: 34px;
+  color: #0f766e;
+}
+
+.pl-theme-dark .pl-section-lucide {
+  color: #5eead4;
+}
+
+.pl-status {
+  margin: 0 0 1.1rem;
+  font-size: 0.88rem;
+  color: #64748b;
+}
+
+.pl-theme-dark .pl-status {
+  color: rgba(203, 213, 225, 0.78);
+}
+
+.pl-progress-wrap {
+  width: 100%;
+  max-width: 260px;
+}
+
+.pl-progress-home {
+  max-width: 280px;
+}
+
+.pl-progress-track {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.2);
+  overflow: hidden;
+}
+
+.pl-theme-dark .pl-progress-track {
+  background: rgba(148, 163, 184, 0.18);
+}
+
+.pl-progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #2563eb, #22d3ee, #84cc16, #2563eb);
+  background-size: 200% 100%;
+  box-shadow: 0 0 12px rgba(34, 211, 238, 0.35);
+  transition: width 0.35s ease;
+}
+
+.pl-progress-pct,
+.pl-progress-label {
+  margin: 0.55rem 0 0;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.pl-theme-dark .pl-progress-pct,
+.pl-theme-dark .pl-progress-label {
+  color: rgba(203, 213, 225, 0.8);
+}
+
+.pl-init {
+  width: 100%;
+  max-width: 280px;
+  margin-top: 1.75rem;
+}
+
+.pl-init-track {
+  height: 3px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.18);
+  overflow: hidden;
+}
+
+.pl-init-fill {
+  display: block;
+  height: 100%;
+  width: 40%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, transparent, #22d3ee, #84cc16, transparent);
+  animation: pl-init-slide 1.25s ease-in-out infinite;
+}
+
+.pl-init-label {
+  margin: 0.4rem 0 0;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+
+@keyframes pl-init-slide {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(280%); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .pl-arc-a,
-  .pl-arc-b,
-  .pl-bloom,
-  .pl-dot {
+  .pl-home-glow-ring,
+  .pl-section-arc,
+  .pl-init-fill,
+  .pl-progress-fill {
     animation: none !important;
   }
 }
 
-/* React Bitsâ€“style CSS gradient mesh (no WebGL) */
+
+/* React Bits–style CSS gradient mesh (no WebGL) */
 .rb-gradient-orb {
   position: absolute;
   width: min(52vw, 420px);

@@ -266,7 +266,7 @@ export default function EventWorkflowPage() {
   const ecApproved = (e: any) => e.ec_approvals?.some((a: any) => a.user_id === currentUser?.id && a.approved);
 
   if (loading)
-    return <PortalLoadingScreen message="Loading workflow…" />;
+    return <PortalLoadingScreen message="Loading workflow…" variant="events" />;
 
   return (
     <div className="min-h-screen bg-mesh relative overflow-hidden">

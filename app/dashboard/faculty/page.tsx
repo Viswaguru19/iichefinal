@@ -284,7 +284,7 @@ export default function FacultyDashboard() {
         }
     }
 
-    if (loading) return <PortalLoadingScreen message="Loading faculty dashboard…" />;
+    if (loading) return <PortalLoadingScreen message="Loading faculty dashboard…" variant="home" />;
 
     return (
         <div className="min-h-screen bg-mesh relative overflow-hidden">

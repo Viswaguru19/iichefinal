@@ -396,7 +396,7 @@ function ProposalsPageClient() {
   const filtered = statusFilter === 'all' ? proposals : proposals.filter(p => p.status === statusFilter);
 
   if (pageLoading) {
-    return <PortalLoadingScreen message="Loading proposals…" />;
+    return <PortalLoadingScreen message="Loading proposals…" variant="events" />;
   }
 
   return (

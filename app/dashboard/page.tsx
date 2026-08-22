@@ -17,7 +17,7 @@ const AnimatedEventProgress = nextDynamic(() => import('@/components/dashboard/A
 });
 
 const FacultyApprovals = nextDynamic(() => import('@/components/dashboard/FacultyApprovals'), {
-  loading: () => <PortalLoadingScreen fullPage={false} message="Loading approvals…" />,
+  loading: () => <PortalLoadingScreen fullPage={false} message="Loading approvals…" variant="home" />,
 });
 
 const PastEvents = nextDynamic(() => import('@/components/dashboard/PastEvents'), {

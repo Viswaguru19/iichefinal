@@ -166,7 +166,7 @@ export default function KickoffControlPage() {
   };
 
   if (loading) {
-    return <PortalLoadingScreen message="Loading kickoff…" />;
+    return <PortalLoadingScreen message="Loading kickoff…" variant="home" />;
   }
 
   const pendingTeams = teams.filter(t => !t.approved);

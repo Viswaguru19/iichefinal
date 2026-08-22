@@ -15,12 +15,12 @@ function MessagesRedirect() {
     router.replace(`/chat${q}`);
   }, [router, searchParams]);
 
-  return <PortalLoadingScreen message="Opening chat…" />;
+  return <PortalLoadingScreen message="Opening chat…" variant="community" />;
 }
 
 export default function MessagesPage() {
   return (
-    <Suspense fallback={<PortalLoadingScreen message="Opening chat…" />}>
+    <Suspense fallback={<PortalLoadingScreen message="Opening chat…" variant="community" />}>
       <MessagesRedirect />
     </Suspense>
   );

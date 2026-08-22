@@ -13,12 +13,12 @@ function GroupChatRedirect() {
     router.replace(group ? `/chat?group=${encodeURIComponent(group)}` : '/chat');
   }, [router, searchParams]);
 
-  return <PortalLoadingScreen message="Opening group chat…" />;
+  return <PortalLoadingScreen message="Opening group chat…" variant="community" />;
 }
 
 export default function GroupChatPage() {
   return (
-    <Suspense fallback={<PortalLoadingScreen message="Opening group chat…" />}>
+    <Suspense fallback={<PortalLoadingScreen message="Opening group chat…" variant="community" />}>
       <GroupChatRedirect />
     </Suspense>
   );

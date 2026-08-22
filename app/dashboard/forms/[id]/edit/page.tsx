@@ -434,7 +434,7 @@ export default function EditFormPage() {
         setSaving(false);
     }
 
-    if (loading) return <PortalLoadingScreen message="Loading forms…" />;
+    if (loading) return <PortalLoadingScreen message="Loading forms…" variant="resources" />;
 
     if (!canEdit) {
         return (

@@ -987,7 +987,7 @@ export default function EventDetailPage() {
     }
   }
 
-  if (loading) return <PortalLoadingScreen message="Loading event…" />;
+  if (loading) return <PortalLoadingScreen message="Loading event…" variant="events" />;
 
   if (!event) {
     return <div className="min-h-screen bg-mesh flex items-center justify-center">

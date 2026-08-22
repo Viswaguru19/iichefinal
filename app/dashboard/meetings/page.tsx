@@ -176,7 +176,7 @@ export default function MeetingsPage() {
     microsoft_teams: 'Teams', google_meet: 'Google Meet', zoom: 'Zoom', internal_portal: 'Portal', other: 'Other',
   };
 
-  if (loading) return <PortalLoadingScreen message="Loading meetings…" />;
+  if (loading) return <PortalLoadingScreen message="Loading meetings…" variant="home" />;
 
   return (
     <div className="min-h-screen bg-mesh relative overflow-hidden">

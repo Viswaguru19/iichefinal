@@ -138,7 +138,7 @@ export default function ProfilePage() {
     }
   };
 
-  if (!profile) return <PortalLoadingScreen message="Loading profile…" />;
+  if (!profile) return <PortalLoadingScreen message="Loading profile…" variant="home" />;
 
   const inputClass =
     'w-full px-4 py-2.5 rounded-xl premium-input border border-white/60 bg-white/70 focus:ring-2 focus:ring-teal-500/40 focus:border-teal-400 outline-none transition';

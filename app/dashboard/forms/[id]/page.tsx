@@ -539,7 +539,7 @@ export default function FormSubmitPage() {
 
   const backHref = user ? '/dashboard/forms' : isPublicFormRoute ? '/' : '/dashboard/forms';
 
-  if (loading) return <PortalLoadingScreen message="Loading forms…" />;
+  if (loading) return <PortalLoadingScreen message="Loading forms…" variant="resources" />;
 
   if (submitted) {
     return (

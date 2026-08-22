@@ -9,6 +9,7 @@ import { Briefcase, Power, RefreshCw } from 'lucide-react';
 import { canManageHiringToggle, canReviewHiringApplications } from '@/lib/hiring-access';
 import DashboardAtmosphere from '@/components/react-bits/DashboardAtmosphere';
 import GradientText from '@/components/react-bits/GradientText';
+import PortalLoadingScreen from '@/components/PortalLoadingScreen';
 
 type CommitteeOpt = { id: string; name: string };
 type AppRow = {
@@ -180,11 +181,7 @@ export default function DashboardHiringPage() {
     prefOptions(app).filter((o) => canToggle || reviewCommitteeIds.includes(o.id));
 
   if (loading) {
-    return (
-      <div className="min-h-screen bg-mesh flex items-center justify-center text-gray-600">
-        Loading hiring…
-      </div>
-    );
+    return <PortalLoadingScreen message="Loading hiring…" variant="community" />;
   }
 
   return (

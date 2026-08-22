@@ -705,7 +705,7 @@ function ChatAppInner({ basePath = DEFAULT_BASE, chatOnly = true }: { basePath?:
   });
 
   if (loading) {
-    return <PortalLoadingScreen message="Loading chats…" />;
+    return <PortalLoadingScreen message="Loading chats…" variant="community" />;
   }
 
   return (
@@ -804,7 +804,7 @@ function ChatAppInner({ basePath = DEFAULT_BASE, chatOnly = true }: { basePath?:
 
 export default function ChatApp({ basePath = DEFAULT_BASE, chatOnly = true }: { basePath?: string; chatOnly?: boolean }) {
   return (
-    <Suspense fallback={<PortalLoadingScreen message="Loading chats…" />}>
+    <Suspense fallback={<PortalLoadingScreen message="Loading chats…" variant="community" />}>
       <ChatAppInner basePath={basePath} chatOnly={chatOnly} />
     </Suspense>
   );

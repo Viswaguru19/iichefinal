@@ -142,7 +142,7 @@ export default function PostersPage() {
   }
 
   if (pageLoading) {
-    return <PortalLoadingScreen message="Loading posters…" />;
+    return <PortalLoadingScreen message="Loading posters…" variant="events" />;
   }
 
   if (!isGraphics && !isAdmin) return null;

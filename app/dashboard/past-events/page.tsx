@@ -88,7 +88,7 @@ export default function PastEventsPage() {
         )
         : events;
 
-    if (loading) return <PortalLoadingScreen message="Loading…" />;
+    if (loading) return <PortalLoadingScreen message="Loading…" variant="events" />;
 
     return (
         <div className="min-h-screen bg-mesh relative overflow-hidden">

@@ -206,7 +206,7 @@ export default function SlideshowManagementPage() {
     };
 
     if (loading) {
-        return <PortalLoadingScreen message="Loading slideshow…" />;
+        return <PortalLoadingScreen message="Loading slideshow…" variant="home" />;
     }
 
     return (

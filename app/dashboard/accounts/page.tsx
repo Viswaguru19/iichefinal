@@ -243,7 +243,7 @@ export default function StatementOfAccountsPage() {
   const years = Array.from(new Set(transactions.map(t => t.year))).sort();
   const events = Array.from(new Set(transactions.map(t => t.event)));
 
-  if (loading) return <PortalLoadingScreen message="Loading accounts…" />;
+  if (loading) return <PortalLoadingScreen message="Loading accounts…" variant="resources" />;
 
   return (
     <div className="min-h-screen bg-mesh py-8 px-4 relative overflow-hidden">
