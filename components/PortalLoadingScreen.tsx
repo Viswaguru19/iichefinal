@@ -3,8 +3,6 @@
 import { useRef } from 'react';
 import { gsap } from 'gsap';
 import { useGSAP } from '@gsap/react';
-import GradientText from '@/components/react-bits/GradientText';
-import GradientMesh from '@/components/react-bits/GradientMesh';
 
 gsap.registerPlugin(useGSAP);
 
@@ -14,11 +12,9 @@ interface PortalLoadingScreenProps {
   className?: string;
 }
 
-const LETTERS = ['I', 'I', 'C', 'h', 'E'] as const;
-
-/** Full-bleed cinematic loader — mesh + GSAP letter reveal (no frosted card). */
+/** Sleek minimal loader — clean mark, thin arc, soft progress. */
 export default function PortalLoadingScreen({
-  message = 'Loading portal…',
+  message = 'Loading…',
   fullPage = true,
   className = '',
 }: PortalLoadingScreenProps) {
@@ -29,117 +25,66 @@ export default function PortalLoadingScreen({
       const root = rootRef.current;
       if (!root) return;
 
-      const letters = root.querySelectorAll<HTMLElement>('[data-loader-letter]');
-      const meta = root.querySelectorAll<HTMLElement>('[data-loader-meta]');
-      const rings = root.querySelectorAll<HTMLElement>('[data-loader-ring]');
-      const bead = root.querySelector<HTMLElement>('[data-loader-bead]');
+      const mark = root.querySelector<HTMLElement>('[data-pl-mark]');
+      const ring = root.querySelector<HTMLElement>('[data-pl-ring]');
+      const lines = root.querySelectorAll<HTMLElement>('[data-pl-line]');
+      const bar = root.querySelector<HTMLElement>('[data-pl-bar]');
 
-      gsap.set(letters, { opacity: 0, y: 36, scale: 0.8, filter: 'blur(10px)' });
-      gsap.set(meta, { opacity: 0, y: 18 });
+      gsap.set([mark, ...lines], { opacity: 0, y: 12 });
+      gsap.set(ring, { opacity: 0, scale: 0.92 });
 
-      const tl = gsap.timeline({ defaults: { ease: 'power3.out' } });
-      tl.to(letters, {
-        opacity: 1,
-        y: 0,
-        scale: 1,
-        filter: 'blur(0px)',
-        duration: 0.65,
-        stagger: 0.1,
-        clearProps: 'filter',
-      }).to(
-        meta,
-        {
-          opacity: 1,
-          y: 0,
-          duration: 0.5,
-          stagger: 0.1,
-        },
-        '-=0.25',
-      );
+      const tl = gsap.timeline({ defaults: { ease: 'power2.out' } });
+      tl.to(ring, { opacity: 1, scale: 1, duration: 0.45 })
+        .to(mark, { opacity: 1, y: 0, duration: 0.5 }, '-=0.2')
+        .to(lines, { opacity: 1, y: 0, duration: 0.4, stagger: 0.08 }, '-=0.25');
 
-      gsap.to(letters, {
-        y: -4,
-        duration: 1.35,
-        yoyo: true,
-        repeat: -1,
-        stagger: { each: 0.14, from: 'center' },
-        ease: 'sine.inOut',
-        delay: 0.9,
-      });
-
-      if (rings.length) {
-        gsap.to(rings[0], { rotation: 360, duration: 2.6, ease: 'none', repeat: -1 });
-        gsap.to(rings[1], { rotation: -360, duration: 4, ease: 'none', repeat: -1 });
+      if (ring) {
+        gsap.to(ring, { rotation: 360, duration: 1.1, ease: 'none', repeat: -1 });
       }
-      if (bead) {
-        gsap.to(bead, { rotation: 360, duration: 2.6, ease: 'none', repeat: -1 });
+      if (bar) {
+        gsap.fromTo(
+          bar,
+          { scaleX: 0.15, xPercent: -120 },
+          { scaleX: 0.45, xPercent: 220, duration: 1.15, ease: 'power1.inOut', repeat: -1 },
+        );
       }
     },
     { scope: rootRef, dependencies: [message] },
   );
 
-  const card = (
+  const content = (
     <div
       ref={rootRef}
-      className={`portal-loader-stage ${className}`.trim()}
+      className={`pl-root ${className}`.trim()}
       role="status"
       aria-live="polite"
       aria-busy="true"
     >
-      <div className="portal-loader-orbit" aria-hidden>
-        <span data-loader-ring className="portal-loader-orbit-ring portal-loader-orbit-ring-a" />
-        <span data-loader-ring className="portal-loader-orbit-ring portal-loader-orbit-ring-b" />
-        <span data-loader-bead className="portal-loader-orbit-bead" />
-      </div>
-
-      <div className="portal-loader-core">
-        <div className="portal-loader-iiche" aria-label="IIChE">
-          {LETTERS.map((letter, i) => (
-            <span key={`${letter}-${i}`} data-loader-letter className="portal-loader-letter">
-              {letter}
-            </span>
-          ))}
+      <div className="pl-spinner" aria-hidden>
+        <svg className="pl-spinner-svg" viewBox="0 0 80 80" fill="none">
+          <circle className="pl-spinner-track" cx="40" cy="40" r="34" />
+          <circle data-pl-ring className="pl-spinner-arc" cx="40" cy="40" r="34" />
+        </svg>
+        <div data-pl-mark className="pl-mark" aria-label="IIChE">
+          IIChE
         </div>
       </div>
 
-      <div className="portal-loader-meta">
-        <div data-loader-meta>
-          <GradientText
-            className="portal-loader-brand-text text-sm sm:text-base font-extrabold tracking-[0.32em] uppercase"
-            colors={['#5eead4', '#22d3ee', '#38bdf8', '#a5b4fc', '#5eead4']}
-            animationSpeed={4}
-          >
-            AVVU SC
-          </GradientText>
-        </div>
-        <p data-loader-meta className="portal-loader-tagline">
-          Student Chapter Portal
-        </p>
-        <p data-loader-meta className="portal-loader-message">
-          {message}
-        </p>
-        <div data-loader-meta className="portal-loader-track" aria-hidden>
-          <span className="portal-loader-track-fill" />
-        </div>
+      <p data-pl-line className="pl-brand">
+        AVVU SC
+      </p>
+      <p data-pl-line className="pl-message">
+        {message}
+      </p>
+      <div data-pl-line className="pl-bar-track" aria-hidden>
+        <span data-pl-bar className="pl-bar-fill" />
       </div>
     </div>
   );
 
   if (!fullPage) {
-    return <div className="portal-loader-inline">{card}</div>;
+    return <div className="pl-inline">{content}</div>;
   }
 
-  return (
-    <div className="portal-loader-page portal-fade-in">
-      <GradientMesh
-        className="opacity-100"
-        fade="dark"
-        colors={['rgba(45,212,191,0.55)', 'rgba(56,189,248,0.42)', 'rgba(99,102,241,0.35)']}
-      />
-      <div className="portal-loader-bg-orb portal-loader-bg-orb-1" aria-hidden />
-      <div className="portal-loader-bg-orb portal-loader-bg-orb-2" aria-hidden />
-      <div className="portal-loader-bg-grid" aria-hidden />
-      {card}
-    </div>
-  );
+  return <div className="pl-page">{content}</div>;
 }
