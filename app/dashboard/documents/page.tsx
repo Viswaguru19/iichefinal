@@ -4,10 +4,16 @@ import { useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { openDocumentsBucketFile } from '@/lib/document-utils';
 import { useRouter } from 'next/navigation';
-import { FileText, Upload, Download, Trash2 } from 'lucide-react';
+import Link from 'next/link';
+import { FileText, Upload, Download, Trash2, ExternalLink } from 'lucide-react';
 import toast from 'react-hot-toast';
 import PageHeader from '@/components/PageHeader';
 import DashboardAtmosphere from '@/components/react-bits/DashboardAtmosphere';
+import {
+  eventReportDocEventId,
+  isEventReportDocument,
+  syncMissingEditorialEventReports,
+} from '@/lib/editorial-event-document';
 
 export default function DocumentsPage() {
   const [documents, setDocuments] = useState<any[]>([]);
@@ -19,10 +25,19 @@ export default function DocumentsPage() {
   const [description, setDescription] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const supabase = useMemo(() => createClient(), []);
   const router = useRouter();
 
-  useEffect(() => { loadData(); }, [selectedCommittee]);
+  const selectedCommitteeName = useMemo(
+    () => committees.find((c) => c.id === selectedCommittee)?.name || '',
+    [committees, selectedCommittee],
+  );
+  const isEditorialSelected = /editorial/i.test(selectedCommitteeName);
+
+  useEffect(() => {
+    void loadData();
+  }, [selectedCommittee]);
 
   async function loadData() {
     const { data: { user } } = await supabase.auth.getUser();
@@ -37,10 +52,33 @@ export default function DocumentsPage() {
     const { data: allComs } = await supabase
       .from('committees')
       .select('id, name')
-      .eq('type', 'regular');
+      .eq('type', 'regular')
+      .order('name');
     setCommittees(allComs || []);
 
+    // Default to Editorial Committee when first opening documents
+    if (!selectedCommittee && allComs?.length) {
+      const editorial = allComs.find((c: any) => /editorial/i.test(String(c.name || '')));
+      if (editorial?.id) {
+        setSelectedCommittee(editorial.id);
+        return;
+      }
+    }
+
     if (selectedCommittee) {
+      const editorial = (allComs || []).find((c: any) => c.id === selectedCommittee && /editorial/i.test(String(c.name || '')));
+      if (editorial?.id) {
+        setSyncing(true);
+        try {
+          const n = await syncMissingEditorialEventReports(supabase, user.id);
+          if (n > 0) toast.success(`Added ${n} event report${n === 1 ? '' : 's'} to Editorial documents`);
+        } catch (e) {
+          console.warn('Event report sync failed', e);
+        } finally {
+          setSyncing(false);
+        }
+      }
+
       const { data, error } = await supabase
         .from('documents')
         .select('*')
@@ -48,6 +86,8 @@ export default function DocumentsPage() {
         .order('created_at', { ascending: false });
       if (error) console.error('Load docs error:', error);
       setDocuments(data || []);
+    } else {
+      setDocuments([]);
     }
   }
 
@@ -60,7 +100,6 @@ export default function DocumentsPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
-      // Upload file to storage
       const ext = file.name.split('.').pop();
       const path = `committee-docs/${selectedCommittee}/${Date.now()}.${ext}`;
       const { error: upErr } = await supabase.storage.from('documents').upload(path, file);
@@ -68,7 +107,6 @@ export default function DocumentsPage() {
 
       const { data: urlData } = supabase.storage.from('documents').getPublicUrl(path);
 
-      // Insert into documents table
       const { error: insertErr } = await supabase
         .from('documents')
         .insert({
@@ -81,7 +119,7 @@ export default function DocumentsPage() {
           uploaded_by: user.id,
           year: new Date().getFullYear(),
           month: new Date().getMonth() + 1,
-          metadata: { original_name: file.name },
+          metadata: { original_name: file.name, description: description.trim() || null },
         });
 
       if (insertErr) throw new Error('Save failed: ' + insertErr.message);
@@ -91,7 +129,7 @@ export default function DocumentsPage() {
       setTitle('');
       setDescription('');
       setFile(null);
-      loadData();
+      void loadData();
     } catch (error: any) {
       toast.error(error.message);
     } finally {
@@ -103,22 +141,22 @@ export default function DocumentsPage() {
     if (!confirm('Delete this document?')) return;
     const { error } = await supabase.from('documents').delete().eq('id', docId);
     if (error) toast.error('Delete failed');
-    else { toast.success('Deleted'); loadData(); }
+    else { toast.success('Deleted'); void loadData(); }
   }
 
   const canUpload = userCommittees.some((c: any) => c.committee_id === selectedCommittee);
 
   return (
     <div className="min-h-screen bg-mesh relative overflow-hidden">
-      <DashboardAtmosphere subtitle="Upload and browse committee files." />
+      <DashboardAtmosphere subtitle="Upload and browse committee files. Event reports appear under Editorial." />
       <PageHeader title="Committee Documents" gradientTitle />
 
       <div className="max-w-7xl mx-auto px-4 py-8 relative z-10">
-        <div className="mb-6 flex gap-4">
+        <div className="mb-6 flex gap-4 flex-wrap">
           <select
             value={selectedCommittee}
             onChange={(e) => setSelectedCommittee(e.target.value)}
-            className="flex-1 px-4 py-2 rounded-xl premium-input focus:ring-2 focus:ring-indigo-500"
+            className="flex-1 min-w-[200px] px-4 py-2 rounded-xl premium-input focus:ring-2 focus:ring-indigo-500"
           >
             <option value="">Select Committee</option>
             {committees.map((c) => (
@@ -132,6 +170,13 @@ export default function DocumentsPage() {
             </button>
           )}
         </div>
+
+        {isEditorialSelected && (
+          <p className="text-sm text-gray-500 mb-4">
+            Event reports are listed here under Editorial Committee, titled with the event name.
+            {syncing ? ' Syncing reports…' : ''}
+          </p>
+        )}
 
         {showUpload && (
           <div className="premium-panel rounded-2xl p-6 mb-6">
@@ -165,43 +210,70 @@ export default function DocumentsPage() {
           <div className="premium-panel rounded-2xl p-6">
             <h2 className="text-xl font-bold text-gradient mb-4">Documents</h2>
             <div className="space-y-4">
-              {documents.map((doc) => (
-                <div key={doc.id} className="premium-card rounded-xl p-4 hover:shadow-lg transition">
-                  <div className="flex justify-between items-start">
-                    <div className="flex-1">
-                      <h3 className="font-bold flex items-center gap-2">
-                        <FileText className="w-5 h-5 text-blue-600" /> {doc.title}
-                      </h3>
-                      {doc.description && <p className="text-sm text-gray-600 mt-1">{doc.description}</p>}
-                      <p className="text-xs text-gray-500 mt-2">
-                        {new Date(doc.created_at).toLocaleDateString('en-IN')}
-                      </p>
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        disabled={!String(doc.file_url || '').trim()}
-                        onClick={() => {
-                          void openDocumentsBucketFile(supabase, doc.file_url).catch(() =>
-                            toast.error('Could not open document')
-                          );
-                        }}
-                        className="btn-gradient-blue px-4 py-2 rounded-xl flex items-center gap-2 text-sm disabled:opacity-50 disabled:pointer-events-none"
-                      >
-                        <Download className="w-4 h-4" /> View
-                      </button>
-                      {canUpload && (
-                        <button onClick={() => handleDelete(doc.id)}
-                          className="px-3 py-2 rounded-xl bg-red-50 text-red-500 hover:bg-red-100 transition text-sm">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      )}
+              {documents.map((doc) => {
+                const isReport = isEventReportDocument(doc);
+                const eventId = eventReportDocEventId(doc);
+                const hasFile = Boolean(String(doc.file_url || '').trim());
+                return (
+                  <div key={doc.id} className="premium-card rounded-xl p-4 hover:shadow-lg transition">
+                    <div className="flex justify-between items-start gap-3 flex-wrap">
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-bold flex items-center gap-2 flex-wrap">
+                          <FileText className="w-5 h-5 text-teal-600 shrink-0" />
+                          <span className="truncate">{doc.title}</span>
+                          {isReport && (
+                            <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-teal-50 text-teal-700 border border-teal-100">
+                              Event report
+                            </span>
+                          )}
+                        </h3>
+                        {(doc.description || doc.metadata?.description) && (
+                          <p className="text-sm text-gray-600 mt-1">{doc.description || doc.metadata?.description}</p>
+                        )}
+                        <p className="text-xs text-gray-500 mt-2">
+                          {isReport ? 'Submitted by Editorial · ' : ''}
+                          {new Date(doc.created_at).toLocaleDateString('en-IN')}
+                        </p>
+                      </div>
+                      <div className="flex gap-2 shrink-0">
+                        {isReport && eventId ? (
+                          <Link
+                            href={`/dashboard/event-detail/${eventId}`}
+                            className="btn-gradient-blue px-4 py-2 rounded-xl flex items-center gap-2 text-sm"
+                          >
+                            <ExternalLink className="w-4 h-4" /> Open report
+                          </Link>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={!hasFile}
+                            onClick={() => {
+                              void openDocumentsBucketFile(supabase, doc.file_url).catch(() =>
+                                toast.error('Could not open document')
+                              );
+                            }}
+                            className="btn-gradient-blue px-4 py-2 rounded-xl flex items-center gap-2 text-sm disabled:opacity-50 disabled:pointer-events-none"
+                          >
+                            <Download className="w-4 h-4" /> View
+                          </button>
+                        )}
+                        {canUpload && (
+                          <button onClick={() => handleDelete(doc.id)}
+                            className="px-3 py-2 rounded-xl bg-red-50 text-red-500 hover:bg-red-100 transition text-sm">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
               {documents.length === 0 && (
-                <p className="text-gray-400 text-center py-8">No documents uploaded yet</p>
+                <p className="text-gray-400 text-center py-8">
+                  {isEditorialSelected
+                    ? 'No event reports or documents yet for Editorial Committee'
+                    : 'No documents uploaded yet'}
+                </p>
               )}
             </div>
           </div>

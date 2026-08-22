@@ -12,6 +12,7 @@ import {
 } from '@/lib/formal-doc-export';
 import { participantGroupLabel } from '@/lib/event-participant-groups';
 import { notifyCommittee } from '@/lib/portal-notify-helpers';
+import { upsertEditorialEventReportDocument } from '@/lib/editorial-event-document';
 
 interface EventReportProps {
     event: any;
@@ -232,28 +233,30 @@ export default function EventReport({ event, tasks, eventPhotos = [], canEdit }:
             // Mark event as completed
             await supabase.from('events').update({ status: 'completed' }).eq('id', event.id);
 
-            // Also save to editorial committee documents
-            const { data: editComm } = await supabase.from('committees').select('id').ilike('name', '%editorial%').single();
-            if (editComm) {
-                await supabase.from('documents').insert({
-                    title: `Event Report: ${event.title}`,
-                    file_url: '',
-                    file_type: 'event_report',
-                    document_type: 'event_report',
-                    committee_id: editComm.id,
-                    uploaded_by: userId,
-                    year: new Date().getFullYear(),
-                    month: new Date().getMonth() + 1,
-                    metadata: { event_id: event.id, event_title: event.title },
-                });
-
-                await notifyCommittee(supabase, editComm.id, {
-                    type: 'event_report',
-                    title: 'Event report created',
-                    message: `Report for "${event.title}" was submitted.`,
-                    link: `/dashboard/event-detail/${event.id}`,
-                    related_id: event.id,
-                });
+            // Save / refresh Editorial Committee document (title = event name)
+            const docRes = await upsertEditorialEventReportDocument(supabase, {
+                eventId: event.id,
+                eventTitle: event.title,
+                uploadedBy: userId,
+            });
+            if (!docRes.ok) {
+                console.warn('Editorial document upsert failed:', docRes.error);
+            } else {
+                const { data: editComm } = await supabase
+                    .from('committees')
+                    .select('id')
+                    .ilike('name', '%editorial%')
+                    .limit(1)
+                    .maybeSingle();
+                if (editComm?.id) {
+                    await notifyCommittee(supabase, editComm.id, {
+                        type: 'event_report',
+                        title: 'Event report created',
+                        message: `Report for "${event.title}" was submitted.`,
+                        link: `/dashboard/event-detail/${event.id}`,
+                        related_id: event.id,
+                    });
+                }
             }
 
             toast.success('Event report created!');
@@ -270,6 +273,7 @@ export default function EventReport({ event, tasks, eventPhotos = [], canEdit }:
         if (!report) return;
         setSaving(true);
         try {
+            const { data: { user } } = await supabase.auth.getUser();
             const participantRows = await getParticipantsSnapshot();
             setParticipantsForReport(participantRows);
             const content = generateReportContent(participantRows);
@@ -278,6 +282,16 @@ export default function EventReport({ event, tasks, eventPhotos = [], canEdit }:
                 additional_notes: additionalNotes.trim() || null,
             }).eq('id', report.id);
             if (error) throw error;
+
+            if (user?.id) {
+                const docRes = await upsertEditorialEventReportDocument(supabase, {
+                    eventId: event.id,
+                    eventTitle: event.title,
+                    uploadedBy: user.id,
+                });
+                if (!docRes.ok) console.warn('Editorial document upsert failed:', docRes.error);
+            }
+
             toast.success('Report updated!');
             setEditing(false);
             loadReport();
