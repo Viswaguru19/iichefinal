@@ -266,14 +266,7 @@ export default function EventWorkflowPage() {
   const ecApproved = (e: any) => e.ec_approvals?.some((a: any) => a.user_id === currentUser?.id && a.approved);
 
   if (loading)
-    return (
-      <div className="min-h-screen bg-mesh flex items-center justify-center">
-        <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="text-center">
-          <div className="w-16 h-16 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 mx-auto mb-4 animate-pulse-glow" />
-          <p className="text-gray-400 font-medium">Loading workflow...</p>
-        </motion.div>
-      </div>
-    );
+    return <PortalLoadingScreen message="Loading workflow…" />;
 
   return (
     <div className="min-h-screen bg-mesh relative overflow-hidden">

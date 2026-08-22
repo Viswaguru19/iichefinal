@@ -166,14 +166,7 @@ export default function KickoffControlPage() {
   };
 
   if (loading) {
-    return <div className="min-h-screen bg-mesh flex items-center justify-center">
-      <div className="text-center">
-        <div className="w-16 h-16 rounded-full bg-gradient-to-br from-amber-500 to-orange-500 mx-auto mb-4 animate-pulse-glow flex items-center justify-center">
-          <Trophy className="w-8 h-8 text-white" />
-        </div>
-        <p className="text-gray-400">Loading...</p>
-      </div>
-    </div>;
+    return <PortalLoadingScreen message="Loading kickoff…" />;
   }
 
   const pendingTeams = teams.filter(t => !t.approved);

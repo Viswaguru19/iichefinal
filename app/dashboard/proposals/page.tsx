@@ -396,14 +396,7 @@ function ProposalsPageClient() {
   const filtered = statusFilter === 'all' ? proposals : proposals.filter(p => p.status === statusFilter);
 
   if (pageLoading) {
-    return (
-      <div className="min-h-screen bg-mesh flex items-center justify-center">
-        <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="text-center">
-          <div className="w-16 h-16 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 mx-auto mb-4 animate-pulse-glow" />
-          <p className="text-gray-400 font-medium">Loading proposals...</p>
-        </motion.div>
-      </div>
-    );
+    return <PortalLoadingScreen message="Loading proposals…" />;
   }
 
   return (
