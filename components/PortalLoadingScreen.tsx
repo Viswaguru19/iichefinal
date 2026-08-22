@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import GradientText from '@/components/react-bits/GradientText';
+import GradientMesh from '@/components/react-bits/GradientMesh';
 
 interface PortalLoadingScreenProps {
   message?: string;
@@ -10,7 +12,7 @@ interface PortalLoadingScreenProps {
 
 const LETTERS = ['I', 'I', 'C', 'h', 'E'] as const;
 
-/** Lightweight loader — CSS only (no Google font round-trips). */
+/** Portal loader with React Bits–style gradient mesh + gradient brand text. */
 export default function PortalLoadingScreen({
   message = 'Loading portal…',
   fullPage = true,
@@ -19,7 +21,6 @@ export default function PortalLoadingScreen({
   const [visibleCount, setVisibleCount] = useState<number>(0);
 
   useEffect(() => {
-    // One-shot reveal only (no endless letter reset — felt like endless loading)
     setVisibleCount(0);
     const timers = LETTERS.map((_, i) =>
       setTimeout(() => setVisibleCount(i + 1), 70 * (i + 1)),
@@ -54,7 +55,13 @@ export default function PortalLoadingScreen({
       </div>
 
       <div className="portal-loader-meta">
-        <p className="portal-loader-brand-text">AVVU SC</p>
+        <GradientText
+          className="portal-loader-brand-text !mx-0 text-sm font-extrabold tracking-[0.28em] uppercase"
+          colors={['#5eead4', '#67e8f9', '#a5b4fc', '#5eead4']}
+          animationSpeed={6}
+        >
+          AVVU SC
+        </GradientText>
         <p className="portal-loader-tagline">Student Chapter Portal</p>
         <p className="portal-loader-message">{message}</p>
         <div className="portal-loader-track" aria-hidden>
@@ -68,9 +75,11 @@ export default function PortalLoadingScreen({
 
   return (
     <div className="portal-loader-page portal-fade-in">
+      <GradientMesh
+        className="opacity-80"
+        colors={['rgba(45,212,191,0.28)', 'rgba(56,189,248,0.22)', 'rgba(129,140,248,0.18)']}
+      />
       <div className="portal-loader-bg-grid" aria-hidden />
-      <div className="portal-loader-bg-orb portal-loader-bg-orb-1" aria-hidden />
-      <div className="portal-loader-bg-orb portal-loader-bg-orb-2" aria-hidden />
       {card}
     </div>
   );

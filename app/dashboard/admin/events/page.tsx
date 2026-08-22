@@ -5,6 +5,8 @@ import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
 import { Edit, Trash2, Calendar, MapPin } from 'lucide-react';
 import toast from 'react-hot-toast';
+import DashboardAtmosphere from '@/components/react-bits/DashboardAtmosphere';
+import PageHeader from '@/components/PageHeader';
 
 export default function AdminEventsPage() {
     const [events, setEvents] = useState<any[]>([]);
@@ -132,17 +134,11 @@ export default function AdminEventsPage() {
     }
 
     return (
-        <div className="min-h-screen bg-mesh">
-            <nav className="glass-strong shadow-lg shadow-indigo-500/5">
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                    <div className="flex justify-between h-16 items-center">
-                        <h1 className="text-2xl font-bold text-gradient">Admin - All Events</h1>
-                        <button onClick={() => router.back()} className="text-gray-500 hover:text-indigo-600 transition">← Back</button>
-                    </div>
-                </div>
-            </nav>
+        <div className="min-h-screen bg-mesh relative overflow-hidden">
+            <DashboardAtmosphere subtitle="View, edit, and delete events across the portal." />
+            <PageHeader title="Admin - All Events" gradientTitle />
 
-            <div className="max-w-7xl mx-auto px-4 py-8">
+            <div className="max-w-7xl mx-auto px-4 py-8 relative z-10">
                 <div className="glass rounded-2xl overflow-hidden">
                     <div className="overflow-x-auto">
                         <table className="w-full">

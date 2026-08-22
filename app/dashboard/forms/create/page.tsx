@@ -13,6 +13,8 @@ import toast from 'react-hot-toast';
 import { EVENT_REGISTRATION_ELIGIBLE_STATUSES } from '@/lib/event-registration';
 import { publicFormUrl } from '@/lib/form-public-access';
 import { notifyEC } from '@/lib/portal-notify-helpers';
+import DashboardAtmosphere from '@/components/react-bits/DashboardAtmosphere';
+import GradientText from '@/components/react-bits/GradientText';
 
 interface FormField {
   id: string;
@@ -360,9 +362,7 @@ export default function CreateFormPage() {
 
   return (
     <div className="min-h-screen bg-mesh py-8 px-4 relative overflow-hidden">
-      {/* Decorative orbs */}
-      <div className="absolute top-20 left-10 w-72 h-72 bg-gradient-to-br from-indigo-400/10 to-purple-400/10 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute bottom-20 right-10 w-96 h-96 bg-gradient-to-br from-pink-400/8 to-violet-400/8 rounded-full blur-3xl pointer-events-none" />
+      <DashboardAtmosphere meshOpacity="opacity-55" />
 
       <div className="max-w-5xl mx-auto relative z-10">
         {/* Top Bar */}
@@ -376,7 +376,15 @@ export default function CreateFormPage() {
             <Link href="/dashboard/forms" className="text-gray-400 hover:text-indigo-600 transition shrink-0">
               <ArrowLeft className="w-6 h-6" />
             </Link>
-            <h1 className="text-xl sm:text-2xl font-extrabold text-gradient tracking-tight truncate">Create Form</h1>
+            <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight truncate">
+              <GradientText
+                className="!mx-0 text-xl sm:text-2xl font-extrabold"
+                colors={['#0f766e', '#2563eb', '#0891b2', '#0f766e']}
+                animationSpeed={8}
+              >
+                Create Form
+              </GradientText>
+            </h1>
           </div>
           <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
             <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.97 }} onClick={() => setShowPreview(true)} className="glass px-3 sm:px-4 py-2 rounded-xl text-gray-700 hover:shadow-md transition flex items-center gap-2 text-sm font-medium">

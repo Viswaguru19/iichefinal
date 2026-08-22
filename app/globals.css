@@ -1,4 +1,4 @@
-@tailwind base;
+﻿@tailwind base;
 @tailwind components;
 @tailwind utilities;
 
@@ -312,7 +312,7 @@ html[data-portal-theme='dark'] .premium-card .bg-white\/40 {
   background: rgba(71, 85, 105, 0.18) !important;
 }
 
-/* Native controls + form copy that stayed “light-theme colors” on dark panels */
+/* Native controls + form copy that stayed â€œlight-theme colorsâ€ on dark panels */
 html[data-portal-theme='dark'] {
   color-scheme: dark;
 }
@@ -722,7 +722,7 @@ html[data-portal-theme='light'] .dashboard-section-title {
     border-radius: 14px;
   }
 
-  /* Backdrop blur is expensive on mobile GPUs — use solid panels instead */
+  /* Backdrop blur is expensive on mobile GPUs â€” use solid panels instead */
   .premium-panel,
   .glass,
   .glass-strong,
@@ -1059,7 +1059,58 @@ html.chat-viewport-lock body {
   }
 }
 
-/* Lightweight entrance animations (CSS-only, no JS bundle) */
+/* React Bitsâ€“style CSS gradient mesh (no WebGL) */
+.rb-gradient-orb {
+  position: absolute;
+  width: min(52vw, 420px);
+  height: min(52vw, 420px);
+  border-radius: 50%;
+  filter: blur(48px);
+  opacity: 0.9;
+  will-change: transform;
+}
+
+.rb-gradient-orb-a {
+  top: -12%;
+  left: -8%;
+  animation: rb-orb-drift-a 14s ease-in-out infinite alternate;
+}
+
+.rb-gradient-orb-b {
+  top: 18%;
+  right: -14%;
+  animation: rb-orb-drift-b 18s ease-in-out infinite alternate;
+}
+
+.rb-gradient-orb-c {
+  bottom: -18%;
+  left: 28%;
+  animation: rb-orb-drift-c 16s ease-in-out infinite alternate;
+}
+
+@keyframes rb-orb-drift-a {
+  from { transform: translate(0, 0) scale(1); }
+  to { transform: translate(36px, 28px) scale(1.08); }
+}
+
+@keyframes rb-orb-drift-b {
+  from { transform: translate(0, 0) scale(1); }
+  to { transform: translate(-40px, 22px) scale(1.1); }
+}
+
+@keyframes rb-orb-drift-c {
+  from { transform: translate(0, 0) scale(1); }
+  to { transform: translate(24px, -30px) scale(1.06); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rb-gradient-orb-a,
+  .rb-gradient-orb-b,
+  .rb-gradient-orb-c {
+    animation: none;
+  }
+}
+
 @keyframes portal-fade-in-keyframes {
   from { opacity: 0; }
   to { opacity: 1; }

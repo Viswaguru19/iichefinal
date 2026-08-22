@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { motion, AnimatePresence } from 'framer-motion';
 import PageHeader from '@/components/PageHeader';
+import DashboardAtmosphere from '@/components/react-bits/DashboardAtmosphere';
 import ReminderButton from '@/components/ReminderButton';
 import StatusIndicator from '@/components/StatusIndicator';
 import { CheckCircle, Clock, XCircle, AlertCircle, Crown, Send, Sparkles, Edit } from 'lucide-react';
@@ -275,10 +276,11 @@ export default function EventWorkflowPage() {
     );
 
   return (
-    <div className="min-h-screen bg-mesh">
-      <PageHeader title="Approval Workflow" />
+    <div className="min-h-screen bg-mesh relative overflow-hidden">
+      <DashboardAtmosphere subtitle="Track head, EC, and faculty approval stages." />
+      <PageHeader title="Approval Workflow" gradientTitle />
 
-      <div className="max-w-7xl mx-auto px-4 py-8">
+      <div className="max-w-7xl mx-auto px-4 py-8 relative z-10">
         <motion.div
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}

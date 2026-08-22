@@ -6,6 +6,7 @@ import { useRouter, useParams } from 'next/navigation';
 import { Calendar, MapPin, CheckCircle, Clock, Edit, Check, X, Palette, ImageIcon, AlertCircle, Camera, ChevronLeft, ChevronRight, Users, QrCode, FileText } from 'lucide-react';
 import toast from 'react-hot-toast';
 import PageHeader from '@/components/PageHeader';
+import DashboardAtmosphere from '@/components/react-bits/DashboardAtmosphere';
 import ReminderButton from '@/components/ReminderButton';
 import StatusIndicator from '@/components/StatusIndicator';
 import EventReport from '@/components/EventReport';
@@ -1050,10 +1051,11 @@ export default function EventDetailPage() {
     isFaculty && event.poster_status === 'pending_faculty_approval' && !!event.poster_url;
 
   return (
-    <div className="min-h-screen bg-mesh">
-      <PageHeader title="Event Details" />
+    <div className="min-h-screen bg-mesh relative overflow-hidden">
+      <DashboardAtmosphere subtitle="Poster, participants, attendance, and reports." />
+      <PageHeader title="Event Details" gradientTitle />
 
-      <div className="max-w-7xl mx-auto px-4 py-8">
+      <div className="max-w-7xl mx-auto px-4 py-8 relative z-10">
         <div className="premium-card rounded-2xl p-1.5 sm:p-2 mb-6 flex gap-1.5 sm:gap-2 w-full max-w-full overflow-x-auto mobile-clean-scroll">
           <button onClick={() => setActiveTab('info')} className={`px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold whitespace-nowrap shrink-0 ${activeTab === 'info' ? 'bg-indigo-600 text-white' : 'text-gray-600 hover:bg-white/70'}`}>Event Info</button>
           <button onClick={() => setActiveTab('participants')} className={`px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold whitespace-nowrap shrink-0 ${activeTab === 'participants' ? 'bg-indigo-600 text-white' : 'text-gray-600 hover:bg-white/70'}`}>

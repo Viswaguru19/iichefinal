@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
 import PageHeader from '@/components/PageHeader';
+import DashboardAtmosphere from '@/components/react-bits/DashboardAtmosphere';
 import { Upload, Image as ImageIcon, ExternalLink } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
@@ -161,10 +162,11 @@ export default function PostersPage() {
   }
 
   return (
-    <div className="min-h-screen bg-mesh">
-      <PageHeader title="Upload event posters" />
+    <div className="min-h-screen bg-mesh relative overflow-hidden">
+      <DashboardAtmosphere subtitle="Submit posters for faculty review and publish." />
+      <PageHeader title="Upload event posters" gradientTitle />
 
-      <div className="max-w-3xl mx-auto px-4 py-8">
+      <div className="max-w-3xl mx-auto px-4 py-8 relative z-10">
         <p className="text-sm text-gray-600 mb-6">
           {isAdmin
             ? 'As an admin, your poster uploads are published immediately. Graphics uploads still require faculty approval.'

@@ -11,6 +11,8 @@ import { publicFormUrl } from '@/lib/form-public-access';
 import PageHeader from '@/components/PageHeader';
 import { canManageForm, canViewFormResponses, isFormTestMode, isFormBeforeStart, isFormPastDeadline } from '@/lib/form-access';
 import { withTimeout } from '@/lib/with-timeout';
+import GradientMesh from '@/components/react-bits/GradientMesh';
+import GsapText from '@/components/react-bits/GsapText';
 
 const container = {
   hidden: { opacity: 0 },
@@ -438,11 +440,11 @@ export default function FormsPage() {
 
   return (
     <div className="min-h-screen bg-mesh py-8 px-4 relative overflow-hidden">
-      <div className="absolute top-20 left-10 w-72 h-72 bg-gradient-to-br from-indigo-400/10 to-purple-400/10 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute bottom-20 right-10 w-96 h-96 bg-gradient-to-br from-pink-400/8 to-violet-400/8 rounded-full blur-3xl pointer-events-none" />
+      <GradientMesh className="opacity-70" />
 
       <PageHeader
         title="Forms"
+        gradientTitle
         rightContent={
           <Link href="/dashboard/forms/create" className="btn-gradient-purple px-5 py-2.5 rounded-2xl flex items-center gap-2 text-sm font-semibold shadow-lg shadow-purple-500/20">
             <Plus className="w-4 h-4" /> Create Form
@@ -451,6 +453,16 @@ export default function FormsPage() {
       />
 
       <div className="max-w-7xl mx-auto relative z-10 mt-6">
+        <div className="mb-6">
+          <GsapText
+            text="Create, collect, and review responses."
+            as="p"
+            className="text-sm text-gray-500"
+            split="words"
+            delay={0.12}
+            stagger={0.04}
+          />
+        </div>
 
         {/* Filter Tabs */}
         <motion.div

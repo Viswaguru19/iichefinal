@@ -6,6 +6,8 @@ import { useRouter } from 'next/navigation';
 import NotionProgressBar from '@/components/events/NotionProgressBar';
 import { Plus, CheckCircle, Clock, AlertCircle, Camera, FileText, Download, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import toast from 'react-hot-toast';
+import DashboardAtmosphere from '@/components/react-bits/DashboardAtmosphere';
+import PageHeader from '@/components/PageHeader';
 
 export const dynamic = 'force-dynamic';
 
@@ -434,20 +436,14 @@ ${reportAdditionalDetails ? `## Additional Details\n${reportAdditionalDetails}` 
   const pendingECApprovalCount = tasks.filter(t => t.status === 'pending_ec_approval').length;
 
   return (
-    <div className="min-h-screen">
-      <nav className="bg-white/80 backdrop-blur-md shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16 items-center">
-            <h1 className="text-2xl font-bold text-blue-600">Event Progress</h1>
-            <button onClick={() => router.back()} className="text-gray-600 hover:text-blue-600">← Back</button>
-          </div>
-        </div>
-      </nav>
+    <div className="min-h-screen bg-mesh relative overflow-hidden">
+      <DashboardAtmosphere subtitle="Track tasks and progress for active events." />
+      <PageHeader title="Event Progress" gradientTitle />
 
-      <div className="max-w-7xl mx-auto px-4 py-8">
+      <div className="max-w-7xl mx-auto px-4 py-8 relative z-10">
         <div className="grid md:grid-cols-3 gap-6">
           {/* Events List */}
-          <div className="bg-white/80 backdrop-blur-sm rounded-xl shadow-lg p-6">
+          <div className="premium-panel rounded-xl shadow-lg p-6">
             <h2 className="font-bold text-gray-900 mb-4 text-lg">Active Events</h2>
             <div className="space-y-2">
               {events.map((event) => (

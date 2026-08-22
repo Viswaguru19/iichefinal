@@ -8,6 +8,7 @@ import { useRouter } from 'next/navigation';
 import { Plus, Calendar, MapPin, Video, Users, Clock, Search, Copy, ExternalLink, Link2, Upload, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import PageHeader from '@/components/PageHeader';
+import DashboardAtmosphere from '@/components/react-bits/DashboardAtmosphere';
 import toast from 'react-hot-toast';
 import BrandingBadge from '@/components/BrandingBadge';
 
@@ -179,12 +180,12 @@ export default function MeetingsPage() {
 
   return (
     <div className="min-h-screen bg-mesh relative overflow-hidden">
-      <div className="absolute top-20 left-10 w-72 h-72 bg-gradient-to-br from-indigo-400/10 to-purple-400/10 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute bottom-20 right-10 w-96 h-96 bg-gradient-to-br from-pink-400/8 to-violet-400/8 rounded-full blur-3xl pointer-events-none" />
+      <DashboardAtmosphere subtitle="Schedule, join, and manage chapter meetings." />
 
       {/* Header */}
       <PageHeader
         title="Meetings"
+        gradientTitle
         rightContent={
           <Link href="/dashboard/meetings/create" className="btn-gradient-purple px-4 py-2 rounded-xl flex items-center gap-2 text-sm font-semibold shadow-lg shadow-purple-500/20">
             <Plus className="w-4 h-4" /> New Meeting

@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { Plus, CheckCircle, Clock, AlertCircle, Calendar, Upload, FileText, Trash2, SlidersHorizontal, Edit2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import PageHeader from '@/components/PageHeader';
+import DashboardAtmosphere from '@/components/react-bits/DashboardAtmosphere';
 
 export default function TasksPage() {
   const EC_COMMITTEE_ID = '00000000-0000-0000-0000-000000000001';
@@ -405,7 +406,8 @@ export default function TasksPage() {
   );
 
   return (
-    <div className="min-h-screen bg-mesh">
+    <div className="min-h-screen bg-mesh relative overflow-hidden">
+      <DashboardAtmosphere subtitle="Assign work and track committee progress." />
       {pageLoading && (
         <div className="min-h-screen bg-mesh flex items-center justify-center">
           <div className="text-center">
@@ -418,6 +420,7 @@ export default function TasksPage() {
         <>
           <PageHeader
             title="Task Management"
+            gradientTitle
             rightContent={
               canAssignTasks() ? (
                 <button onClick={() => setShowAssign(!showAssign)} className="btn-gradient-blue px-4 py-2 rounded-xl flex items-center gap-2 font-semibold text-sm">
@@ -427,7 +430,7 @@ export default function TasksPage() {
             }
           />
 
-          <div className="max-w-7xl mx-auto px-4 py-8">
+          <div className="max-w-7xl mx-auto px-4 py-8 relative z-10">
             {/* Assign Task Form */}
             {showAssign && (
               <div className="glass rounded-2xl p-6 mb-6">

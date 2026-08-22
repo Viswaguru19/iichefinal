@@ -9,6 +9,9 @@ import { ArrowLeft, Plus, Filter, Upload, FileText, ExternalLink, X, Pencil, Tra
 import Link from 'next/link';
 import toast from 'react-hot-toast';
 import { notifyFaculty } from '@/lib/portal-notify-helpers';
+import DashboardAtmosphere from '@/components/react-bits/DashboardAtmosphere';
+import GradientText from '@/components/react-bits/GradientText';
+import GsapText from '@/components/react-bits/GsapText';
 
 interface Transaction {
   id: string;
@@ -244,8 +247,7 @@ export default function StatementOfAccountsPage() {
 
   return (
     <div className="min-h-screen bg-mesh py-8 px-4 relative overflow-hidden">
-      <div className="absolute top-20 left-10 w-72 h-72 bg-gradient-to-br from-indigo-400/10 to-purple-400/10 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute bottom-20 right-10 w-96 h-96 bg-gradient-to-br from-pink-400/8 to-violet-400/8 rounded-full blur-3xl pointer-events-none" />
+      <DashboardAtmosphere meshOpacity="opacity-55" />
 
       <div className="max-w-7xl mx-auto relative z-10">
         <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
@@ -254,8 +256,23 @@ export default function StatementOfAccountsPage() {
               <ArrowLeft className="w-6 h-6" />
             </Link>
             <div className="min-w-0">
-              <h1 className="text-2xl sm:text-3xl font-extrabold text-gradient tracking-tight">Statement of Accounts</h1>
-              <p className="text-gray-400 text-sm">IIChE AVVU SC Student Chapter</p>
+              <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
+                <GradientText
+                  className="!mx-0 text-2xl sm:text-3xl font-extrabold"
+                  colors={['#0f766e', '#2563eb', '#0891b2', '#0f766e']}
+                  animationSpeed={8}
+                >
+                  Statement of Accounts
+                </GradientText>
+              </h1>
+              <GsapText
+                text="IIChE AVVU SC Student Chapter"
+                as="p"
+                className="text-gray-400 text-sm mt-1"
+                split="words"
+                delay={0.12}
+                stagger={0.03}
+              />
               {!canManage && (
                 <p className="text-gray-500 text-xs mt-1">View only — edits are limited to Faculty, Treasurer, and Associate Treasurer.</p>
               )}

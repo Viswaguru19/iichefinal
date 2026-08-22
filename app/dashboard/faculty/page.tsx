@@ -15,6 +15,9 @@ import {
     AlertCircle,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import DashboardAtmosphere from '@/components/react-bits/DashboardAtmosphere';
+import GradientText from '@/components/react-bits/GradientText';
+import GsapText from '@/components/react-bits/GsapText';
 
 export default function FacultyDashboard() {
     const [loading, setLoading] = useState(true);
@@ -284,14 +287,30 @@ export default function FacultyDashboard() {
     if (loading) return <PortalLoadingScreen message="Loading faculty dashboard…" />;
 
     return (
-        <div className="min-h-screen bg-mesh">
+        <div className="min-h-screen bg-mesh relative overflow-hidden">
+            <DashboardAtmosphere meshOpacity="opacity-50" />
             {/* Header */}
-            <div className="glass-strong shadow-lg shadow-indigo-500/5">
+            <div className="glass-strong shadow-lg shadow-indigo-500/5 relative z-10">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
                     <div className="flex items-center justify-between">
                         <div>
-                            <h1 className="text-3xl font-bold text-gradient">Faculty Dashboard</h1>
-                            <p className="text-gray-500 mt-1">Welcome, {profile?.name}</p>
+                            <h1 className="text-3xl font-bold">
+                                <GradientText
+                                    className="!mx-0 text-3xl font-bold"
+                                    colors={['#0f766e', '#2563eb', '#0891b2', '#0f766e']}
+                                    animationSpeed={8}
+                                >
+                                    Faculty Dashboard
+                                </GradientText>
+                            </h1>
+                            <GsapText
+                                text={`Welcome, ${profile?.name || 'Faculty'}`}
+                                as="p"
+                                className="text-gray-500 mt-1"
+                                split="words"
+                                delay={0.12}
+                                stagger={0.03}
+                            />
                         </div>
                         <button
                             onClick={() => router.push('/dashboard')}
@@ -303,7 +322,7 @@ export default function FacultyDashboard() {
                 </div>
             </div>
 
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 relative z-10">
                 {/* Pending Approvals Section - Prominently at Top */}
                 {pendingApprovals.length > 0 && (
                     <div className="glass rounded-2xl p-6 mb-8 border-l-4 border-orange-500 glow-amber">

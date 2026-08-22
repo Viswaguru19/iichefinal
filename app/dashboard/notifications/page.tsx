@@ -6,6 +6,8 @@ import { useRouter } from 'next/navigation';
 import { Bell, Check, CheckCheck, X, Filter } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { getNotificationHref } from '@/lib/notification-href';
+import DashboardAtmosphere from '@/components/react-bits/DashboardAtmosphere';
+import PageHeader from '@/components/PageHeader';
 
 interface Notification {
     id: string;
@@ -210,25 +212,17 @@ export default function NotificationsPage() {
     const unreadCount = notifications.filter((n) => n.read !== true).length;
 
     return (
-        <div className="min-h-screen bg-gray-50">
-            <nav className="bg-white shadow-sm">
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                    <div className="flex justify-between h-16 items-center">
-                        <h1 className="text-2xl font-bold text-blue-600">Notifications</h1>
-                        <button onClick={() => router.back()} className="text-gray-600 hover:text-blue-600">
-                            ← Back to Dashboard
-                        </button>
-                    </div>
-                </div>
-            </nav>
+        <div className="min-h-screen bg-mesh relative overflow-hidden">
+            <DashboardAtmosphere subtitle="Stay up to date with portal activity." />
+            <PageHeader title="Notifications" gradientTitle />
 
-            <div className="max-w-4xl mx-auto px-4 py-8">
+            <div className="max-w-4xl mx-auto px-4 py-8 relative z-10">
                 {/* Header Actions */}
-                <div className="bg-white rounded-xl shadow-sm p-4 mb-6">
+                <div className="premium-panel rounded-xl shadow-sm p-4 mb-6">
                     <div className="flex items-center justify-between flex-wrap gap-4">
                         <div className="flex items-center gap-4">
                             <div className="flex items-center gap-2">
-                                <Bell className="w-5 h-5 text-blue-600" />
+                                <Bell className="w-5 h-5 text-teal-600" />
                                 <span className="font-semibold text-gray-900">
                                     {notifications.length} Total
                                 </span>

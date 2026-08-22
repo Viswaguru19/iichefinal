@@ -7,6 +7,9 @@ import TestEmailCard from '@/components/TestEmailCard';
 import TestPushNotificationCard from '@/components/TestPushNotificationCard';
 import AdminOnlinePresenceControls from '@/components/dashboard/AdminOnlinePresenceControls';
 import { adminEventWorkflowLabel, adminEventStatusBadgeClass } from '@/lib/admin-event-status';
+import GradientMesh from '@/components/react-bits/GradientMesh';
+import GradientText from '@/components/react-bits/GradientText';
+import GsapText from '@/components/react-bits/GsapText';
 
 export default async function AdminDashboard() {
   const supabase = await createClient();
@@ -30,11 +33,20 @@ export default async function AdminDashboard() {
   const { data: pendingUsers } = await supabase.from('profiles').select('*').eq('approved', false);
 
   return (
-    <div className="min-h-screen bg-mesh">
-      <nav className="premium-panel shadow-lg shadow-indigo-500/5">
+    <div className="min-h-screen bg-mesh relative overflow-hidden">
+      <GradientMesh className="opacity-50" />
+      <nav className="premium-panel shadow-lg shadow-indigo-500/5 relative z-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16 items-center gap-3">
-            <h1 className="text-2xl font-bold text-gradient">Admin Panel</h1>
+            <h1 className="text-2xl font-bold">
+              <GradientText
+                className="!mx-0 text-2xl font-bold"
+                colors={['#0f766e', '#2563eb', '#0891b2', '#0f766e']}
+                animationSpeed={8}
+              >
+                Admin Panel
+              </GradientText>
+            </h1>
             <div className="flex items-center gap-3 shrink-0">
               <AdminOnlinePresenceControls />
               <Link href="/dashboard" className="text-gray-500 hover:text-indigo-600 transition whitespace-nowrap">← Back to Dashboard</Link>
@@ -43,7 +55,15 @@ export default async function AdminDashboard() {
         </div>
       </nav>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 relative z-10">
+        <GsapText
+          text="Manage users, events, committees, and portal settings."
+          as="p"
+          className="text-sm text-gray-500 mb-6"
+          split="words"
+          delay={0.1}
+          stagger={0.03}
+        />
         <div className="grid md:grid-cols-4 gap-6 mb-8">
           <StatCard icon={<Users />} title="Total Users" value={(users as any)?.length || 0} color="blue" />
           <StatCard icon={<UserCheck />} title="Pending user sign-ups" value={(pendingUsers as any)?.length || 0} color="yellow" />

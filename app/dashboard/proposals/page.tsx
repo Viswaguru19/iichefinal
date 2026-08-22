@@ -5,6 +5,7 @@ import { useEffect, useState, Suspense } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter, useSearchParams } from 'next/navigation';
 import PageHeader from '@/components/PageHeader';
+import DashboardAtmosphere from '@/components/react-bits/DashboardAtmosphere';
 import { motion, AnimatePresence } from 'framer-motion';
 import { CheckCircle, XCircle, Clock, Users, Crown, Edit, AlertTriangle, Ban, CalendarDays, Send, RotateCcw, Sparkles, ArrowLeft, Filter, Bell } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -406,11 +407,11 @@ function ProposalsPageClient() {
   }
 
   return (
-    <div className="min-h-screen bg-mesh">
-      {/* Nav */}
-      <PageHeader title="Event Proposals" />
+    <div className="min-h-screen bg-mesh relative overflow-hidden">
+      <DashboardAtmosphere subtitle="Review, approve, and track event proposals." />
+      <PageHeader title="Event Proposals" gradientTitle />
 
-      <div className="max-w-7xl mx-auto px-4 py-8">
+      <div className="max-w-7xl mx-auto px-4 py-8 relative z-10">
         {/* Filter bar */}
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
           className="premium-card rounded-2xl p-4 mb-6 flex items-center gap-4 flex-wrap">

@@ -10,6 +10,7 @@ import { motion } from 'framer-motion';
 import PageHeader from '@/components/PageHeader';
 import toast from 'react-hot-toast';
 import { EXECUTIVE_COMMITTEE_SYNTHETIC_ID } from '@/lib/user-approval';
+import DashboardAtmosphere from '@/components/react-bits/DashboardAtmosphere';
 
 export default function PastEventsPage() {
     const [events, setEvents] = useState<any[]>([]);
@@ -90,8 +91,9 @@ export default function PastEventsPage() {
     if (loading) return <PortalLoadingScreen message="Loading…" />;
 
     return (
-        <div className="min-h-screen bg-mesh">
-            <PageHeader title="Past Events" />
+        <div className="min-h-screen bg-mesh relative overflow-hidden">
+            <DashboardAtmosphere subtitle="Completed events, archives, and restore to active." />
+            <PageHeader title="Past Events" gradientTitle />
             {restoreTarget && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
                     <div className="glass-strong rounded-2xl max-w-md w-full p-6 border border-white/10 shadow-xl">
@@ -137,7 +139,7 @@ export default function PastEventsPage() {
                     </div>
                 </div>
             )}
-            <div className="max-w-7xl mx-auto px-4 py-8">
+            <div className="max-w-7xl mx-auto px-4 py-8 relative z-10">
                 {/* Search */}
                 <div className="mb-6 relative">
                     <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />

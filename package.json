@@ -10,13 +10,16 @@
     "test": "vitest --run"
   },
   "dependencies": {
+    "@gsap/react": "^2.1.2",
     "@supabase/ssr": "^0.5.2",
     "@supabase/supabase-js": "^2.45.4",
     "date-fns": "^4.1.0",
     "framer-motion": "^12.34.4",
+    "gsap": "^3.15.0",
     "html5-qrcode": "^2.3.8",
     "jspdf": "^4.2.1",
     "lucide-react": "^0.454.0",
+    "motion": "^13.1.1",
     "nanoid": "^5.1.7",
     "next": "^14.2.18",
     "qrcode": "^1.5.4",

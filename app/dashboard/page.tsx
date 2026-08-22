@@ -9,6 +9,8 @@ import AnimatedSection from '@/components/dashboard/AnimatedSection';
 import AnimatedCommitteeCard from '@/components/dashboard/AnimatedCommitteeCard';
 import AnimatedUpcomingEvents from '@/components/dashboard/AnimatedUpcomingEvents';
 import PortalLoadingScreen from '@/components/PortalLoadingScreen';
+import DashboardHero from '@/components/react-bits/DashboardHero';
+import GradientMesh from '@/components/react-bits/GradientMesh';
 
 const AnimatedEventProgress = nextDynamic(() => import('@/components/dashboard/AnimatedEventProgress'), {
   loading: () => <div className="h-24 animate-pulse rounded-xl bg-white/40" />,
@@ -188,23 +190,16 @@ export default async function DashboardPage() {
   const greetingFirst = profileName.split(/\s+/).filter(Boolean)[0] || 'there';
 
   return (
-    <div className="min-h-screen bg-mesh">
+    <div className="min-h-screen bg-mesh relative overflow-hidden">
+      <GradientMesh className="opacity-45" />
       <DashboardNav
         userName={profileName || 'Member'}
         userRole={String((profile as any).role ?? 'member')}
       />
 
-      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-5 sm:py-8">
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-5 sm:py-8 relative z-10">
         <AnimatedSection delay={0.1}>
-          <div className="mb-6 sm:mb-8">
-            <h2 className="text-2xl sm:text-3xl font-bold dashboard-hero-name">
-              Hi {greetingFirst}! 👋
-            </h2>
-            {committeeRole && (
-              <p className="mt-2 text-sm sm:text-base font-medium dashboard-hero-role">
-                {committeeRole}
-              </p>
-            )}
+          <DashboardHero firstName={greetingFirst} roleLine={committeeRole || null}>
             {isExecutive && (
               <div className="mt-3 inline-flex items-center gap-2 bg-gradient-to-r from-amber-400 to-orange-500 text-white px-3 sm:px-4 py-1.5 sm:py-2 rounded-full shadow-lg shadow-amber-500/20 text-xs sm:text-sm max-w-full">
                 <Crown className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
@@ -213,8 +208,7 @@ export default async function DashboardPage() {
                 </span>
               </div>
             )}
-            <p className="dashboard-hero-welcome mt-3">Welcome to your dashboard</p>
-          </div>
+          </DashboardHero>
         </AnimatedSection>
 
         {/* Quick Access: Proposals & Tasks with badges */}

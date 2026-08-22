@@ -7,14 +7,17 @@ import DynamicLogo from '@/components/DynamicLogo';
 import { motion } from 'framer-motion';
 import { motionTokens } from '@/lib/ui/motion';
 import AdminOnlinePresenceControls from '@/components/dashboard/AdminOnlinePresenceControls';
+import GradientText from '@/components/react-bits/GradientText';
 
 interface PageHeaderProps {
     title: string;
     showBack?: boolean;
     rightContent?: React.ReactNode;
+    /** Animated React Bits gradient title (teal/blue portal palette). */
+    gradientTitle?: boolean;
 }
 
-export default function PageHeader({ title, showBack = true, rightContent }: PageHeaderProps) {
+export default function PageHeader({ title, showBack = true, rightContent, gradientTitle = false }: PageHeaderProps) {
     const router = useRouter();
 
     return (
@@ -31,10 +34,30 @@ export default function PageHeader({ title, showBack = true, rightContent }: Pag
                             <div className="w-9 h-9 sm:w-12 sm:h-12 rounded-xl bg-white/85 border border-white/80 shadow-sm flex items-center justify-center">
                                 <DynamicLogo width={42} height={42} />
                             </div>
-                            <span className="text-base font-extrabold text-gradient portal-header-brand hidden md:inline">IIChE AVVU SC</span>
+                            <span className="text-base font-extrabold portal-header-brand hidden md:inline">
+                                <GradientText
+                                    className="!mx-0 text-base font-extrabold"
+                                    colors={['#0f766e', '#2563eb', '#0891b2', '#0f766e']}
+                                    animationSpeed={10}
+                                >
+                                    IIChE AVVU SC
+                                </GradientText>
+                            </span>
                         </Link>
                         <div className="w-px h-6 bg-gray-200 portal-header-divider hidden md:block" />
-                        <h1 className="text-sm sm:text-xl font-bold text-gray-900 truncate portal-header-title min-w-0">{title}</h1>
+                        {gradientTitle ? (
+                            <h1 className="text-sm sm:text-xl font-bold truncate portal-header-title min-w-0">
+                                <GradientText
+                                    className="!mx-0 !max-w-none text-sm sm:text-xl font-bold"
+                                    colors={['#0f766e', '#2563eb', '#0891b2', '#0f766e']}
+                                    animationSpeed={8}
+                                >
+                                    {title}
+                                </GradientText>
+                            </h1>
+                        ) : (
+                            <h1 className="text-sm sm:text-xl font-bold text-gray-900 truncate portal-header-title min-w-0">{title}</h1>
+                        )}
                     </div>
                     <div className="flex items-center gap-1 sm:gap-2 shrink-0 max-w-[55%] sm:max-w-none overflow-x-auto mobile-clean-scroll">
                         <AdminOnlinePresenceControls />

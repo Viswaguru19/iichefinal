@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { FileText, Upload, Download, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import PageHeader from '@/components/PageHeader';
+import DashboardAtmosphere from '@/components/react-bits/DashboardAtmosphere';
 
 export default function DocumentsPage() {
   const [documents, setDocuments] = useState<any[]>([]);
@@ -108,10 +109,11 @@ export default function DocumentsPage() {
   const canUpload = userCommittees.some((c: any) => c.committee_id === selectedCommittee);
 
   return (
-    <div className="min-h-screen bg-mesh">
-      <PageHeader title="Committee Documents" />
+    <div className="min-h-screen bg-mesh relative overflow-hidden">
+      <DashboardAtmosphere subtitle="Upload and browse committee files." />
+      <PageHeader title="Committee Documents" gradientTitle />
 
-      <div className="max-w-7xl mx-auto px-4 py-8">
+      <div className="max-w-7xl mx-auto px-4 py-8 relative z-10">
         <div className="mb-6 flex gap-4">
           <select
             value={selectedCommittee}

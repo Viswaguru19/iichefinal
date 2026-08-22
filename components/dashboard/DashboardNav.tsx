@@ -6,6 +6,7 @@ import dynamic from 'next/dynamic';
 import { LogOut, Moon, Sun, User } from 'lucide-react';
 import DynamicLogo from '@/components/DynamicLogo';
 import AdminOnlinePresenceControls from '@/components/dashboard/AdminOnlinePresenceControls';
+import GradientText from '@/components/react-bits/GradientText';
 
 const NotificationBell = dynamic(() => import('@/components/dashboard/NotificationBell'), {
   ssr: false,
@@ -47,7 +48,15 @@ export default function DashboardNav({ userName, userRole }: DashboardNavProps) 
             <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-white/85 border border-white/80 shadow-sm flex items-center justify-center shrink-0">
               <DynamicLogo width={38} height={38} />
             </div>
-            <h1 className="text-sm sm:text-2xl font-bold text-gradient portal-header-brand truncate max-[380px]:hidden">IIChE AVVU SC</h1>
+            <h1 className="text-sm sm:text-2xl font-bold portal-header-brand truncate max-[380px]:hidden">
+              <GradientText
+                className="!mx-0 text-sm sm:text-2xl font-bold"
+                colors={['#0f766e', '#2563eb', '#0891b2', '#0f766e']}
+                animationSpeed={9}
+              >
+                IIChE AVVU SC
+              </GradientText>
+            </h1>
           </Link>
           <div className="flex items-center gap-1 sm:gap-4 shrink-0">
             <AdminOnlinePresenceControls />
