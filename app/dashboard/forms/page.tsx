@@ -305,7 +305,7 @@ export default function FormsPage() {
       });
       if (clearErr) {
         console.error('clear_form_test_responses', clearErr);
-        toast.error('Could not clear test responses. Apply migration 119 if needed.');
+        toast.error('Could not clear test responses. Apply migration 123 if needed.');
         setToggling(null);
         return;
       }

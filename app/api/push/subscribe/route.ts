@@ -56,7 +56,7 @@ export async function POST(request: Request) {
     const msg = error.message || 'Failed to save subscription';
     if (msg.includes('does not exist')) {
       return NextResponse.json(
-        { error: 'push_subscriptions table missing — run migration 105 in Supabase SQL editor.' },
+        { error: 'push_subscriptions table missing — run migration 109 in Supabase SQL editor.' },
         { status: 500 },
       );
     }

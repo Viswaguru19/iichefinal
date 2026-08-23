@@ -82,7 +82,7 @@ export async function subscribeToPushNotifications(): Promise<boolean> {
   if (!res.ok) {
     const msg = (data as { error?: string }).error || 'Failed to save push subscription';
     if (msg.includes('push_subscriptions')) {
-      toast.error('Database not ready — admin must run migration 105 in Supabase');
+      toast.error('Database not ready — admin must run migration 109 in Supabase');
     } else {
       toast.error(msg);
     }

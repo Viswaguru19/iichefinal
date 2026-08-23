@@ -131,7 +131,7 @@ export default function TestPushNotificationCard() {
           </p>
           {!health.tableOk && (
             <p>
-              <strong>Database:</strong> {health.tableError || 'Run migration 105 in Supabase SQL editor.'}
+              <strong>Database:</strong> {health.tableError || 'Run migration 109 in Supabase SQL editor.'}
             </p>
           )}
           {!health.serviceRoleKey && (

@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import PortalPresenceProvider from '@/components/dashboard/PortalPresenceProvider';
 import PortalLogoProvider from '@/components/dashboard/PortalLogoProvider';
 import ChatServiceWorkerRegistrar from '@/components/chat/ChatServiceWorkerRegistrar';
+import DemoModeBanner from '@/components/DemoModeBanner';
 import { buildChatMetadataIcons } from '@/lib/pwa-icons';
 
 export const metadata: Metadata = {
@@ -29,7 +30,10 @@ export default function ChatLayout({ children }: { children: React.ReactNode }) 
   return (
     <PortalLogoProvider>
       <ChatServiceWorkerRegistrar />
-      <PortalPresenceProvider>{children}</PortalPresenceProvider>
+      <PortalPresenceProvider>
+        <DemoModeBanner />
+        {children}
+      </PortalPresenceProvider>
     </PortalLogoProvider>
   );
 }

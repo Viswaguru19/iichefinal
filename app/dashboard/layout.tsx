@@ -2,6 +2,7 @@ import PortalPresenceProvider from '@/components/dashboard/PortalPresenceProvide
 import PortalLogoProvider from '@/components/dashboard/PortalLogoProvider';
 import ServiceWorkerRegistrar from '@/components/ServiceWorkerRegistrar';
 import InstallAppPrompt from '@/components/InstallAppPrompt';
+import DemoModeBanner from '@/components/DemoModeBanner';
 
 /**
  * Sync layout — no per-navigation server logo fetch (was a major delay with force-dynamic).
@@ -12,6 +13,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     <PortalLogoProvider>
       <ServiceWorkerRegistrar />
       <PortalPresenceProvider>
+        <DemoModeBanner />
         {children}
         <InstallAppPrompt />
       </PortalPresenceProvider>

@@ -84,7 +84,18 @@ export default function DashboardNav({ userName, userRole }: DashboardNavProps) 
             <span className="text-[9px] sm:text-xs bg-gradient-to-r from-indigo-500 to-purple-500 text-white px-1.5 sm:px-3 py-0.5 sm:py-1 rounded-full font-semibold shadow-sm whitespace-nowrap hidden sm:inline-flex">
               {(userRole || 'member').replace(/_/g, ' ').toUpperCase()}
             </span>
-            <form action="/api/auth/signout" method="POST">
+            <form
+              action="/api/auth/signout"
+              method="POST"
+              onSubmit={() => {
+                try {
+                  localStorage.removeItem('portal-demo');
+                  document.cookie = 'portal-demo=; path=/; max-age=0; SameSite=Lax';
+                } catch {
+                  /* ignore */
+                }
+              }}
+            >
               <button
                 type="submit"
                 className="text-gray-400 hover:text-rose-500 transition-colors portal-header-link p-1"

@@ -123,7 +123,7 @@ export async function GET() {
   if (subsErr) {
     const msg = subsErr.message || 'Failed to load subscriptions';
     const hint = msg.includes('push_subscriptions')
-      ? ' Run migration 105_push_subscriptions.sql in Supabase.'
+      ? ' Run migration 109_push_subscriptions.sql in Supabase.'
       : '';
     return NextResponse.json({ error: msg + hint }, { status: 500 });
   }

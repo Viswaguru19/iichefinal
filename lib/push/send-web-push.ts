@@ -108,7 +108,7 @@ export async function sendWebPushToUsers(
       sent: 0,
       failed: 0,
       dbError: tableMissing
-        ? 'push_subscriptions table missing — run migration 105 in Supabase SQL editor.'
+        ? 'push_subscriptions table missing — run migration 109 in Supabase SQL editor.'
         : msg,
     };
   }

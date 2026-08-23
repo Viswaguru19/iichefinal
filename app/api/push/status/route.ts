@@ -11,7 +11,7 @@ export async function GET() {
     vapidPublic: hasPublic,
     vapidPrivate: hasPrivate,
     webhookSecret: hasWebhook,
-    /** Full auto-push on every notification insert needs migration 106 + Supabase DB settings. */
+    /** Full auto-push on every notification insert needs migration 110 + Supabase DB settings. */
     autoDispatchReady: hasPublic && hasPrivate && hasWebhook,
   });
 }

@@ -28,7 +28,7 @@ export async function GET() {
       if (error) {
         tableError = error.message;
         if (error.message.includes('push_subscriptions') && error.message.includes('does not exist')) {
-          tableError = 'Run migration 105_push_subscriptions.sql in Supabase SQL editor.';
+          tableError = 'Run migration 109_push_subscriptions.sql in Supabase SQL editor.';
         }
       } else {
         tableOk = true;

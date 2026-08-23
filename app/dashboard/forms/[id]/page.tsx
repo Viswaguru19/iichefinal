@@ -150,7 +150,7 @@ export default function FormSubmitPage() {
         );
         setForm(null);
         setFormClosed(true);
-        setClosedReason('Form not found. Check the link, or apply migration 120 if this is a draft.');
+        setClosedReason('Form not found. Check the link, or apply migration 124 if this is a draft.');
         setLoading(false);
         return;
       }
