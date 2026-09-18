@@ -1175,13 +1175,21 @@ export default function MeetingRoomPage() {
             const stream = await ensureLocalMedia();
             if (!stream) return;
 
+            // The camera track is disabled rather than stopped. Stopping it forces a
+            // second getUserMedia to turn the camera back on, and on iOS that call
+            // ends the tracks already in use — including the microphone, which left
+            // the other side unable to hear you after a camera toggle.
             if (isCameraOff) {
                 try {
-                    const track = await reacquireAndBindCameraTrack(stream);
-                    if (!track) {
+                    const existing = stream.getVideoTracks().find((t) => t.readyState === 'live');
+                    if (existing) {
+                        existing.enabled = true;
+                    } else if (!(await reacquireAndBindCameraTrack(stream))) {
                         toast.error('Could not turn on camera. Check browser camera permissions.');
                         return;
                     }
+                    setLocalStream(new MediaStream(stream.getTracks()));
+                    setLocalVideoRenderKey((k) => k + 1);
                     setIsCameraOff(false);
                     sendCameraState(true);
                 } catch {
@@ -1190,21 +1198,14 @@ export default function MeetingRoomPage() {
                 return;
             }
 
-            const currentTrack = stream.getVideoTracks()[0];
-            if (currentTrack) {
-                currentTrack.enabled = false;
-                stream.removeTrack(currentTrack);
-                currentTrack.stop();
-            }
-            await replaceVideoTrack(null);
-            const next = new MediaStream(stream.getTracks());
-            setLocalStream(next);
+            for (const track of stream.getVideoTracks()) track.enabled = false;
+            setLocalStream(new MediaStream(stream.getTracks()));
             setLocalVideoRenderKey((k) => k + 1);
             setIsCameraOff(true);
             sendCameraState(false);
         };
         void run();
-    }, [ensureLocalMedia, isCameraOff, reacquireAndBindCameraTrack, replaceVideoTrack, sendCameraState]);
+    }, [ensureLocalMedia, isCameraOff, reacquireAndBindCameraTrack, sendCameraState]);
 
     const toggleScreenShare = useCallback(async () => {
         const activeStream = localStream || await ensureLocalMedia();
@@ -2496,11 +2497,16 @@ function LocalVideoTile({
         };
         bind();
 
+        // Only chase a missing first frame while a camera track is actually live,
+        // otherwise this rebinds forever with the camera off and causes flicker.
+        const hasLiveVideo = stream.getVideoTracks().some((t) => t.readyState === 'live');
+        let attemptsLeft = hasLiveVideo ? 8 : 0;
         const retry = window.setInterval(() => {
-            if (el.videoWidth > 0) {
+            if (el.videoWidth > 0 || attemptsLeft <= 0) {
                 window.clearInterval(retry);
                 return;
             }
+            attemptsLeft -= 1;
             bind();
         }, 800);
 

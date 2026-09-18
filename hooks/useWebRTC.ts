@@ -37,41 +37,50 @@ function iceConfig(iceServers: RTCIceServer[]): RTCConfiguration {
     return { iceServers, iceCandidatePoolSize: 10 };
 }
 
-function senderForKind(pc: RTCPeerConnection, kind: string): RTCRtpSender | undefined {
-    const withTrack = pc.getSenders().find((s) => s.track?.kind === kind);
-    if (withTrack) return withTrack;
-    return pc.getTransceivers().find((t) => t.receiver.track?.kind === kind)?.sender;
+/**
+ * Every peer connection gets exactly one audio and one video transceiver when
+ * it is created, and tracks are only ever swapped onto those two senders.
+ *
+ * Looking senders up by `sender.track.kind` breaks the moment a track is
+ * removed (a muted camera leaves `sender.track === null`), which used to fall
+ * through to `addTrack` and create a second m-line. That extra m-line needs
+ * renegotiation, and renegotiation was only permitted from one side, so the
+ * media silently became one-way. Pinning the transceivers removes the need to
+ * renegotiate for any track change at all.
+ */
+const peerTransceivers = new WeakMap<
+    RTCPeerConnection,
+    { audio: RTCRtpTransceiver; video: RTCRtpTransceiver }
+>();
+
+function transceiverForKind(pc: RTCPeerConnection, kind: 'audio' | 'video') {
+    const pinned = peerTransceivers.get(pc);
+    if (pinned) return kind === 'audio' ? pinned.audio : pinned.video;
+    return pc.getTransceivers().find((t) => (t.sender.track?.kind ?? t.receiver.track?.kind) === kind);
 }
 
-async function attachTrackToPeer(pc: RTCPeerConnection, track: MediaStreamTrack, stream: MediaStream) {
-    const sender = senderForKind(pc, track.kind);
-    if (sender) {
-        const transceiver = pc.getTransceivers().find((t) => t.sender === sender);
-        if (transceiver && transceiver.direction !== 'sendrecv') transceiver.direction = 'sendrecv';
-        await sender.replaceTrack(track);
+async function setKindTrack(pc: RTCPeerConnection, kind: 'audio' | 'video', track: MediaStreamTrack | null) {
+    const transceiver = transceiverForKind(pc, kind);
+    if (!transceiver) {
+        if (track) pc.addTrack(track, new MediaStream([track]));
         return;
     }
-    pc.addTrack(track, stream);
-}
-
-async function replaceKindTrack(pc: RTCPeerConnection, kind: 'audio' | 'video', track: MediaStreamTrack | null) {
-    const sender = senderForKind(pc, kind);
-    if (sender) {
-        const transceiver = pc.getTransceivers().find((t) => t.sender === sender);
-        if (transceiver && track && transceiver.direction !== 'sendrecv') transceiver.direction = 'sendrecv';
-        await sender.replaceTrack(track);
-        return;
+    if (transceiver.direction !== 'sendrecv') transceiver.direction = 'sendrecv';
+    if (transceiver.sender.track === track) return;
+    try {
+        await transceiver.sender.replaceTrack(track);
+    } catch (err) {
+        console.error(`replaceTrack(${kind}) failed`, err);
     }
-    if (track) pc.addTrack(track, new MediaStream([track]));
 }
 
 async function attachLocalTracksToPeer(pc: RTCPeerConnection, local: MediaStream | null) {
     if (!local) return;
+    // A muted mic stays 'live' with enabled === false, so it must stay attached.
     const audio = local.getAudioTracks().find((t) => t.readyState === 'live') ?? null;
     const video = local.getVideoTracks().find((t) => t.readyState === 'live') ?? null;
-    if (audio) await attachTrackToPeer(pc, audio, local);
-    if (video) await attachTrackToPeer(pc, video, local);
-    else await replaceKindTrack(pc, 'video', null);
+    await setKindTrack(pc, 'audio', audio);
+    await setKindTrack(pc, 'video', video);
 }
 
 function sdpJson(desc: RTCSessionDescription | RTCSessionDescriptionInit | null | undefined) {
@@ -242,11 +251,8 @@ export function useWebRTC({
             const pc = new RTCPeerConnection(iceConfig(iceServersRef.current));
             const audioTr = pc.addTransceiver('audio', { direction: 'sendrecv' });
             const videoTr = pc.addTransceiver('video', { direction: 'sendrecv' });
-            const local = localStreamRef.current;
-            const audioTrack = local?.getAudioTracks().find((t) => t.readyState === 'live');
-            const videoTrack = local?.getVideoTracks().find((t) => t.readyState === 'live');
-            if (audioTrack) void audioTr.sender.replaceTrack(audioTrack);
-            if (videoTrack) void videoTr.sender.replaceTrack(videoTrack);
+            peerTransceivers.set(pc, { audio: audioTr, video: videoTr });
+            void attachLocalTracksToPeer(pc, localStreamRef.current);
 
             const remoteStream = new MediaStream();
             let negotiationBusy = false;
@@ -254,7 +260,15 @@ export function useWebRTC({
                 // Initial SDP is driven by the offerer; this handles late camera/mic attach.
                 if (!pc.remoteDescription || pc.signalingState !== 'stable' || negotiationBusy) return;
                 const polite = selfPeerIdRef.current > peerId;
-                if (polite) return;
+                if (polite) {
+                    // Only the impolite side offers, so ask it to; otherwise this
+                    // side could never renegotiate and its media stays one-way.
+                    void sendSignal('renegotiate-request', {
+                        senderId: selfPeerIdRef.current,
+                        targetId: peerId,
+                    });
+                    return;
+                }
                 negotiationBusy = true;
                 makingOfferRef.current.add(peerId);
                 try {
@@ -528,6 +542,16 @@ export function useWebRTC({
                 })();
             });
 
+            channel.on('broadcast', { event: 'renegotiate-request' }, (msg) => {
+                const { senderId, targetId } = msg.payload as { senderId: string; targetId: string };
+                if (targetId !== selfPeerIdRef.current) return;
+                const peer = peersRef.current.get(senderId);
+                if (!peer) return;
+                if (peer.connection.signalingState !== 'stable') return;
+                if (makingOfferRef.current.has(senderId)) return;
+                void sendOffer(peer.connection, senderId);
+            });
+
             channel.on('broadcast', { event: 'peer-left' }, (msg) => {
                 removePC((msg.payload as { senderId: string }).senderId);
             });
@@ -635,7 +659,7 @@ export function useWebRTC({
     const replaceVideoTrack = useCallback(async (newTrack: MediaStreamTrack | null) => {
         await Promise.all(
             Array.from(peersRef.current.values()).map((peer) =>
-                replaceKindTrack(peer.connection, 'video', newTrack),
+                setKindTrack(peer.connection, 'video', newTrack),
             ),
         );
     }, []);
@@ -643,7 +667,7 @@ export function useWebRTC({
     const replaceAudioTrack = useCallback(async (newTrack: MediaStreamTrack | null) => {
         await Promise.all(
             Array.from(peersRef.current.values()).map((peer) =>
-                replaceKindTrack(peer.connection, 'audio', newTrack),
+                setKindTrack(peer.connection, 'audio', newTrack),
             ),
         );
     }, []);
