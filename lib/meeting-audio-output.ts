@@ -67,6 +67,73 @@ export function pickEarpieceOutputDevice(devices: MediaDeviceLike[]): PickedAudi
 }
 
 type Sinkable = HTMLMediaElement & { setSinkId?: (id: string) => Promise<void> };
+type SinkableContext = AudioContext & { setSinkId?: (id: string) => Promise<void> };
+
+let meetingAudioCtx: AudioContext | null = null;
+const remoteGraph = new Map<string, { source: MediaStreamAudioSourceNode; gain: GainNode }>();
+
+function audioContextCtor(): typeof AudioContext | undefined {
+    if (typeof window === 'undefined') return undefined;
+    return window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+}
+
+export async function getMeetingAudioContext() {
+    const AC = audioContextCtor();
+    if (!AC) return null;
+    if (!meetingAudioCtx || meetingAudioCtx.state === 'closed') {
+        meetingAudioCtx = new AC();
+    }
+    if (meetingAudioCtx.state === 'suspended') {
+        await meetingAudioCtx.resume().catch(() => undefined);
+    }
+    return meetingAudioCtx;
+}
+
+export async function setMeetingAudioSink(deviceId?: string | null) {
+    const ctx = await getMeetingAudioContext();
+    if (!ctx || !deviceId) return false;
+    const sinkable = ctx as SinkableContext;
+    if (typeof sinkable.setSinkId !== 'function') return false;
+    try {
+        await sinkable.setSinkId(deviceId);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+export function disconnectRemoteStreamFromSpeaker(streamId: string) {
+    const node = remoteGraph.get(streamId);
+    if (!node) return;
+    try {
+        node.source.disconnect();
+        node.gain.disconnect();
+    } catch {
+        /* ignore */
+    }
+    remoteGraph.delete(streamId);
+}
+
+/** Play remote meeting audio through the same AudioContext as the Test speaker beep. */
+export async function routeRemoteStreamToSpeaker(streamId: string, stream: MediaStream, deviceId?: string | null) {
+    const ctx = await getMeetingAudioContext();
+    if (!ctx) return false;
+    await setMeetingAudioSink(deviceId);
+    disconnectRemoteStreamFromSpeaker(streamId);
+    const liveAudio = stream.getAudioTracks().filter((t) => t.readyState === 'live');
+    if (!liveAudio.length) return false;
+    try {
+        const source = ctx.createMediaStreamSource(new MediaStream(liveAudio));
+        const gain = ctx.createGain();
+        gain.gain.value = 1;
+        source.connect(gain);
+        gain.connect(ctx.destination);
+        remoteGraph.set(streamId, { source, gain });
+        return true;
+    } catch {
+        return false;
+    }
+}
 
 export async function applyAudioOutputToElement(el: HTMLMediaElement, deviceId: string | null | undefined) {
     if (!deviceId) return false;
@@ -80,12 +147,16 @@ export async function applyAudioOutputToElement(el: HTMLMediaElement, deviceId: 
     }
 }
 
-/** iOS WebKit: getUserMedia puts audio on the earpiece unless the session type is playback. */
-export function applyMeetingAudioSession(speakerOn: boolean) {
+/**
+ * Keep play-and-record during a call so the mic stays live.
+ * Speaker routing is done with AudioContext / setSinkId, not by switching to playback
+ * (playback is why Test speaker beep worked while WebRTC voices stayed silent).
+ */
+export function applyMeetingAudioSession(_speakerOn: boolean) {
     const session = (navigator as unknown as { audioSession?: { type: string } }).audioSession;
     if (!session) return false;
     try {
-        session.type = speakerOn ? 'playback' : 'play-and-record';
+        session.type = 'play-and-record';
         return true;
     } catch {
         return false;
@@ -103,18 +174,10 @@ export async function resolvePreferredAudioOutput(speakerOn: boolean): Promise<P
 }
 
 export async function playSpeakerTestTone(deviceId?: string | null) {
-    const AC = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!AC) return false;
-    const ctx = new AC();
+    const ctx = await getMeetingAudioContext();
+    if (!ctx) return false;
+    await setMeetingAudioSink(deviceId);
     try {
-        const sinkable = ctx as AudioContext & { setSinkId?: (id: string) => Promise<void> };
-        if (deviceId && typeof sinkable.setSinkId === 'function') {
-            try {
-                await sinkable.setSinkId(deviceId);
-            } catch {
-                /* keep default output */
-            }
-        }
         if (ctx.state === 'suspended') await ctx.resume();
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
@@ -131,8 +194,6 @@ export async function playSpeakerTestTone(deviceId?: string | null) {
         return true;
     } catch {
         return false;
-    } finally {
-        void ctx.close();
     }
 }
 

@@ -9,6 +9,9 @@ function iceConfig(): RTCConfiguration {
         { urls: 'stun:freeturn.net:3478' },
         { urls: 'turn:freeturn.net:3478', username: 'free', credential: 'free' },
         { urls: 'turns:freeturn.net:5349', username: 'free', credential: 'free' },
+        { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+        { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+        { urls: 'turns:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
     ];
     const turnUrls = (process.env.NEXT_PUBLIC_TURN_URLS || '').split(',').map((s) => s.trim()).filter(Boolean);
     const turnUser = process.env.NEXT_PUBLIC_TURN_USERNAME || '';
@@ -16,7 +19,7 @@ function iceConfig(): RTCConfiguration {
     if (turnUrls.length && turnUser && turnCred) {
         iceServers.push({ urls: turnUrls, username: turnUser, credential: turnCred });
     }
-    return { iceServers, iceCandidatePoolSize: 2 };
+    return { iceServers, iceCandidatePoolSize: 10 };
 }
 
 function senderForKind(pc: RTCPeerConnection, kind: string): RTCRtpSender | undefined {
@@ -50,7 +53,7 @@ async function replaceKindTrack(pc: RTCPeerConnection, kind: 'audio' | 'video', 
 async function attachLocalTracksToPeer(pc: RTCPeerConnection, local: MediaStream | null) {
     if (!local) return;
     const audio = local.getAudioTracks().find((t) => t.readyState === 'live') ?? null;
-    const video = local.getVideoTracks().find((t) => t.readyState === 'live' && t.enabled) ?? null;
+    const video = local.getVideoTracks().find((t) => t.readyState === 'live') ?? null;
     if (audio) await attachTrackToPeer(pc, audio, local);
     if (video) await attachTrackToPeer(pc, video, local);
     else await replaceKindTrack(pc, 'video', null);
@@ -59,21 +62,6 @@ async function attachLocalTracksToPeer(pc: RTCPeerConnection, local: MediaStream
 function sdpJson(desc: RTCSessionDescription | RTCSessionDescriptionInit | null | undefined) {
     if (!desc?.type || !desc.sdp) return null;
     return { type: desc.type, sdp: desc.sdp };
-}
-
-async function waitIceGathering(pc: RTCPeerConnection, ms = 1800) {
-    if (pc.iceGatheringState === 'complete') return;
-    await new Promise<void>((resolve) => {
-        const finish = () => {
-            pc.removeEventListener('icegatheringstatechange', onChange);
-            resolve();
-        };
-        const onChange = () => {
-            if (pc.iceGatheringState === 'complete') finish();
-        };
-        pc.addEventListener('icegatheringstatechange', onChange);
-        window.setTimeout(finish, ms);
-    });
 }
 
 export interface PeerState {
@@ -215,7 +203,7 @@ export function useWebRTC({
             const videoTr = pc.addTransceiver('video', { direction: 'sendrecv' });
             const local = localStreamRef.current;
             const audioTrack = local?.getAudioTracks().find((t) => t.readyState === 'live');
-            const videoTrack = local?.getVideoTracks().find((t) => t.readyState === 'live' && t.enabled);
+            const videoTrack = local?.getVideoTracks().find((t) => t.readyState === 'live');
             if (audioTrack) void audioTr.sender.replaceTrack(audioTrack);
             if (videoTrack) void videoTr.sender.replaceTrack(videoTrack);
 
@@ -229,8 +217,7 @@ export function useWebRTC({
                 negotiationBusy = true;
                 makingOfferRef.current.add(peerId);
                 try {
-                    await pc.setLocalDescription(await pc.createOffer());
-                    await waitIceGathering(pc);
+                    await pc.setLocalDescription(await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true }));
                     const sdp = sdpJson(pc.localDescription);
                     if (sdp) {
                         await sendSignal('sdp-offer', {
@@ -347,8 +334,7 @@ export function useWebRTC({
         makingOfferRef.current.add(peerId);
         try {
             await attachLocalTracksToPeer(pc, localStreamRef.current);
-            await pc.setLocalDescription(await pc.createOffer());
-            await waitIceGathering(pc);
+            await pc.setLocalDescription(await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true }));
             const sdp = sdpJson(pc.localDescription);
             if (!sdp) return;
             await sendSignal('sdp-offer', {
@@ -382,7 +368,6 @@ export function useWebRTC({
             if (pc.signalingState === 'have-remote-offer') {
                 await attachLocalTracksToPeer(pc, localStreamRef.current);
                 await pc.setLocalDescription(await pc.createAnswer());
-                await waitIceGathering(pc);
                 const answer = sdpJson(pc.localDescription);
                 if (answer) {
                     await sendSignal('sdp-answer', {

@@ -42,8 +42,12 @@ import DynamicLogo from '@/components/DynamicLogo';
 import {
     applyAudioOutputToElement,
     applyMeetingAudioSession,
+    getMeetingAudioContext,
     playSpeakerTestTone,
     resolvePreferredAudioOutput,
+    routeRemoteStreamToSpeaker,
+    disconnectRemoteStreamFromSpeaker,
+    setMeetingAudioSink,
     unlockRemoteMediaElements,
 } from '@/lib/meeting-audio-output';
 
@@ -80,6 +84,7 @@ async function acquireMeetingMedia(): Promise<MediaStream | null> {
         try {
             const stream = await navigator.mediaDevices.getUserMedia(constraints);
             applyMeetingAudioSession(true);
+            void getMeetingAudioContext();
             return markMeetingTracks(stream);
         } catch {
             /* try a simpler constraint set */
@@ -88,18 +93,8 @@ async function acquireMeetingMedia(): Promise<MediaStream | null> {
     return null;
 }
 
-/** Browsers block remote audio until a user gesture; Join Meeting calls this. */
 async function unlockMeetingAudioPlayback() {
-    try {
-        const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-        if (Ctx) {
-            const ctx = new Ctx();
-            if (ctx.state === 'suspended') await ctx.resume();
-            void ctx.close();
-        }
-    } catch {
-        /* ignore */
-    }
+    await getMeetingAudioContext();
     unlockRemoteMediaElements();
 }
 
@@ -311,6 +306,7 @@ export default function MeetingRoomPage() {
         await unlockMeetingAudioPlayback();
         const picked = await resolvePreferredAudioOutput(nextSpeakerOn);
         setSpeakerOutputId(picked?.deviceId ?? null);
+        await setMeetingAudioSink(picked?.deviceId ?? null);
         if (picked?.deviceId) {
             document.querySelectorAll('audio[data-meeting-remote="1"]').forEach((node) => {
                 void applyAudioOutputToElement(node as HTMLMediaElement, picked.deviceId);
@@ -363,8 +359,8 @@ export default function MeetingRoomPage() {
         if (currentUserId.startsWith('guest-')) setLocalProfileAvatarUrl(null);
     }, [currentUserId]);
 
-    const meetMediaRef = useRef({ isScreenSharing: false, localStream: null as MediaStream | null });
-    meetMediaRef.current = { isScreenSharing, localStream };
+    const meetMediaRef = useRef({ isScreenSharing: false, localStream: null as MediaStream | null, isCameraOff: false });
+    meetMediaRef.current = { isScreenSharing, localStream, isCameraOff };
 
     // WebRTC peer connections
     const {
@@ -386,10 +382,9 @@ export default function MeetingRoomPage() {
         localStream,
         enabled: !!meeting && !!currentUserId && !!currentUserName && hasJoinedMeeting && !removedByModerator,
         getCameraSendingSnapshot: () => {
-            const { isScreenSharing: sharing, localStream: stream } = meetMediaRef.current;
+            const { isScreenSharing: sharing, isCameraOff: cameraOff } = meetMediaRef.current;
             if (sharing) return true;
-            const vt = stream?.getVideoTracks()[0];
-            return Boolean(vt && vt.readyState === 'live' && vt.enabled);
+            return !cameraOff;
         },
         onRoomControl: (payload: RoomControlPayload) => {
             // Ignore your own control broadcast; sender already knows what they did.
@@ -654,16 +649,39 @@ export default function MeetingRoomPage() {
     }, [roomId]);
 
     useEffect(() => {
-        if (preJoinVideoRef.current && localStream) {
-            preJoinVideoRef.current.srcObject = localStream;
-        }
+        const el = preJoinVideoRef.current;
+        if (!el || !localStream) return;
+        el.muted = true;
+        el.playsInline = true;
+        el.setAttribute('playsinline', 'true');
+        el.srcObject = localStream;
+        const play = () => void el.play().catch(() => undefined);
+        el.onloadedmetadata = play;
+        play();
     }, [localStream]);
 
     useEffect(() => {
-        if (!isScreenSharing) {
-            setLocalPreviewStream(localStream);
+        if (isCameraOff && !isScreenSharing) {
+            setLocalPreviewStream(null);
+            return;
         }
-    }, [localStream, isScreenSharing]);
+        const sourceTracks = isScreenSharing && screenTrackRef.current
+            ? [screenTrackRef.current]
+            : (localStream?.getVideoTracks().filter((t) => t.readyState === 'live') ?? []);
+        if (!sourceTracks.length) {
+            setLocalPreviewStream(null);
+            return;
+        }
+        const clones = sourceTracks.map((t) => {
+            const clone = t.clone();
+            clone.enabled = true;
+            return clone;
+        });
+        setLocalPreviewStream(new MediaStream(clones));
+        return () => {
+            clones.forEach((t) => t.stop());
+        };
+    }, [localStream, isScreenSharing, isCameraOff]);
 
     // Persist joined participants for attendance screens (skip guest IDs).
     useEffect(() => {
@@ -1124,7 +1142,6 @@ export default function MeetingRoomPage() {
             await replaceVideoTrack(freshTrack);
             const next = new MediaStream(stream.getTracks());
             setLocalStream(next);
-            setLocalPreviewStream(next);
             setLocalVideoRenderKey((k) => k + 1);
             return freshTrack;
         },
@@ -1137,8 +1154,7 @@ export default function MeetingRoomPage() {
             sendCameraState(true);
             return;
         }
-        const vt = localStream?.getVideoTracks()[0];
-        sendCameraState(Boolean(vt && vt.readyState === 'live' && vt.enabled && !isCameraOff));
+        sendCameraState(isScreenSharing || !isCameraOff);
     }, [hasJoinedMeeting, localStream, isCameraOff, isScreenSharing, sendCameraState]);
 
     useEffect(() => {
@@ -1159,7 +1175,11 @@ export default function MeetingRoomPage() {
 
             if (isCameraOff) {
                 try {
-                    await reacquireAndBindCameraTrack(stream);
+                    const track = await reacquireAndBindCameraTrack(stream);
+                    if (!track) {
+                        toast.error('Could not turn on camera. Check browser camera permissions.');
+                        return;
+                    }
                     setIsCameraOff(false);
                     sendCameraState(true);
                 } catch {
@@ -1177,7 +1197,6 @@ export default function MeetingRoomPage() {
             await replaceVideoTrack(null);
             const next = new MediaStream(stream.getTracks());
             setLocalStream(next);
-            setLocalPreviewStream(next);
             setLocalVideoRenderKey((k) => k + 1);
             setIsCameraOff(true);
             sendCameraState(false);
@@ -1537,7 +1556,7 @@ export default function MeetingRoomPage() {
                     <div className="grid grid-cols-1 lg:grid-cols-[1.5fr_1fr] gap-4">
                         <div className="relative rounded-xl overflow-hidden bg-black/40 border border-amber-200/20 aspect-video">
                             {localStream && !isCameraOff ? (
-                                <video ref={preJoinVideoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
+                                <video ref={preJoinVideoRef} autoPlay playsInline muted className="w-full h-full object-cover" style={{ transform: 'scaleX(-1)' }} />
                             ) : (
                                 <div className="w-full h-full flex flex-col items-center justify-center gap-3 bg-gradient-to-b from-slate-900/90 to-black/90">
                                     <CameraOffAvatar
@@ -2268,9 +2287,10 @@ function RemoteVideo({
     const liveVideoTrack = Boolean(
         peer.remoteStream?.getVideoTracks().some((t) => t.readyState === 'live'),
     );
-    const forceAvatarUi = peerSignalsCameraOff && !isRemoteScreenShare;
+    const mediaConnected = peer.connectionState === 'connected';
+    const forceAvatarUi = peerSignalsCameraOff && !isRemoteScreenShare && mediaConnected;
     const showLivePixels = hasVideo && !forceAvatarUi;
-    const showConnectingUi = !forceAvatarUi && !hasVideo && !liveVideoTrack;
+    const showConnectingUi = !forceAvatarUi && (!mediaConnected || (!hasVideo && !liveVideoTrack));
     const showCameraOffChrome = forceAvatarUi;
 
     if (small) {
@@ -2375,13 +2395,14 @@ function AudioPlayer({ stream, outputDeviceId }: { stream: MediaStream; outputDe
         el.muted = false;
         el.volume = 1;
         el.srcObject = audioOnly;
-        void applyAudioOutputToElement(el, outputDeviceId);
-
         const tryPlay = () => {
             el.muted = false;
             el.volume = 1;
             void applyAudioOutputToElement(el, outputDeviceId);
             void el.play().catch(() => undefined);
+            // Extra speaker path for phones without setSinkId. Never mute the <audio>
+            // element — WebRTC voices decode there; the beep uses a different oscillator.
+            void routeRemoteStreamToSpeaker(stream.id, stream, outputDeviceId);
         };
         tryPlay();
 
@@ -2402,6 +2423,7 @@ function AudioPlayer({ stream, outputDeviceId }: { stream: MediaStream; outputDe
         return () => {
             stream.removeEventListener('addtrack', onAdd);
             trackCleanups.forEach((fn) => fn());
+            disconnectRemoteStreamFromSpeaker(stream.id);
             el.srcObject = null;
         };
     }, [stream, audioTrackKey, outputDeviceId]);
@@ -2415,11 +2437,11 @@ function AudioPlayer({ stream, outputDeviceId }: { stream: MediaStream; outputDe
             controls={false}
             style={{
                 position: 'fixed',
-                left: 0,
-                bottom: 0,
-                width: 1,
-                height: 1,
-                opacity: 0.01,
+                left: 8,
+                bottom: 8,
+                width: 32,
+                height: 32,
+                opacity: 0.02,
                 pointerEvents: 'none',
                 zIndex: 0,
             }}
@@ -2453,16 +2475,26 @@ function LocalVideoTile({
     useEffect(() => {
         const el = ref.current;
         if (!el || !stream) return;
-        const videoOnly = new MediaStream(stream.getVideoTracks());
 
         const bind = () => {
             el.setAttribute('playsinline', 'true');
             el.setAttribute('webkit-playsinline', 'true');
             el.muted = true;
-            el.srcObject = videoOnly;
-            void el.play().catch(() => undefined);
+            el.autoplay = true;
+            el.srcObject = stream;
+            const kick = () => void el.play().catch(() => undefined);
+            el.onloadedmetadata = kick;
+            kick();
         };
         bind();
+
+        const retry = window.setInterval(() => {
+            if (el.videoWidth > 0) {
+                window.clearInterval(retry);
+                return;
+            }
+            bind();
+        }, 800);
 
         const cleanups: (() => void)[] = [];
         for (const t of stream.getVideoTracks()) {
@@ -2475,6 +2507,7 @@ function LocalVideoTile({
             });
         }
         return () => {
+            window.clearInterval(retry);
             cleanups.forEach((c) => c());
             el.srcObject = null;
         };
@@ -2514,6 +2547,7 @@ function LocalVideoTile({
                 playsInline
                 muted
                 className={`w-full h-full object-cover ${showCameraOffOverlay ? 'opacity-0 absolute inset-0 min-h-0 pointer-events-none' : ''}`}
+                style={isScreenSharing ? undefined : { transform: 'scaleX(-1)' }}
             />
             {showCameraOffOverlay && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-slate-900/90 px-2">
