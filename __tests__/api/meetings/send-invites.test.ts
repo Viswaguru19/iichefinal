@@ -50,6 +50,12 @@ vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn(() => Promise.resolve(mockSupabase)),
 }));
 
+vi.mock('@/lib/supabase/admin', () => ({
+  tryCreateAdminClient: vi.fn(() => null),
+  createAdminClient: vi.fn(),
+  hasAdminCredentials: vi.fn(() => false),
+}));
+
 import { POST } from '@/app/api/meetings/send-invites/route';
 
 function makeRequest(body: Record<string, any>): Request {

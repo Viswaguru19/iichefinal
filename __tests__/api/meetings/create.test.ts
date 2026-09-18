@@ -52,6 +52,12 @@ vi.mock('@/lib/send-meeting-invites', () => ({
     sendMeetingInvitationEmails: vi.fn().mockResolvedValue({ sentCount: 0, total: 0, success: true }),
 }));
 
+vi.mock('@/lib/supabase/admin', () => ({
+    tryCreateAdminClient: vi.fn(() => null),
+    createAdminClient: vi.fn(),
+    hasAdminCredentials: vi.fn(() => false),
+}));
+
 // Import the handler after mocks are set up
 import { POST } from '@/app/api/meetings/create/route';
 
@@ -172,13 +178,19 @@ describe('/api/meetings/create', () => {
                 null
             );
             const committeeQueryBuilder = createQueryBuilder(
-                [{ user_id: 'c1' }, { user_id: 'c2' }],
+                [
+                    { user_id: 'c1', position: 'Co-Head' },
+                    { user_id: 'c2', position: 'co_head' },
+                    { user_id: 'c3', position: 'head' },
+                    { user_id: 'c4', position: 'member' },
+                ],
                 null
             );
 
             // Track which table + method combos were called
             const queryCalls: { table: string; builder: any }[] = [];
 
+            const participantInserts: any[] = [];
             mockFromHandlers = {
                 meetings: () => {
                     const b = createQueryBuilder(
@@ -188,7 +200,15 @@ describe('/api/meetings/create', () => {
                     return b;
                 },
                 meeting_rooms: () => createQueryBuilder(null, null),
-                meeting_participants: () => createQueryBuilder(null, null),
+                meeting_participants: () => {
+                    const b = createQueryBuilder(null, null);
+                    const originalInsert = b.insert.bind(b);
+                    b.insert = function (...args: any[]) {
+                        participantInserts.push(args[0]);
+                        return originalInsert(...args);
+                    };
+                    return b;
+                },
                 profiles: () => {
                     queryCalls.push({ table: 'profiles', builder: profilesQueryBuilder });
                     return profilesQueryBuilder;
@@ -202,7 +222,7 @@ describe('/api/meetings/create', () => {
             // Stub global fetch for email dispatch
             vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true }));
 
-            return { queryCalls, profilesQueryBuilder, committeeQueryBuilder };
+            return { queryCalls, profilesQueryBuilder, committeeQueryBuilder, participantInserts };
         }
 
         it('all_members queries profiles with is_active=true', async () => {
@@ -270,19 +290,13 @@ describe('/api/meetings/create', () => {
             );
         });
 
-        it('heads_only queries committee_members heads and profiles with committee_head role', async () => {
-            const { queryCalls, committeeQueryBuilder, profilesQueryBuilder } = setupMeetingInsertSuccess();
+        it('heads_only queries committee_members and profiles with committee_head role', async () => {
+            const { queryCalls, profilesQueryBuilder } = setupMeetingInsertSuccess();
 
             await POST(makeRequest(validBody({ audience_type: 'heads_only' })));
 
             expect(queryCalls.some(c => c.table === 'committee_members')).toBe(true);
             expect(queryCalls.some(c => c.table === 'profiles')).toBe(true);
-            const inCalls = committeeQueryBuilder._calls.filter((c: any) => c.method === 'in');
-            expect(inCalls).toEqual(
-                expect.arrayContaining([
-                    expect.objectContaining({ args: ['position', ['head']] }),
-                ])
-            );
             const eqCalls = profilesQueryBuilder._calls.filter((c: any) => c.method === 'eq');
             expect(eqCalls).toEqual(
                 expect.arrayContaining([
@@ -291,21 +305,31 @@ describe('/api/meetings/create', () => {
             );
         });
 
-        it('coheads_only queries committee_members co-heads and profiles with committee_cohead role', async () => {
-            const { queryCalls, committeeQueryBuilder, profilesQueryBuilder } = setupMeetingInsertSuccess();
+        it('coheads_only queries committee_members and profiles with committee_cohead role', async () => {
+            const { queryCalls, profilesQueryBuilder } = setupMeetingInsertSuccess();
 
             await POST(makeRequest(validBody({ audience_type: 'coheads_only' })));
 
             expect(queryCalls.some(c => c.table === 'committee_members')).toBe(true);
             expect(queryCalls.some(c => c.table === 'profiles')).toBe(true);
-            const inCalls = committeeQueryBuilder._calls.filter((c: any) => c.method === 'in');
-            expect(inCalls.some((c: any) => c.args[0] === 'position' && Array.isArray(c.args[1]) && c.args[1].includes('co_head'))).toBe(true);
             const eqCalls = profilesQueryBuilder._calls.filter((c: any) => c.method === 'eq');
             expect(eqCalls).toEqual(
                 expect.arrayContaining([
                     expect.objectContaining({ args: ['role', 'committee_cohead'] }),
                 ])
             );
+        });
+
+        it('coheads_only includes Co-Head and co_head spellings, not heads or members', async () => {
+            const { participantInserts } = setupMeetingInsertSuccess();
+
+            await POST(makeRequest(validBody({ audience_type: 'coheads_only' })));
+
+            const rows = (participantInserts[0] || []) as Array<{ user_id: string }>;
+            const ids = rows.map((r) => r.user_id);
+            expect(ids).toEqual(expect.arrayContaining(['c1', 'c2', 'p1', 'p2']));
+            expect(ids).not.toContain('c3');
+            expect(ids).not.toContain('c4');
         });
 
         it('includes faculty coordinators for every meeting audience', async () => {

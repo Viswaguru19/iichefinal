@@ -1,13 +1,12 @@
 import { createClient } from '@/lib/supabase/server';
+import { tryCreateAdminClient } from '@/lib/supabase/admin';
 import { NextResponse } from 'next/server';
 import { nanoid } from 'nanoid';
 import { sendMeetingInvitationEmails } from '@/lib/send-meeting-invites';
+import { isCoHeadPosition, isHeadPosition } from '@/lib/committee-positions';
 
 /** Client may supply the same id shown in the schedule form so preview URL === saved meeting link. */
 const ROOM_ID_PATTERN = /^[A-Za-z0-9_-]{10,64}$/;
-
-const HEAD_POSITIONS = ['head'];
-const COHEAD_POSITIONS = ['co_head', 'co-head', 'cohead'];
 
 type AudienceType =
     | 'all_members'
@@ -35,6 +34,31 @@ interface CreateMeetingRequest {
 
 function uniqueIds(ids: Array<string | null | undefined>): string[] {
     return [...new Set(ids.filter((id): id is string => Boolean(id)))];
+}
+
+/** Prefer service role so RLS cannot hide co-heads on other committees. */
+function directoryClient(userClient: any) {
+    return tryCreateAdminClient() ?? userClient;
+}
+
+async function userIdsByCommitteePosition(
+    db: any,
+    predicate: (position: string | null | undefined) => boolean,
+): Promise<string[]> {
+    const { data } = await db.from('committee_members').select('user_id, position');
+    return uniqueIds(
+        (data || [])
+            .filter((m: any) => predicate(m.position))
+            .map((m: any) => m.user_id),
+    );
+}
+
+async function userIdsInChatType(db: any, chatType: string): Promise<string[]> {
+    const { data: groups } = await db.from('chat_groups').select('id').eq('chat_type', chatType);
+    const groupIds = uniqueIds((groups || []).map((g: any) => g.id));
+    if (groupIds.length === 0) return [];
+    const { data: parts } = await db.from('chat_participants').select('user_id').in('group_id', groupIds);
+    return uniqueIds((parts || []).map((p: any) => p.user_id));
 }
 
 export async function POST(request: Request) {
@@ -81,47 +105,48 @@ export async function POST(request: Request) {
             meeting_link = `${origin}/meet/${roomSlug}`;
         }
 
+        // Directory reads/writes bypass RLS when the service role is configured.
+        const directory = directoryClient(supabase);
+
         // --- Resolve audience (skip for general meetings) ---
         let participantIds: string[] = [];
         if (body.audience_type === 'all_members') {
-            const { data } = await supabase.from('profiles').select('id').eq('is_active', true);
+            const { data } = await directory.from('profiles').select('id').eq('is_active', true);
             participantIds = data?.map((p: any) => p.id) || [];
         } else if (body.audience_type === 'executive_committee') {
-            const { data } = await supabase.from('profiles').select('id').not('executive_role', 'is', null);
+            const { data } = await directory.from('profiles').select('id').not('executive_role', 'is', null);
             participantIds = data?.map((p: any) => p.id) || [];
         } else if (body.audience_type === 'heads_only') {
-            const { data: members } = await supabase
-                .from('committee_members')
-                .select('user_id')
-                .in('position', HEAD_POSITIONS);
-            const { data: byRole } = await supabase
+            const fromMembers = await userIdsByCommitteePosition(directory, isHeadPosition);
+            const { data: byRole } = await directory
                 .from('profiles')
                 .select('id')
                 .eq('role', 'committee_head');
+            const fromChat = await userIdsInChatType(directory, 'heads');
             participantIds = uniqueIds([
-                ...(members || []).map((m: any) => m.user_id),
+                ...fromMembers,
                 ...(byRole || []).map((p: any) => p.id),
+                ...fromChat,
             ]);
         } else if (body.audience_type === 'coheads_only') {
-            const { data: members } = await supabase
-                .from('committee_members')
-                .select('user_id')
-                .in('position', COHEAD_POSITIONS);
-            const { data: byRole } = await supabase
+            const fromMembers = await userIdsByCommitteePosition(directory, isCoHeadPosition);
+            const { data: byRole } = await directory
                 .from('profiles')
                 .select('id')
                 .eq('role', 'committee_cohead');
+            const fromChat = await userIdsInChatType(directory, 'coheads');
             participantIds = uniqueIds([
-                ...(members || []).map((m: any) => m.user_id),
+                ...fromMembers,
                 ...(byRole || []).map((p: any) => p.id),
+                ...fromChat,
             ]);
         } else if (body.audience_type === 'specific_committee' && body.committee_id) {
-            const { data } = await supabase.from('committee_members').select('user_id').eq('committee_id', body.committee_id);
+            const { data } = await directory.from('committee_members').select('user_id').eq('committee_id', body.committee_id);
             participantIds = data?.map((m: any) => m.user_id) || [];
         }
 
         // Faculty coordinators always receive every meeting (online and offline).
-        const { data: facultyRows } = await supabase
+        const { data: facultyRows } = await directory
             .from('profiles')
             .select('id')
             .or('is_faculty.eq.true,role.eq.faculty_advisor');
@@ -162,15 +187,18 @@ export async function POST(request: Request) {
 
         // --- Insert into meeting_participants ---
         if (participantIds.length > 0) {
-            await supabase
+            const { error: participantError } = await directory
                 .from('meeting_participants')
                 .insert(participantIds.map(uid => ({ meeting_id: meeting.id, user_id: uid })));
+            if (participantError) {
+                console.error('Meeting participants insert error:', participantError);
+            }
         }
 
         // --- Email invitations (online and offline: time, place, agenda) ---
         if (participantIds.length > 0) {
             try {
-                await sendMeetingInvitationEmails(supabase, { meetingId: meeting.id });
+                await sendMeetingInvitationEmails(directory, { meetingId: meeting.id });
             } catch (err) {
                 console.error('Failed to send meeting invitations:', err);
             }

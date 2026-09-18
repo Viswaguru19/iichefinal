@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
+import { tryCreateAdminClient } from '@/lib/supabase/admin';
 import { sendMeetingInvitationEmails } from '@/lib/send-meeting-invites';
 import { NextResponse } from 'next/server';
 
@@ -6,7 +7,7 @@ export async function POST(request: Request) {
     try {
         const body = await request.json();
         const { meetingId, customEmails } = body;
-        const supabase = await createClient();
+        const supabase = tryCreateAdminClient() ?? await createClient();
 
         const result = await sendMeetingInvitationEmails(supabase, { meetingId, customEmails });
 
