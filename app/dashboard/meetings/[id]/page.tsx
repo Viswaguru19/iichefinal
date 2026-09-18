@@ -32,6 +32,7 @@ export default function MeetingDetailPage() {
     const [loading, setLoading] = useState(true);
     const [isManager, setIsManager] = useState(false);
     const [isEditorial, setIsEditorial] = useState(false);
+    const [resendingInvites, setResendingInvites] = useState(false);
     const supabase = createClient();
     const router = useRouter();
     const params = useParams();
@@ -352,7 +353,38 @@ export default function MeetingDetailPage() {
                         </div>
                     )}
 
-                    {/* Invite by Email */}
+                    {isManager && (
+                        <button
+                            type="button"
+                            onClick={async () => {
+                                setResendingInvites(true);
+                                try {
+                                    const res = await fetch('/api/meetings/send-invites', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ meetingId: meeting.id }),
+                                    });
+                                    const data = await res.json();
+                                    if (!res.ok) throw new Error(data.error || 'Failed to send invitations');
+                                    toast.success(data.message || `Invitations sent to ${data.sentCount} of ${data.total}`);
+                                } catch (err: any) {
+                                    toast.error(err.message || 'Failed to send invitations');
+                                } finally {
+                                    setResendingInvites(false);
+                                }
+                            }}
+                            disabled={resendingInvites}
+                            className="w-full sm:w-auto flex items-center justify-center gap-2 bg-indigo-600 text-white px-4 py-2.5 rounded-xl text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 mb-3"
+                        >
+                            {resendingInvites ? (
+                                <><Loader2 className="w-4 h-4 animate-spin" /> Sending invitations…</>
+                            ) : (
+                                <><Mail className="w-4 h-4" /> Send invitation mail again</>
+                            )}
+                        </button>
+                    )}
+
+                    {/* Invite extra people by Email */}
                     <InviteByEmail meetingId={meeting.id} />
                 </div>
 

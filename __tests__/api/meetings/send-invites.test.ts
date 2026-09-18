@@ -28,6 +28,10 @@ function createQueryBuilder(resolvedData: any = null, resolvedError: any = null)
       this._calls.push({ method: 'or', args });
       return this;
     },
+    in: function (...args: any[]) {
+      this._calls.push({ method: 'in', args });
+      return this;
+    },
     single: function () {
       this._calls.push({ method: 'single', args: [] });
       return { data: resolvedData, error: resolvedError };
@@ -40,6 +44,9 @@ function createQueryBuilder(resolvedData: any = null, resolvedError: any = null)
 let mockFromHandlers: Record<string, (...args: any[]) => any> = {};
 
 const mockSupabase = {
+  auth: {
+    getUser: vi.fn(),
+  },
   from: vi.fn((table: string) => {
     if (mockFromHandlers[table]) return mockFromHandlers[table](table);
     return createQueryBuilder([], null);
@@ -92,6 +99,20 @@ describe('/api/meetings/send-invites', () => {
     vi.clearAllMocks();
     mockFromHandlers = {};
     process.env.RESEND_API_KEY = process.env.RESEND_API_KEY || 're_test_key';
+    mockSupabase.auth.getUser.mockResolvedValue({
+      data: { user: { id: 'user-1' } },
+      error: null,
+    });
+  });
+
+  it('returns 401 when user is not authenticated', async () => {
+    mockSupabase.auth.getUser.mockResolvedValue({
+      data: { user: null },
+      error: { message: 'Not authenticated' },
+    });
+
+    const res = await POST(makeRequest({ meetingId: 'meeting-1' }));
+    expect(res.status).toBe(401);
   });
 
   it('returns 404 when meeting is not found', async () => {
@@ -105,9 +126,9 @@ describe('/api/meetings/send-invites', () => {
     expect(json.error).toMatch(/not found/i);
   });
 
-  it('returns 400 when meeting has no participants (and no customEmails)', async () => {
+  it('returns 400 when meeting has no emails to send', async () => {
     mockFromHandlers = {
-      meetings: () => createQueryBuilder(baseMeeting(), null),
+      meetings: () => createQueryBuilder(baseMeeting({ creator: { name: 'Admin', email: null } }), null),
       meeting_participants: () => createQueryBuilder([], null),
     };
 
@@ -149,9 +170,10 @@ describe('/api/meetings/send-invites', () => {
 
     await POST(makeRequest({ meetingId: 'meeting-1' }));
 
-    expect(mockSend).toHaveBeenCalledTimes(1);
-    const call = mockSend.mock.calls[0][0];
-    expect(call.to).toBe('alice@test.com');
+    expect(mockSend).toHaveBeenCalled();
+    const recipients = mockSend.mock.calls.map((c: any[]) => c[0].to);
+    expect(recipients).toEqual(expect.arrayContaining(['alice@test.com', 'admin@test.com']));
+    const call = mockSend.mock.calls.find((c: any[]) => c[0].to === 'alice@test.com')[0];
     expect(call.html).toContain('View Meeting');
     expect(call.html).toContain('https://meet.google.com/abc');
     expect(call.html).toContain('Online');
@@ -174,9 +196,8 @@ describe('/api/meetings/send-invites', () => {
 
     await POST(makeRequest({ meetingId: 'meeting-1' }));
 
-    expect(mockSend).toHaveBeenCalledTimes(1);
-    const call = mockSend.mock.calls[0][0];
-    expect(call.to).toBe('bob@test.com');
+    expect(mockSend).toHaveBeenCalled();
+    const call = mockSend.mock.calls.find((c: any[]) => c[0].to === 'bob@test.com')[0];
     expect(call.html).toContain('Room 301');
     expect(call.html).toContain('In-Person');
     expect(call.html).toContain('Place:');
@@ -202,8 +223,8 @@ describe('/api/meetings/send-invites', () => {
 
     expect(res.status).toBe(200);
     expect(json.success).toBe(true);
-    expect(json.message).toContain('3');
-    expect(mockSend).toHaveBeenCalledTimes(3);
+    expect(json.message).toContain('4');
+    expect(mockSend).toHaveBeenCalledTimes(4);
   });
 
   it('sends customEmails when provided (skips meeting_participants)', async () => {
@@ -218,9 +239,29 @@ describe('/api/meetings/send-invites', () => {
       }),
     );
     expect(res.status).toBe(200);
-    expect(mockSend).toHaveBeenCalledTimes(1);
-    expect(mockSend.mock.calls[0][0].to).toBe('custom@example.com');
+    expect(mockSend).toHaveBeenCalled();
+    const recipients = mockSend.mock.calls.map((c: any[]) => c[0].to);
+    expect(recipients).toEqual(expect.arrayContaining(['custom@example.com', 'admin@test.com']));
     // meeting_participants should not be queried when customEmails is non-empty
     expect(mockSupabase.from).not.toHaveBeenCalledWith('meeting_participants');
+  });
+
+  it('falls back to meeting.participants emails when meeting_participants is empty', async () => {
+    mockFromHandlers = {
+      meetings: () =>
+        createQueryBuilder(
+          baseMeeting({ participants: ['user-fallback'], creator: { name: 'Admin', email: null } }),
+          null,
+        ),
+      meeting_participants: () => createQueryBuilder([], null),
+      profiles: () => createQueryBuilder([{ email: 'fallback@test.com' }], null),
+    };
+
+    const res = await POST(makeRequest({ meetingId: 'meeting-1' }));
+    const json = await res.json();
+    expect(res.status).toBe(200);
+    expect(json.success).toBe(true);
+    const recipients = mockSend.mock.calls.map((c: any[]) => c[0].to);
+    expect(recipients).toContain('fallback@test.com');
   });
 });
