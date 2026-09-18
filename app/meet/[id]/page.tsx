@@ -26,6 +26,7 @@ import {
     Link2,
     Info,
     Volume2,
+    Speaker,
     Check,
     X,
     PanelLeftClose,
@@ -38,6 +39,31 @@ import {
 import { useWebRTC, type PeerState } from '@/hooks/useWebRTC';
 import type { ChatMessage, RoomControlPayload, RoomParticipant, SendChatPayload } from '@/hooks/useWebRTC';
 import DynamicLogo from '@/components/DynamicLogo';
+import {
+    applyAudioOutputToElement,
+    applyMeetingAudioSession,
+    playSpeakerTestTone,
+    resolvePreferredAudioOutput,
+    unlockRemoteMediaElements,
+} from '@/lib/meeting-audio-output';
+
+function markMeetingTracks(stream: MediaStream) {
+    stream.getAudioTracks().forEach((track) => {
+        try {
+            if ('contentHint' in track) track.contentHint = 'speech';
+        } catch {
+            /* ignore */
+        }
+    });
+    stream.getVideoTracks().forEach((track) => {
+        try {
+            if ('contentHint' in track) track.contentHint = 'motion';
+        } catch {
+            /* ignore */
+        }
+    });
+    return stream;
+}
 
 async function acquireMeetingMedia(): Promise<MediaStream | null> {
     if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) return null;
@@ -52,7 +78,9 @@ async function acquireMeetingMedia(): Promise<MediaStream | null> {
     ];
     for (const constraints of attempts) {
         try {
-            return await navigator.mediaDevices.getUserMedia(constraints);
+            const stream = await navigator.mediaDevices.getUserMedia(constraints);
+            applyMeetingAudioSession(true);
+            return markMeetingTracks(stream);
         } catch {
             /* try a simpler constraint set */
         }
@@ -72,14 +100,7 @@ async function unlockMeetingAudioPlayback() {
     } catch {
         /* ignore */
     }
-    document.querySelectorAll('audio[data-meeting-remote="1"], video[data-meeting-remote="1"]').forEach((node) => {
-        const el = node as HTMLMediaElement;
-        if (el.tagName === 'AUDIO') {
-            el.muted = false;
-            el.volume = 1;
-        }
-        void el.play().catch(() => undefined);
-    });
+    unlockRemoteMediaElements();
 }
 
 interface Meeting {
@@ -243,6 +264,8 @@ export default function MeetingRoomPage() {
     const [localPreviewStream, setLocalPreviewStream] = useState<MediaStream | null>(null);
     /** Bumps when camera is turned back on so the preview element re-attaches (fixes black tile until pin/unpin). */
     const [localVideoRenderKey, setLocalVideoRenderKey] = useState(0);
+    const [speakerOn, setSpeakerOn] = useState(true);
+    const [speakerOutputId, setSpeakerOutputId] = useState<string | null>(null);
     const [selfUnmuteLocked, setSelfUnmuteLocked] = useState(false);
     const [removedByModerator, setRemovedByModerator] = useState(false);
     const [meetingSessionDisplaySec, setMeetingSessionDisplaySec] = useState(0);
@@ -282,6 +305,29 @@ export default function MeetingRoomPage() {
         setIsCameraOff(!stream.getVideoTracks().some((t) => t.enabled && t.readyState === 'live'));
         return stream;
     }, [localStream]);
+
+    const applySpeakerOutput = useCallback(async (nextSpeakerOn: boolean, { playChime = false } = {}) => {
+        applyMeetingAudioSession(nextSpeakerOn);
+        await unlockMeetingAudioPlayback();
+        const picked = await resolvePreferredAudioOutput(nextSpeakerOn);
+        setSpeakerOutputId(picked?.deviceId ?? null);
+        if (picked?.deviceId) {
+            document.querySelectorAll('audio[data-meeting-remote="1"]').forEach((node) => {
+                void applyAudioOutputToElement(node as HTMLMediaElement, picked.deviceId);
+            });
+        }
+        if (playChime) {
+            const heard = await playSpeakerTestTone(picked?.deviceId ?? null);
+            if (heard) {
+                toast.success(nextSpeakerOn
+                    ? `Playing on ${picked?.label || 'main speaker'}. Turn up volume (and turn off silent mode on iPhone).`
+                    : `Playing on ${picked?.label || 'earpiece'}. Hold the phone to your ear if this is quiet.`);
+            } else {
+                toast.error('Could not play a test tone. Turn up volume, disable silent mode, then tap Speaker again.');
+            }
+        }
+        return picked;
+    }, []);
 
     const resolvePortalPresenceRole = useCallback(
         async (userId: string): Promise<string | null> => {
@@ -342,9 +388,7 @@ export default function MeetingRoomPage() {
         getCameraSendingSnapshot: () => {
             const { isScreenSharing: sharing, localStream: stream } = meetMediaRef.current;
             if (sharing) return true;
-            // Unknown / still acquiring media — do not tell others the camera is off.
-            if (!stream) return true;
-            const vt = stream.getVideoTracks()[0];
+            const vt = stream?.getVideoTracks()[0];
             return Boolean(vt && vt.readyState === 'live' && vt.enabled);
         },
         onRoomControl: (payload: RoomControlPayload) => {
@@ -977,6 +1021,7 @@ export default function MeetingRoomPage() {
         let ctx: AudioContext | null = null;
         let source: MediaStreamAudioSourceNode | null = null;
         let analyser: AnalyserNode | null = null;
+        let probe: MediaStreamTrack | null = null;
         let raf = 0;
         try {
             const Ctx = window.AudioContext || (window as any).webkitAudioContext;
@@ -984,7 +1029,8 @@ export default function MeetingRoomPage() {
             ctx = new Ctx();
             analyser = ctx.createAnalyser();
             analyser.fftSize = 256;
-            source = ctx.createMediaStreamSource(new MediaStream([audioTrack]));
+            probe = audioTrack.clone();
+            source = ctx.createMediaStreamSource(new MediaStream([probe]));
             source.connect(analyser);
             const arr = new Uint8Array(analyser.frequencyBinCount);
             const tick = () => {
@@ -1006,6 +1052,7 @@ export default function MeetingRoomPage() {
             try {
                 source?.disconnect();
                 analyser?.disconnect();
+                probe?.stop();
             } catch {
                 /* ignore */
             }
@@ -1036,6 +1083,7 @@ export default function MeetingRoomPage() {
                             old.stop();
                         }
                         stream.addTrack(fresh);
+                        markMeetingTracks(new MediaStream([fresh]));
                         await replaceAudioTrack(fresh);
                         audioTrack = fresh;
                     }
@@ -1053,10 +1101,18 @@ export default function MeetingRoomPage() {
 
     const reacquireAndBindCameraTrack = useCallback(
         async (stream: MediaStream) => {
-            const camOnly = await navigator.mediaDevices.getUserMedia({ video: true });
+            let camOnly: MediaStream;
+            try {
+                camOnly = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+                });
+            } catch {
+                camOnly = await navigator.mediaDevices.getUserMedia({ video: true });
+            }
             const freshTrack = camOnly.getVideoTracks()[0];
             if (!freshTrack) return null;
             freshTrack.enabled = true;
+            markMeetingTracks(new MediaStream([freshTrack]));
 
             const oldTrack = stream.getVideoTracks()[0];
             if (oldTrack) {
@@ -1066,7 +1122,9 @@ export default function MeetingRoomPage() {
             stream.addTrack(freshTrack);
 
             await replaceVideoTrack(freshTrack);
-            setLocalPreviewStream(stream);
+            const next = new MediaStream(stream.getTracks());
+            setLocalStream(next);
+            setLocalPreviewStream(next);
             setLocalVideoRenderKey((k) => k + 1);
             return freshTrack;
         },
@@ -1083,24 +1141,25 @@ export default function MeetingRoomPage() {
         sendCameraState(Boolean(vt && vt.readyState === 'live' && vt.enabled && !isCameraOff));
     }, [hasJoinedMeeting, localStream, isCameraOff, isScreenSharing, sendCameraState]);
 
+    useEffect(() => {
+        if (!hasJoinedMeeting) return;
+        void applySpeakerOutput(speakerOn);
+    }, [hasJoinedMeeting, speakerOn, applySpeakerOutput]);
+
+    const toggleSpeaker = useCallback(() => {
+        const next = !speakerOn;
+        setSpeakerOn(next);
+        void applySpeakerOutput(next, { playChime: true });
+    }, [speakerOn, applySpeakerOutput]);
+
     const toggleCamera = useCallback(() => {
         const run = async () => {
             const stream = await ensureLocalMedia();
             if (!stream) return;
 
-            const currentTrack = stream.getVideoTracks()[0];
-            const turnOn = !currentTrack || !currentTrack.enabled || currentTrack.readyState !== 'live';
-
-            if (turnOn) {
+            if (isCameraOff) {
                 try {
-                    if (!currentTrack || currentTrack.readyState !== 'live') {
-                        await reacquireAndBindCameraTrack(stream);
-                    } else {
-                        currentTrack.enabled = true;
-                        await replaceVideoTrack(currentTrack);
-                        setLocalPreviewStream(stream);
-                        setLocalVideoRenderKey((k) => k + 1);
-                    }
+                    await reacquireAndBindCameraTrack(stream);
                     setIsCameraOff(false);
                     sendCameraState(true);
                 } catch {
@@ -1109,12 +1168,22 @@ export default function MeetingRoomPage() {
                 return;
             }
 
-            currentTrack.enabled = false;
+            const currentTrack = stream.getVideoTracks()[0];
+            if (currentTrack) {
+                currentTrack.enabled = false;
+                stream.removeTrack(currentTrack);
+                currentTrack.stop();
+            }
+            await replaceVideoTrack(null);
+            const next = new MediaStream(stream.getTracks());
+            setLocalStream(next);
+            setLocalPreviewStream(next);
+            setLocalVideoRenderKey((k) => k + 1);
             setIsCameraOff(true);
             sendCameraState(false);
         };
         void run();
-    }, [ensureLocalMedia, reacquireAndBindCameraTrack, replaceVideoTrack, sendCameraState]);
+    }, [ensureLocalMedia, isCameraOff, reacquireAndBindCameraTrack, replaceVideoTrack, sendCameraState]);
 
     const toggleScreenShare = useCallback(async () => {
         const activeStream = localStream || await ensureLocalMedia();
@@ -1491,10 +1560,22 @@ export default function MeetingRoomPage() {
                                     <div className={`${micLevel > 70 ? 'bg-amber-300' : micLevel > 35 ? 'bg-yellow-400' : 'bg-slate-300'} h-full`} style={{ width: `${isMuted ? 0 : micLevel}%` }} />
                                 </div>
                                 <div className="mt-1 flex items-center gap-2 text-[11px] text-amber-50/70"><Volume2 className="w-3.5 h-3.5" /><span>{isMuted ? 'Muted' : `${micLevel}% input`}</span></div>
+                                <p className="mt-2 text-[10px] text-amber-50/45 leading-snug">That bar is your microphone. Tap Test speaker to check you can hear this phone’s loudspeaker.</p>
                             </div>
                             <div className="flex flex-wrap gap-2">
                                 <button onClick={toggleMute} className="px-3 py-2 rounded-lg bg-zinc-800/80 hover:bg-zinc-700/80 border border-slate-300/30 text-slate-100 text-xs">{isMuted ? 'Unmute Mic' : 'Mute Mic'}</button>
                                 <button onClick={toggleCamera} className="px-3 py-2 rounded-lg bg-zinc-800/80 hover:bg-zinc-700/80 border border-slate-300/30 text-slate-100 text-xs">{isCameraOff ? 'Start Camera' : 'Stop Camera'}</button>
+                                <button
+                                    onClick={() => {
+                                        void (async () => {
+                                            setSpeakerOn(true);
+                                            await applySpeakerOutput(true, { playChime: true });
+                                        })();
+                                    }}
+                                    className="px-3 py-2 rounded-lg bg-zinc-800/80 hover:bg-zinc-700/80 border border-slate-300/30 text-slate-100 text-xs"
+                                >
+                                    Test speaker
+                                </button>
                                 {!localStream && (
                                     <button onClick={ensureLocalMedia} className="px-3 py-2 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-300/35 text-xs">
                                         Enable Camera & Mic
@@ -1509,6 +1590,8 @@ export default function MeetingRoomPage() {
                                         if (!stream) {
                                             toast.error('Allow camera and microphone so others can see and hear you.');
                                         }
+                                        setSpeakerOn(true);
+                                        await applySpeakerOutput(true);
                                         setHasJoinedMeeting(true);
                                     })();
                                 }}
@@ -1541,6 +1624,12 @@ export default function MeetingRoomPage() {
             onClick: toggleCamera,
             active: !isCameraOff,
             danger: isCameraOff,
+        },
+        {
+            icon: speakerOn ? Speaker : Volume2,
+            label: speakerOn ? 'Speaker' : 'Earpiece',
+            onClick: toggleSpeaker,
+            active: speakerOn,
         },
         {
             icon: MonitorUp,
@@ -1596,7 +1685,10 @@ export default function MeetingRoomPage() {
     ];
 
     return (
-        <div className="min-h-[100dvh] bg-[#050505] flex flex-col overflow-hidden relative">
+        <div
+            className="min-h-[100dvh] bg-[#050505] flex flex-col overflow-hidden relative"
+            onPointerDown={() => { void unlockMeetingAudioPlayback(); }}
+        >
             <motion.button whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }} onClick={() => setShowBrandRail((prev) => !prev)} className="absolute left-2 sm:left-3 top-20 sm:top-1/2 sm:-translate-y-1/2 z-30 p-2 rounded-r-xl bg-amber-300/15 text-amber-100 hover:bg-amber-300/25 backdrop-blur border border-amber-300/30" title="Show branding panel">
                 {showBrandRail ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />}
             </motion.button>
@@ -1653,9 +1745,19 @@ export default function MeetingRoomPage() {
                         </span>
                     )}
                 </div>
-                <p className="text-white/40 text-xs hidden sm:block">
-                    Room: {roomId ? `${roomId.slice(0, 8)}…` : '—'}
-                </p>
+                <button
+                    type="button"
+                    onClick={toggleSpeaker}
+                    className={`shrink-0 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold ${
+                        speakerOn
+                            ? 'border-emerald-400/40 bg-emerald-500/15 text-emerald-200'
+                            : 'border-amber-400/40 bg-amber-500/15 text-amber-100'
+                    }`}
+                    title={speakerOn ? 'Playing on main speaker' : 'Playing on earpiece'}
+                >
+                    <Speaker className="w-3 h-3" />
+                    {speakerOn ? 'Speaker' : 'Earpiece'}
+                </button>
             </motion.div>
             {/* Main content area */}
             <div className="flex-1 flex relative z-10 overflow-hidden">
@@ -1673,6 +1775,7 @@ export default function MeetingRoomPage() {
                                     presenceRole={peerRawRoleByUserId.get(pinnedPeerId)}
                                     profileAvatarUrl={peerAvatarUrls[pinnedPeerId] ?? null}
                                     peerSignalsCameraOff={peerCameraSendingVideo[pinnedPeerId] === false}
+                                    outputDeviceId={speakerOutputId}
                                     isPinned={true}
                                     onPin={() => setPinnedPeerId(null)}
                                 />
@@ -1725,6 +1828,7 @@ export default function MeetingRoomPage() {
                                         presenceRole={peerRawRoleByUserId.get(pid)}
                                         profileAvatarUrl={peerAvatarUrls[pid] ?? null}
                                         peerSignalsCameraOff={peerCameraSendingVideo[pid] === false}
+                                        outputDeviceId={speakerOutputId}
                                         isPinned={false}
                                         onPin={() => setPinnedPeerId(pid)}
                                         small
@@ -1758,6 +1862,7 @@ export default function MeetingRoomPage() {
                                     presenceRole={peerRawRoleByUserId.get(pid)}
                                     profileAvatarUrl={peerAvatarUrls[pid] ?? null}
                                     peerSignalsCameraOff={peerCameraSendingVideo[pid] === false}
+                                    outputDeviceId={speakerOutputId}
                                     isPinned={false}
                                     onPin={() => setPinnedPeerId(pid)}
                                 />
@@ -2048,6 +2153,7 @@ function RemoteVideo({
     presenceRole,
     profileAvatarUrl,
     peerSignalsCameraOff = false,
+    outputDeviceId = null,
     isPinned,
     onPin,
     small,
@@ -2058,6 +2164,7 @@ function RemoteVideo({
     profileAvatarUrl: string | null;
     /** Room broadcast says this peer turned camera off — show avatar for everyone (WebRTC often keeps a live unmuted-looking track). */
     peerSignalsCameraOff?: boolean;
+    outputDeviceId?: string | null;
     isPinned: boolean;
     onPin: () => void;
     small?: boolean;
@@ -2108,6 +2215,8 @@ function RemoteVideo({
             const now = Date.now();
             if (el && live && el.videoWidth === 0 && now - lastBlackRecovery > 4000) {
                 lastBlackRecovery = now;
+                el.srcObject = null;
+                el.srcObject = videoOnly;
                 void el.play().catch(() => undefined);
             }
         };
@@ -2156,9 +2265,12 @@ function RemoteVideo({
         };
     }, [peer.remoteStream, remoteStreamTrackKey]);
 
+    const liveVideoTrack = Boolean(
+        peer.remoteStream?.getVideoTracks().some((t) => t.readyState === 'live'),
+    );
     const forceAvatarUi = peerSignalsCameraOff && !isRemoteScreenShare;
     const showLivePixels = hasVideo && !forceAvatarUi;
-    const showConnectingUi = !forceAvatarUi && !hasVideo;
+    const showConnectingUi = !forceAvatarUi && !hasVideo && !liveVideoTrack;
     const showCameraOffChrome = forceAvatarUi;
 
     if (small) {
@@ -2192,7 +2304,7 @@ function RemoteVideo({
                         <p className="text-[8px] text-white/45 uppercase tracking-wide mt-0.5">Camera off</p>
                     </div>
                 )}
-                {peer.remoteStream && <AudioPlayer stream={peer.remoteStream} />}
+                {peer.remoteStream && <AudioPlayer stream={peer.remoteStream} outputDeviceId={outputDeviceId} />}
                 {isRemoteScreenShare && <div className="absolute top-1 left-1 rounded-md border border-emerald-400/40 bg-emerald-500/20 px-1.5 py-0.5"><p className="text-[9px] text-emerald-200 font-semibold">Sharing</p></div>}
                 {showLivePixels && <div className="absolute top-1 right-1 z-[1]"><RemoteVideoRoleBadge peerId={peerId} userRole={presenceRole} compact /></div>}
                 <div className="absolute bottom-1 left-1 right-8 bg-black/60 rounded px-1.5 py-0.5 flex items-center gap-1.5 flex-wrap min-w-0">
@@ -2232,7 +2344,7 @@ function RemoteVideo({
                     <p className="text-white/85 text-sm font-medium">{remoteDisplayName}</p>
                 </div>
             )}
-            {peer.remoteStream && <AudioPlayer stream={peer.remoteStream} />}
+            {peer.remoteStream && <AudioPlayer stream={peer.remoteStream} outputDeviceId={outputDeviceId} />}
             {isRemoteScreenShare && <div className="absolute top-3 left-3 rounded-full border border-emerald-400/40 bg-emerald-500/20 px-2 py-1 z-[1]"><p className="text-[10px] text-emerald-200 font-semibold">Sharing screen</p></div>}
             {showLivePixels && (
                 <div className="absolute bottom-3 left-3 right-14 glass-dark rounded-lg px-3 py-1.5 flex items-center gap-2 flex-wrap max-w-[min(100%,22rem)]">
@@ -2249,22 +2361,26 @@ function RemoteVideo({
 
 // Separate audio element to guarantee audio playback even when video is muted/hidden.
 // Do not use `hidden`/`display:none` — Chrome and Safari often refuse to play those.
-function AudioPlayer({ stream }: { stream: MediaStream }) {
+function AudioPlayer({ stream, outputDeviceId }: { stream: MediaStream; outputDeviceId?: string | null }) {
     const audioRef = useRef<HTMLAudioElement>(null);
-    const audioTrackKey = stream.getAudioTracks().map((t) => `${t.id}:${t.readyState}`).join('|');
+    const audioTrackKey = stream.getAudioTracks().map((t) => `${t.id}:${t.readyState}:${t.muted}`).join('|');
 
     useEffect(() => {
         const el = audioRef.current;
         if (!el) return;
         // Never attach the same MediaStream to both <video> and <audio> — Safari drops playback.
         const audioOnly = new MediaStream(stream.getAudioTracks());
+        el.setAttribute('playsinline', 'true');
+        el.setAttribute('webkit-playsinline', 'true');
         el.muted = false;
         el.volume = 1;
         el.srcObject = audioOnly;
+        void applyAudioOutputToElement(el, outputDeviceId);
 
         const tryPlay = () => {
             el.muted = false;
             el.volume = 1;
+            void applyAudioOutputToElement(el, outputDeviceId);
             void el.play().catch(() => undefined);
         };
         tryPlay();
@@ -2278,7 +2394,6 @@ function AudioPlayer({ stream }: { stream: MediaStream }) {
 
         const trackCleanups: (() => void)[] = [];
         for (const t of stream.getAudioTracks()) {
-            t.enabled = true;
             const onUnmute = () => tryPlay();
             t.addEventListener('unmute', onUnmute);
             trackCleanups.push(() => t.removeEventListener('unmute', onUnmute));
@@ -2289,7 +2404,7 @@ function AudioPlayer({ stream }: { stream: MediaStream }) {
             trackCleanups.forEach((fn) => fn());
             el.srcObject = null;
         };
-    }, [stream, audioTrackKey]);
+    }, [stream, audioTrackKey, outputDeviceId]);
 
     return (
         <audio
@@ -2332,14 +2447,19 @@ function LocalVideoTile({
 }) {
     const ref = useRef<HTMLVideoElement>(null);
 
+    const videoTrackKey = stream?.getVideoTracks().map((t) => `${t.id}:${t.enabled}:${t.readyState}`).join('|') ?? '';
+
     // Keep <video> mounted when a stream exists — unmounting on camera-off breaks Chrome/WebKit after re-enabling the track.
     useEffect(() => {
         const el = ref.current;
         if (!el || !stream) return;
+        const videoOnly = new MediaStream(stream.getVideoTracks());
 
         const bind = () => {
-            el.srcObject = null;
-            el.srcObject = stream;
+            el.setAttribute('playsinline', 'true');
+            el.setAttribute('webkit-playsinline', 'true');
+            el.muted = true;
+            el.srcObject = videoOnly;
             void el.play().catch(() => undefined);
         };
         bind();
@@ -2354,8 +2474,11 @@ function LocalVideoTile({
                 t.removeEventListener('ended', refresh);
             });
         }
-        return () => cleanups.forEach((c) => c());
-    }, [stream, isScreenSharing]);
+        return () => {
+            cleanups.forEach((c) => c());
+            el.srcObject = null;
+        };
+    }, [stream, isScreenSharing, videoTrackKey]);
 
     useEffect(() => {
         const el = ref.current;
@@ -2810,6 +2933,7 @@ function ParticipantMicSphere({
         let ctx: AudioContext | null = null;
         let src: MediaStreamAudioSourceNode | null = null;
         let analyser: AnalyserNode | null = null;
+        let probe: MediaStreamTrack | null = null;
         let raf = 0;
         try {
             const Ctx = window.AudioContext || (window as any).webkitAudioContext;
@@ -2817,7 +2941,8 @@ function ParticipantMicSphere({
             ctx = new Ctx();
             analyser = ctx.createAnalyser();
             analyser.fftSize = 256;
-            src = ctx.createMediaStreamSource(new MediaStream([audioTrack]));
+            probe = audioTrack.clone();
+            src = ctx.createMediaStreamSource(new MediaStream([probe]));
             src.connect(analyser);
             const arr = new Uint8Array(analyser.frequencyBinCount);
             const loop = () => {
@@ -2837,6 +2962,7 @@ function ParticipantMicSphere({
             try {
                 src?.disconnect();
                 analyser?.disconnect();
+                probe?.stop();
             } catch {
                 /* ignore */
             }
