@@ -64,6 +64,25 @@ function sdpJson(desc: RTCSessionDescription | RTCSessionDescriptionInit | null 
     return { type: desc.type, sdp: desc.sdp };
 }
 
+/**
+ * Peer ids are `<userId>#<session>` so the same account joined from two devices
+ * still pairs up. Profile/role/avatar lookups need the plain account id back.
+ */
+export function userIdFromPeerId(peerId: string) {
+    const cut = peerId.indexOf('#');
+    return cut === -1 ? peerId : peerId.slice(0, cut);
+}
+
+function newPeerId(userId: string) {
+    return `${userId}#${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/** Exactly one side of a pair sends the first offer; the lower peer id wins. */
+export function shouldInitiateOffer(selfPeerId: string, otherPeerId: string) {
+    if (!selfPeerId || !otherPeerId) return false;
+    return selfPeerId < otherPeerId;
+}
+
 export interface PeerState {
     connection: RTCPeerConnection;
     remoteStream: MediaStream | null;
@@ -90,7 +109,7 @@ export type SendChatPayload =
           attachmentKind: 'image' | 'file';
           fileName: string;
       };
-export interface RoomParticipant { userId: string; userName: string; userRole?: string | null; joinedAt: string; }
+export interface RoomParticipant { peerId: string; userId: string; userName: string; userRole?: string | null; joinedAt: string; }
 export type RoomControlAction = 'mute-all' | 'allow-unmute' | 'allow-unmute-peer' | 'kick-peer';
 /** Who sent mute-all: creator spares EC/faculty; EC/faculty spares meeting creator. */
 export type MuteAllPolicy = 'creator' | 'ec_faculty';
@@ -136,6 +155,11 @@ export function useWebRTC({
     const peersRef = useRef<Map<string, PeerState>>(new Map());
     const channelRef = useRef<RealtimeChannel | null>(null);
     const localStreamRef = useRef<MediaStream | null>(null);
+    /** Unique per browser tab, so one account on two devices is still two peers. */
+    const selfPeerIdRef = useRef('');
+    if (userId && !selfPeerIdRef.current.startsWith(`${userId}#`)) {
+        selfPeerIdRef.current = newPeerId(userId);
+    }
     const userIdRef = useRef(userId);
     const userNameRef = useRef(userName);
     const onRoomControlRef = useRef(onRoomControl);
@@ -212,7 +236,7 @@ export function useWebRTC({
             pc.onnegotiationneeded = async () => {
                 // Initial SDP is driven by the offerer; this handles late camera/mic attach.
                 if (!pc.remoteDescription || pc.signalingState !== 'stable' || negotiationBusy) return;
-                const polite = userIdRef.current > peerId;
+                const polite = selfPeerIdRef.current > peerId;
                 if (polite) return;
                 negotiationBusy = true;
                 makingOfferRef.current.add(peerId);
@@ -221,7 +245,7 @@ export function useWebRTC({
                     const sdp = sdpJson(pc.localDescription);
                     if (sdp) {
                         await sendSignal('sdp-offer', {
-                            senderId: userIdRef.current,
+                            senderId: selfPeerIdRef.current,
                             senderName: userNameRef.current,
                             targetId: peerId,
                             sdp,
@@ -257,7 +281,7 @@ export function useWebRTC({
             pc.onicecandidate = (event) => {
                 if (!event.candidate) return;
                 void sendSignal('ice-candidate', {
-                    senderId: userIdRef.current,
+                    senderId: selfPeerIdRef.current,
                     targetId: peerId,
                     candidate: event.candidate.toJSON(),
                 });
@@ -338,7 +362,7 @@ export function useWebRTC({
             const sdp = sdpJson(pc.localDescription);
             if (!sdp) return;
             await sendSignal('sdp-offer', {
-                senderId: userIdRef.current,
+                senderId: selfPeerIdRef.current,
                 senderName: userNameRef.current,
                 targetId: peerId,
                 sdp,
@@ -351,7 +375,7 @@ export function useWebRTC({
     }
 
     async function acceptOffer(pc: RTCPeerConnection, peerId: string, sdp: RTCSessionDescriptionInit) {
-        const polite = userIdRef.current > peerId;
+        const polite = selfPeerIdRef.current > peerId;
         const offerCollision = makingOfferRef.current.has(peerId) || pc.signalingState !== 'stable';
         if (offerCollision && !polite) return;
         try {
@@ -371,7 +395,7 @@ export function useWebRTC({
                 const answer = sdpJson(pc.localDescription);
                 if (answer) {
                     await sendSignal('sdp-answer', {
-                        senderId: userIdRef.current,
+                        senderId: selfPeerIdRef.current,
                         targetId: peerId,
                         sdp: answer,
                     });
@@ -395,21 +419,21 @@ export function useWebRTC({
 
             channel.on('broadcast', { event: 'peer-joined' }, (msg) => {
                 const { senderId } = msg.payload as { senderId: string };
-                if (!senderId || senderId === userIdRef.current) return;
+                if (!senderId || senderId === selfPeerIdRef.current) return;
                 const snap = getCameraSendingSnapshotRef.current?.() ?? true;
-                void sendSignal('participant-camera', { senderId: userIdRef.current, cameraOn: snap });
+                void sendSignal('participant-camera', { senderId: selfPeerIdRef.current, cameraOn: snap });
             });
 
             channel.on('broadcast', { event: 'participant-camera' }, (msg) => {
                 const { senderId, cameraOn } = msg.payload as { senderId: string; cameraOn: boolean };
-                if (!senderId || senderId === userIdRef.current) return;
+                if (!senderId || senderId === selfPeerIdRef.current) return;
                 setPeerCameraSendingVideo((prev) => ({ ...prev, [senderId]: Boolean(cameraOn) }));
             });
 
             channel.on('broadcast', { event: 'peer-joined' }, (msg) => {
                 const { senderId, senderName } = msg.payload as { senderId: string; senderName?: string };
-                if (senderId === userIdRef.current || peersRef.current.has(senderId)) return;
-                if (userIdRef.current > senderId) return;
+                if (senderId === selfPeerIdRef.current || peersRef.current.has(senderId)) return;
+                if (!shouldInitiateOffer(selfPeerIdRef.current, senderId)) return;
                 const pc = createPC(senderId, String(senderName ?? '').trim() || 'Participant');
                 if (!pc) return;
                 void sendOffer(pc, senderId);
@@ -422,7 +446,7 @@ export function useWebRTC({
                     targetId: string;
                     sdp: RTCSessionDescriptionInit;
                 };
-                if (targetId !== userIdRef.current || !sdp?.sdp) return;
+                if (targetId !== selfPeerIdRef.current || !sdp?.sdp) return;
                 void (async () => {
                     let peer = peersRef.current.get(senderId);
                     if (!peer) {
@@ -441,7 +465,7 @@ export function useWebRTC({
                     targetId: string;
                     sdp: RTCSessionDescriptionInit;
                 };
-                if (targetId !== userIdRef.current || !sdp?.sdp) return;
+                if (targetId !== selfPeerIdRef.current || !sdp?.sdp) return;
                 const peer = peersRef.current.get(senderId);
                 if (!peer) return;
                 void (async () => {
@@ -462,7 +486,7 @@ export function useWebRTC({
                     targetId: string;
                     candidate: RTCIceCandidateInit;
                 };
-                if (targetId !== userIdRef.current || !candidate) return;
+                if (targetId !== selfPeerIdRef.current || !candidate) return;
                 const peer = peersRef.current.get(senderId);
                 if (!peer) {
                     queueIce(senderId, candidate);
@@ -491,8 +515,9 @@ export function useWebRTC({
             channel.on('presence', { event: 'leave' }, ({ leftPresences }) => {
                 const left = Array.isArray(leftPresences) ? leftPresences : [];
                 left.forEach((p) => {
-                    const uid = (p as { userId?: string } | null | undefined)?.userId;
-                    if (uid && uid !== userIdRef.current) removePC(uid);
+                    const meta = p as { peerId?: string; userId?: string } | null | undefined;
+                    const pid = meta?.peerId || meta?.userId;
+                    if (pid && pid !== selfPeerIdRef.current) removePC(pid);
                 });
             });
             channel.on('presence', { event: 'sync' }, () => {
@@ -503,6 +528,7 @@ export function useWebRTC({
                         const uid = typeof p.userId === 'string' ? p.userId : '';
                         if (!uid) continue;
                         list.push({
+                            peerId: typeof p.peerId === 'string' && p.peerId ? p.peerId : uid,
                             userId: uid,
                             userName: String(p.userName ?? '').trim() || 'Participant',
                             userRole: (p.userRole as string | null | undefined) || null,
@@ -513,10 +539,10 @@ export function useWebRTC({
                 setParticipants(list);
 
                 list.forEach((p) => {
-                    const otherId = p.userId;
-                    if (!otherId || otherId === userIdRef.current) return;
+                    const otherId = p.peerId;
+                    if (!otherId || otherId === selfPeerIdRef.current) return;
                     if (peersRef.current.has(otherId)) return;
-                    if (userIdRef.current > otherId) return;
+                    if (!shouldInitiateOffer(selfPeerIdRef.current, otherId)) return;
 
                     const pc = createPC(otherId, p.userName || 'Participant');
                     if (!pc) return;
@@ -534,6 +560,7 @@ export function useWebRTC({
                 }
                 const trackName = String(userNameRef.current ?? '').trim() || 'Participant';
                 await channel!.track({
+                    peerId: selfPeerIdRef.current,
                     userId: userIdRef.current,
                     userName: trackName,
                     userRole: userRole || null,
@@ -541,9 +568,9 @@ export function useWebRTC({
                 });
                 await new Promise((r) => setTimeout(r, 400));
                 if (stopped) return;
-                await sendSignal('peer-joined', { senderId: userIdRef.current, senderName: trackName });
+                await sendSignal('peer-joined', { senderId: selfPeerIdRef.current, senderName: trackName });
                 const snap = getCameraSendingSnapshotRef.current?.() ?? true;
-                await sendSignal('participant-camera', { senderId: userIdRef.current, cameraOn: snap });
+                await sendSignal('participant-camera', { senderId: selfPeerIdRef.current, cameraOn: snap });
             });
         }, 80);
 
@@ -551,7 +578,7 @@ export function useWebRTC({
             stopped = true;
             clearTimeout(startTimer);
             try {
-                channel?.send({ type: 'broadcast', event: 'peer-left', payload: { senderId: userIdRef.current } });
+                channel?.send({ type: 'broadcast', event: 'peer-left', payload: { senderId: selfPeerIdRef.current } });
             } catch (e) {
                 console.warn('peer-left broadcast on teardown failed', e);
             }
@@ -637,11 +664,12 @@ export function useWebRTC({
         channelRef.current.send({
             type: 'broadcast',
             event: 'participant-camera',
-            payload: { senderId: userIdRef.current, cameraOn },
+            payload: { senderId: selfPeerIdRef.current, cameraOn },
         });
     }, []);
 
     return {
+        selfPeerId: selfPeerIdRef.current,
         peers,
         participants,
         channelRef,

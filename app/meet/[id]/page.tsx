@@ -36,7 +36,7 @@ import {
     FileText,
     UserMinus,
 } from 'lucide-react';
-import { useWebRTC, type PeerState } from '@/hooks/useWebRTC';
+import { useWebRTC, userIdFromPeerId, type PeerState } from '@/hooks/useWebRTC';
 import type { ChatMessage, RoomControlPayload, RoomParticipant, SendChatPayload } from '@/hooks/useWebRTC';
 import DynamicLogo from '@/components/DynamicLogo';
 import {
@@ -373,6 +373,7 @@ export default function MeetingRoomPage() {
         sendRoomControl,
         sendCameraState,
         peerCameraSendingVideo,
+        selfPeerId,
     } = useWebRTC({
         supabase,
         roomId,
@@ -765,8 +766,8 @@ export default function MeetingRoomPage() {
     );
 
     const othersPresentCount = useMemo(
-        () => participants.filter((p) => p.userId !== currentUserId).length,
-        [participants, currentUserId],
+        () => participants.filter((p) => p.peerId !== selfPeerId).length,
+        [participants, selfPeerId],
     );
 
     useEffect(() => {
@@ -1790,9 +1791,9 @@ export default function MeetingRoomPage() {
                             <div className="flex-1 min-h-0">
                                 <RemoteVideo
                                     peer={peers.get(pinnedPeerId)!}
-                                    peerId={pinnedPeerId}
-                                    presenceRole={peerRawRoleByUserId.get(pinnedPeerId)}
-                                    profileAvatarUrl={peerAvatarUrls[pinnedPeerId] ?? null}
+                                    peerId={userIdFromPeerId(pinnedPeerId)}
+                                    presenceRole={peerRawRoleByUserId.get(userIdFromPeerId(pinnedPeerId))}
+                                    profileAvatarUrl={peerAvatarUrls[userIdFromPeerId(pinnedPeerId)] ?? null}
                                     peerSignalsCameraOff={peerCameraSendingVideo[pinnedPeerId] === false}
                                     outputDeviceId={speakerOutputId}
                                     isPinned={true}
@@ -1843,9 +1844,9 @@ export default function MeetingRoomPage() {
                                     <RemoteVideo
                                         key={pid}
                                         peer={peer}
-                                        peerId={pid}
-                                        presenceRole={peerRawRoleByUserId.get(pid)}
-                                        profileAvatarUrl={peerAvatarUrls[pid] ?? null}
+                                        peerId={userIdFromPeerId(pid)}
+                                        presenceRole={peerRawRoleByUserId.get(userIdFromPeerId(pid))}
+                                        profileAvatarUrl={peerAvatarUrls[userIdFromPeerId(pid)] ?? null}
                                         peerSignalsCameraOff={peerCameraSendingVideo[pid] === false}
                                         outputDeviceId={speakerOutputId}
                                         isPinned={false}
@@ -1877,9 +1878,9 @@ export default function MeetingRoomPage() {
                                 <RemoteVideo
                                     key={pid}
                                     peer={peer}
-                                    peerId={pid}
-                                    presenceRole={peerRawRoleByUserId.get(pid)}
-                                    profileAvatarUrl={peerAvatarUrls[pid] ?? null}
+                                    peerId={userIdFromPeerId(pid)}
+                                    presenceRole={peerRawRoleByUserId.get(userIdFromPeerId(pid))}
+                                    profileAvatarUrl={peerAvatarUrls[userIdFromPeerId(pid)] ?? null}
                                     peerSignalsCameraOff={peerCameraSendingVideo[pid] === false}
                                     outputDeviceId={speakerOutputId}
                                     isPinned={false}
@@ -1988,7 +1989,9 @@ export default function MeetingRoomPage() {
                                     </div>
                                     <ParticipantsPanel
                                         participants={participants}
+                                        peers={peers}
                                         currentUserId={currentUserId}
+                                        currentPeerId={selfPeerId}
                                         canModerateMeetingRoom={canModerateMeetingRoom}
                                         meetingCreatorId={meeting?.created_by ?? null}
                                         selfUnmuteLocked={selfUnmuteLocked}
@@ -2041,7 +2044,9 @@ export default function MeetingRoomPage() {
                                 <div className="flex-1 flex flex-col overflow-hidden min-h-0">
                                     <ParticipantsPanel
                                         participants={participants}
+                                        peers={peers}
                                         currentUserId={currentUserId}
+                                        currentPeerId={selfPeerId}
                                         canModerateMeetingRoom={canModerateMeetingRoom}
                                         meetingCreatorId={meeting?.created_by ?? null}
                                         selfUnmuteLocked={selfUnmuteLocked}
@@ -2736,10 +2741,119 @@ function ChatPanel({
 }
 
 
+type RtcStatLike = {
+    id: string;
+    type: string;
+    kind?: string;
+    bytesReceived?: number;
+    state?: string;
+    nominated?: boolean;
+    localCandidateId?: string;
+    candidateType?: string;
+};
+
+function formatDataSize(bytes: number) {
+    if (bytes <= 0) return '0';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+type PeerDiagnosticRow = {
+    peerId: string;
+    name: string;
+    connectionState: string;
+    route: string;
+    audioBytes: number;
+    videoBytes: number;
+};
+
+/** Shows whether each peer link is up and whether media bytes are actually arriving. */
+function ConnectionHealth({ peers }: { peers: Map<string, PeerState> }) {
+    const [rows, setRows] = useState<PeerDiagnosticRow[]>([]);
+
+    useEffect(() => {
+        let cancelled = false;
+
+        const read = async () => {
+            const next: PeerDiagnosticRow[] = [];
+            for (const [peerId, peer] of peers.entries()) {
+                let audioBytes = 0;
+                let videoBytes = 0;
+                let route = '';
+                try {
+                    const report = await peer.connection.getStats();
+                    const candidates = new Map<string, RtcStatLike>();
+                    report.forEach((raw) => {
+                        const stat = raw as unknown as RtcStatLike;
+                        if (stat.type === 'local-candidate') candidates.set(stat.id, stat);
+                    });
+                    report.forEach((raw) => {
+                        const stat = raw as unknown as RtcStatLike;
+                        if (stat.type === 'inbound-rtp' && stat.kind === 'audio') audioBytes = stat.bytesReceived ?? 0;
+                        if (stat.type === 'inbound-rtp' && stat.kind === 'video') videoBytes = stat.bytesReceived ?? 0;
+                        if (stat.type === 'candidate-pair' && stat.state === 'succeeded' && stat.nominated) {
+                            route = candidates.get(stat.localCandidateId ?? '')?.candidateType ?? '';
+                        }
+                    });
+                } catch {
+                    /* stats unavailable */
+                }
+                next.push({
+                    peerId,
+                    name: String(peer.userName ?? '').trim() || 'Participant',
+                    connectionState: peer.connection.connectionState,
+                    route,
+                    audioBytes,
+                    videoBytes,
+                });
+            }
+            if (!cancelled) setRows(next);
+        };
+
+        void read();
+        const timer = setInterval(() => void read(), 2000);
+        return () => {
+            cancelled = true;
+            clearInterval(timer);
+        };
+    }, [peers]);
+
+    return (
+        <div className="shrink-0 border-b border-white/5 px-3 py-2 space-y-1">
+            <p className="text-white/40 text-[10px] uppercase tracking-widest">Connection</p>
+            {rows.length === 0 ? (
+                <p className="text-amber-300/80 text-[10px] leading-snug">
+                    No media connection yet. If someone is listed below, their audio and video cannot reach you.
+                </p>
+            ) : (
+                rows.map((row) => {
+                    const linked = row.connectionState === 'connected';
+                    return (
+                        <div key={row.peerId} className="text-[10px] leading-snug">
+                            <span className="text-white/70">{row.name}</span>
+                            <span className={linked ? 'text-emerald-300/90' : 'text-amber-300/90'}> · {row.connectionState}</span>
+                            {row.route ? <span className="text-white/35"> · {row.route}</span> : null}
+                            <span className={row.audioBytes > 0 ? 'text-white/45' : 'text-amber-300/90'}>
+                                {' '}· audio {formatDataSize(row.audioBytes)}
+                            </span>
+                            <span className={row.videoBytes > 0 ? 'text-white/45' : 'text-white/35'}>
+                                {' '}· video {formatDataSize(row.videoBytes)}
+                            </span>
+                        </div>
+                    );
+                })
+            )}
+        </div>
+    );
+}
+
 // Participants panel showing connected users from Realtime presence
 function ParticipantsPanel({
     participants,
+    peers,
     currentUserId,
+    currentPeerId = '',
     canModerateMeetingRoom = false,
     meetingCreatorId = null,
     selfUnmuteLocked = false,
@@ -2749,7 +2863,9 @@ function ParticipantsPanel({
     onKickPeer,
 }: {
     participants: RoomParticipant[];
+    peers: Map<string, PeerState>;
     currentUserId: string;
+    currentPeerId?: string;
     canModerateMeetingRoom?: boolean;
     meetingCreatorId?: string | null;
     selfUnmuteLocked?: boolean;
@@ -2758,9 +2874,10 @@ function ParticipantsPanel({
     onAllowUnmutePeer?: (userId: string) => void;
     onKickPeer?: (userId: string) => void;
 }) {
+    const isSelf = (p: RoomParticipant) => (currentPeerId ? p.peerId === currentPeerId : p.userId === currentUserId);
     const sorted = [...participants].sort((a, b) => {
-        if (a.userId === currentUserId) return -1;
-        if (b.userId === currentUserId) return 1;
+        if (isSelf(a)) return -1;
+        if (isSelf(b)) return 1;
         const an = String(a.userName ?? '').trim() || 'Participant';
         const bn = String(b.userName ?? '').trim() || 'Participant';
         return an.localeCompare(bn);
@@ -2770,6 +2887,7 @@ function ParticipantsPanel({
 
     return (
         <div className="flex-1 flex flex-col overflow-hidden min-h-0">
+            <ConnectionHealth peers={peers} />
             {canModerateMeetingRoom ? (
                 <p className="text-white/35 text-[10px] px-3 pt-2 pb-1 leading-snug shrink-0 border-b border-white/5">
                     Mic: allow this person to unmute. Kick: remove from room (not shown for the meeting creator).
@@ -2784,7 +2902,7 @@ function ParticipantsPanel({
                     </div>
                 )}
                 {sorted.map((p) => {
-                    const isYou = p.userId === currentUserId;
+                    const isYou = isSelf(p);
                     const peerIsMeetingCreator = Boolean(meetingCreatorId && p.userId === meetingCreatorId);
                     const displayName = String(p.userName ?? '').trim() || 'Participant';
                     const initials = initialsFromDisplayName(displayName).slice(0, 2) || '?';
@@ -2799,7 +2917,7 @@ function ParticipantsPanel({
 
                     return (
                         <div
-                            key={p.userId}
+                            key={p.peerId}
                             className="flex items-center gap-2 px-2 py-2 rounded-xl hover:bg-white/5 transition-colors"
                         >
                             <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${p.userRole === 'Guest' ? 'bg-gradient-to-br from-gray-500 to-gray-600' :
@@ -3049,7 +3167,7 @@ function ParticipantCardsGrid({
                 const initials = initialsFromDisplayName(label).slice(0, 2) || '?';
                 const isYou = p.userId === currentUserId;
                 return (
-                    <div key={p.userId} className="rounded-lg border border-white/10 bg-white/5 p-2.5 flex items-center gap-2.5">
+                    <div key={p.peerId} className="rounded-lg border border-white/10 bg-white/5 p-2.5 flex items-center gap-2.5">
                         <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center"><span className="text-white text-[10px] font-bold">{initials}</span></div>
                         <div className="min-w-0 flex-1">
                             <p className="text-white text-xs truncate">{label}{isYou && <span className="ml-1 text-indigo-300">(You)</span>}</p>
