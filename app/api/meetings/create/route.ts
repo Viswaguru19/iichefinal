@@ -28,6 +28,8 @@ interface CreateMeetingRequest {
     committee_id?: string;
     access_type?: 'invite_only' | 'general';
     require_approval?: boolean;
+    /** When true, faculty coordinators are added as invitees and emailed. */
+    invite_faculty?: boolean;
     /** Optional portal room slug (nanoid). If missing or invalid, server generates one. */
     room_id?: string;
 }
@@ -145,15 +147,17 @@ export async function POST(request: Request) {
             participantIds = data?.map((m: any) => m.user_id) || [];
         }
 
-        // Faculty coordinators always receive every meeting (online and offline).
-        const { data: facultyRows } = await directory
-            .from('profiles')
-            .select('id')
-            .or('is_faculty.eq.true,role.eq.faculty_advisor');
-        participantIds = uniqueIds([
-            ...participantIds,
-            ...(facultyRows || []).map((p: any) => p.id),
-        ]);
+        const inviteFaculty = body.invite_faculty === true;
+        if (inviteFaculty) {
+            const { data: facultyRows } = await directory
+                .from('profiles')
+                .select('id')
+                .or('is_faculty.eq.true,role.eq.faculty_advisor');
+            participantIds = uniqueIds([
+                ...participantIds,
+                ...(facultyRows || []).map((p: any) => p.id),
+            ]);
+        }
 
         // --- Insert meeting record (only columns that exist in schema) ---
         const meetingRecord: Record<string, any> = {
@@ -198,7 +202,10 @@ export async function POST(request: Request) {
         // --- Email invitations (online and offline: time, place, agenda) ---
         if (participantIds.length > 0) {
             try {
-                await sendMeetingInvitationEmails(directory, { meetingId: meeting.id });
+                await sendMeetingInvitationEmails(directory, {
+                    meetingId: meeting.id,
+                    includeFaculty: inviteFaculty,
+                });
             } catch (err) {
                 console.error('Failed to send meeting invitations:', err);
             }

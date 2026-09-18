@@ -21,6 +21,7 @@ export default function CreateMeetingPage() {
   const [meetingType, setMeetingType] = useState('online');
   const [audienceType, setAudienceType] = useState<'all_members' | 'executive_committee' | 'heads_only' | 'coheads_only' | 'specific_committee' | 'general'>('all_members');
   const [requireApproval, setRequireApproval] = useState(false);
+  const [inviteFaculty, setInviteFaculty] = useState(false);
   const [createdLink, setCreatedLink] = useState('');
   const [minMeetingDateTime, setMinMeetingDateTime] = useState('');
   const router = useRouter();
@@ -79,6 +80,7 @@ export default function CreateMeetingPage() {
       audience_type: audienceType,
       access_type: audienceType === 'general' ? 'general' : 'invite_only',
       require_approval: audienceType === 'general' ? requireApproval : false,
+      invite_faculty: inviteFaculty,
     };
 
     if (meetingType === 'offline') {
@@ -280,7 +282,35 @@ export default function CreateMeetingPage() {
                 <option value="general">General (Anyone with link)</option>
               </select>
               <p className="text-xs text-gray-500 mt-1.5">
-                Invitees and faculty coordinators receive an email with the date, time{meetingType === 'offline' ? ', and place' : ', and join link'}.
+                Invitees receive an email with the date, time{meetingType === 'offline' ? ', and place' : ', and join link'}.
+              </p>
+            </div>
+
+            <div>
+              <label className={labelClass}>Send invite to faculties</label>
+              <div className="flex gap-3">
+                {[
+                  { val: true, label: 'Yes' },
+                  { val: false, label: 'No' },
+                ].map((choice) => (
+                  <button
+                    key={String(choice.val)}
+                    type="button"
+                    onClick={() => setInviteFaculty(choice.val)}
+                    className={`flex-1 py-3 rounded-xl text-sm font-semibold transition-all ${
+                      inviteFaculty === choice.val
+                        ? 'bg-gradient-to-r from-indigo-500 to-purple-500 text-white shadow-lg'
+                        : 'glass text-gray-600 hover:shadow-md'
+                    }`}
+                  >
+                    {choice.label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-gray-500 mt-1.5">
+                {inviteFaculty
+                  ? 'Faculty coordinators will be added to this meeting and emailed the details.'
+                  : 'Faculties will not be invited unless you choose Yes.'}
               </p>
             </div>
 

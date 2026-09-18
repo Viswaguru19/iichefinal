@@ -84,7 +84,11 @@ async function sendToRecipients(
 
 export async function sendMeetingInvitationEmails(
   supabase: any,
-  { meetingId, customEmails }: { meetingId: string; customEmails?: string[] },
+  {
+    meetingId,
+    customEmails,
+    includeFaculty = false,
+  }: { meetingId: string; customEmails?: string[]; includeFaculty?: boolean },
 ): Promise<InviteResult> {
   const { data: meeting } = await supabase
     .from('meetings')
@@ -114,7 +118,7 @@ export async function sendMeetingInvitationEmails(
     },
   };
 
-  const facultyEmails = await facultyCoordinatorEmails(supabase);
+  const facultyEmails = includeFaculty ? await facultyCoordinatorEmails(supabase) : [];
   const organizerEmail = meeting.creator?.email;
 
   if (customEmails && Array.isArray(customEmails) && customEmails.length > 0) {

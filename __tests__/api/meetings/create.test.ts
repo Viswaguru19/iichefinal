@@ -241,18 +241,13 @@ describe('/api/meetings/create', () => {
             );
         });
 
-        it('general audience still queries profiles for faculty coordinators', async () => {
-            const { queryCalls, profilesQueryBuilder } = setupMeetingInsertSuccess();
+        it('general audience does not invite faculty unless invite_faculty is true', async () => {
+            const { profilesQueryBuilder } = setupMeetingInsertSuccess();
 
             await POST(makeRequest(validBody({ audience_type: 'general' })));
 
-            expect(queryCalls.some(c => c.table === 'profiles')).toBe(true);
             const orCalls = profilesQueryBuilder._calls.filter((c: any) => c.method === 'or');
-            expect(orCalls).toEqual(
-                expect.arrayContaining([
-                    expect.objectContaining({ args: ['is_faculty.eq.true,role.eq.faculty_advisor'] }),
-                ]),
-            );
+            expect(orCalls).toEqual([]);
         });
 
         it('executive_committee queries profiles where executive_role IS NOT NULL', async () => {
@@ -332,10 +327,10 @@ describe('/api/meetings/create', () => {
             expect(ids).not.toContain('c4');
         });
 
-        it('includes faculty coordinators for every meeting audience', async () => {
+        it('includes faculty coordinators only when invite_faculty is true', async () => {
             const { profilesQueryBuilder } = setupMeetingInsertSuccess();
 
-            await POST(makeRequest(validBody({ audience_type: 'heads_only' })));
+            await POST(makeRequest(validBody({ audience_type: 'heads_only', invite_faculty: true })));
 
             const orCalls = profilesQueryBuilder._calls.filter((c: any) => c.method === 'or');
             expect(orCalls).toEqual(

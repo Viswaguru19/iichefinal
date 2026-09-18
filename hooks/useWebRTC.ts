@@ -2,17 +2,66 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 import type { SupabaseClient, RealtimeChannel } from '@supabase/supabase-js';
 
-const ICE_SERVERS: RTCConfiguration = {
-    iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' },
-        { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
-        { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
-        { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
-    ],
-};
+function iceConfig(): RTCConfiguration {
+    const iceServers: RTCIceServer[] = [
+        { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] },
+        { urls: 'stun:stun.cloudflare.com:3478' },
+        { urls: 'stun:freeturn.net:3478' },
+        { urls: 'turn:freeturn.net:3478', username: 'free', credential: 'free' },
+        { urls: 'turns:freeturn.net:5349', username: 'free', credential: 'free' },
+    ];
+    const turnUrls = (process.env.NEXT_PUBLIC_TURN_URLS || '').split(',').map((s) => s.trim()).filter(Boolean);
+    const turnUser = process.env.NEXT_PUBLIC_TURN_USERNAME || '';
+    const turnCred = process.env.NEXT_PUBLIC_TURN_CREDENTIAL || '';
+    if (turnUrls.length && turnUser && turnCred) {
+        iceServers.push({ urls: turnUrls, username: turnUser, credential: turnCred });
+    }
+    return { iceServers, iceCandidatePoolSize: 2 };
+}
 
-export interface PeerState { connection: RTCPeerConnection; remoteStream: MediaStream | null; userName: string; }
+function senderForKind(pc: RTCPeerConnection, kind: string): RTCRtpSender | undefined {
+    const withTrack = pc.getSenders().find((s) => s.track?.kind === kind);
+    if (withTrack) return withTrack;
+    return pc.getTransceivers().find((t) => t.receiver.track?.kind === kind)?.sender;
+}
+
+async function attachTrackToPeer(pc: RTCPeerConnection, track: MediaStreamTrack, stream: MediaStream) {
+    const sender = senderForKind(pc, track.kind);
+    if (sender) {
+        const transceiver = pc.getTransceivers().find((t) => t.sender === sender);
+        if (transceiver && transceiver.direction !== 'sendrecv') transceiver.direction = 'sendrecv';
+        await sender.replaceTrack(track);
+        return;
+    }
+    pc.addTrack(track, stream);
+}
+
+function sdpJson(desc: RTCSessionDescription | RTCSessionDescriptionInit | null | undefined) {
+    if (!desc?.type || !desc.sdp) return null;
+    return { type: desc.type, sdp: desc.sdp };
+}
+
+async function waitIceGathering(pc: RTCPeerConnection, ms = 1800) {
+    if (pc.iceGatheringState === 'complete') return;
+    await new Promise<void>((resolve) => {
+        const finish = () => {
+            pc.removeEventListener('icegatheringstatechange', onChange);
+            resolve();
+        };
+        const onChange = () => {
+            if (pc.iceGatheringState === 'complete') finish();
+        };
+        pc.addEventListener('icegatheringstatechange', onChange);
+        window.setTimeout(finish, ms);
+    });
+}
+
+export interface PeerState {
+    connection: RTCPeerConnection;
+    remoteStream: MediaStream | null;
+    userName: string;
+    connectionState: RTCPeerConnectionState;
+}
 export interface ChatMessage {
     id: string;
     senderId: string;
@@ -84,6 +133,8 @@ export function useWebRTC({
     const onRoomControlRef = useRef(onRoomControl);
     const getCameraSendingSnapshotRef = useRef(getCameraSendingSnapshot);
     const disconnectTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+    const pendingIceRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
+    const makingOfferRef = useRef<Set<string>>(new Set());
 
     useEffect(() => { localStreamRef.current = localStream; }, [localStream]);
     useEffect(() => { userIdRef.current = userId; }, [userId]);
@@ -103,6 +154,34 @@ export function useWebRTC({
         return [];
     }
 
+    function queueIce(peerId: string, candidate: RTCIceCandidateInit) {
+        const list = pendingIceRef.current.get(peerId) ?? [];
+        list.push(candidate);
+        pendingIceRef.current.set(peerId, list);
+    }
+
+    async function flushIce(peerId: string, pc: RTCPeerConnection) {
+        const list = pendingIceRef.current.get(peerId) ?? [];
+        pendingIceRef.current.delete(peerId);
+        for (const c of list) {
+            try {
+                await pc.addIceCandidate(new RTCIceCandidate(c));
+            } catch (err) {
+                console.error('ICE flush error:', err);
+            }
+        }
+    }
+
+    async function sendSignal(event: string, payload: Record<string, unknown>) {
+        const ch = channelRef.current;
+        if (!ch) return;
+        try {
+            await ch.send({ type: 'broadcast', event, payload });
+        } catch (err) {
+            console.error(`Signal ${event} failed:`, err);
+        }
+    }
+
     // These are NOT useCallbacks — they use refs so they never go stale
     function createPC(peerId: string, peerName: string): RTCPeerConnection | null {
         try {
@@ -111,50 +190,72 @@ export function useWebRTC({
                 return null;
             }
             const safeName = String(peerName ?? '').trim() || 'Participant';
-            const pc = new RTCPeerConnection(ICE_SERVERS);
-            // Add local tracks
-            if (localStreamRef.current) {
-                localStreamRef.current.getTracks().forEach(track => { pc.addTrack(track, localStreamRef.current!); });
-            }
+            const pc = new RTCPeerConnection(iceConfig());
+            const audioTr = pc.addTransceiver('audio', { direction: 'sendrecv' });
+            const videoTr = pc.addTransceiver('video', { direction: 'sendrecv' });
+            const local = localStreamRef.current;
+            const audioTrack = local?.getAudioTracks()[0];
+            const videoTrack = local?.getVideoTracks()[0];
+            if (audioTrack) void audioTr.sender.replaceTrack(audioTrack);
+            if (videoTrack) void videoTr.sender.replaceTrack(videoTrack);
+
             const remoteStream = new MediaStream();
             let negotiationBusy = false;
             pc.onnegotiationneeded = async () => {
-            // Initial SDP is driven by the peer-joined handler; this handles late tracks / transceiver changes only.
-            if (!pc.localDescription || !pc.remoteDescription) return;
-            if (negotiationBusy || pc.signalingState !== 'stable') return;
-            const ch = channelRef.current;
-            if (!ch) return;
-            negotiationBusy = true;
-            try {
-                const offer = await pc.createOffer();
-                await pc.setLocalDescription(offer);
-                ch.send({
-                    type: 'broadcast',
-                    event: 'sdp-offer',
-                    payload: { senderId: userIdRef.current, senderName: userNameRef.current, targetId: peerId, sdp: pc.localDescription },
-                });
-            } catch (e) {
-                console.error('Renegotiation offer error:', e);
-            } finally {
-                negotiationBusy = false;
-            }
+                // Initial SDP is driven by the offerer; this handles late camera/mic attach.
+                if (!pc.remoteDescription || pc.signalingState !== 'stable' || negotiationBusy) return;
+                const polite = userIdRef.current > peerId;
+                if (polite) return;
+                negotiationBusy = true;
+                makingOfferRef.current.add(peerId);
+                try {
+                    await pc.setLocalDescription(await pc.createOffer());
+                    await waitIceGathering(pc);
+                    const sdp = sdpJson(pc.localDescription);
+                    if (sdp) {
+                        await sendSignal('sdp-offer', {
+                            senderId: userIdRef.current,
+                            senderName: userNameRef.current,
+                            targetId: peerId,
+                            sdp,
+                        });
+                    }
+                } catch (e) {
+                    console.error('Renegotiation offer error:', e);
+                } finally {
+                    makingOfferRef.current.delete(peerId);
+                    negotiationBusy = false;
+                }
             };
             pc.ontrack = (event) => {
-                if (event.streams[0]) {
-                    event.streams[0].getTracks().forEach(t => { if (!remoteStream.getTracks().find(rt => rt.id === t.id)) remoteStream.addTrack(t); });
-                } else if (event.track) {
-                    if (!remoteStream.getTracks().find(t => t.id === event.track.id)) remoteStream.addTrack(event.track);
+                const track = event.track;
+                if (track && !remoteStream.getTracks().some((t) => t.id === track.id)) {
+                    remoteStream.addTrack(track);
+                    track.onunmute = () => syncPeers();
+                    track.onmute = () => syncPeers();
                 }
                 const ex = peersRef.current.get(peerId);
-                if (ex) { ex.remoteStream = remoteStream; peersRef.current.set(peerId, { ...ex }); syncPeers(); }
-            };
-            pc.onicecandidate = (event) => {
-                if (event.candidate && channelRef.current) {
-                    channelRef.current.send({ type: 'broadcast', event: 'ice-candidate', payload: { senderId: userIdRef.current, targetId: peerId, candidate: event.candidate.toJSON() } });
+                if (ex) {
+                    ex.remoteStream = remoteStream;
+                    peersRef.current.set(peerId, { ...ex });
+                    syncPeers();
                 }
             };
+            pc.onicecandidate = (event) => {
+                if (!event.candidate) return;
+                void sendSignal('ice-candidate', {
+                    senderId: userIdRef.current,
+                    targetId: peerId,
+                    candidate: event.candidate.toJSON(),
+                });
+            };
             pc.onconnectionstatechange = () => {
-                console.log(`Peer ${peerId}: ${pc.connectionState}`);
+                const ex = peersRef.current.get(peerId);
+                if (ex) {
+                    ex.connectionState = pc.connectionState;
+                    peersRef.current.set(peerId, { ...ex });
+                    syncPeers();
+                }
                 const existingTimer = disconnectTimersRef.current.get(peerId);
                 if (existingTimer && (pc.connectionState === 'connected' || pc.connectionState === 'connecting')) {
                     clearTimeout(existingTimer);
@@ -177,8 +278,15 @@ export function useWebRTC({
                     }
                 } else if (pc.connectionState === 'closed') removePC(peerId);
             };
-            pc.oniceconnectionstatechange = () => { if (pc.iceConnectionState === 'failed') pc.restartIce(); };
-            peersRef.current.set(peerId, { connection: pc, remoteStream, userName: safeName });
+            pc.oniceconnectionstatechange = () => {
+                if (pc.iceConnectionState === 'failed') pc.restartIce();
+            };
+            peersRef.current.set(peerId, {
+                connection: pc,
+                remoteStream,
+                userName: safeName,
+                connectionState: pc.connectionState,
+            });
             syncPeers();
             return pc;
         } catch (e) {
@@ -193,6 +301,8 @@ export function useWebRTC({
             clearTimeout(timer);
             disconnectTimersRef.current.delete(peerId);
         }
+        pendingIceRef.current.delete(peerId);
+        makingOfferRef.current.delete(peerId);
         const p = peersRef.current.get(peerId);
         if (p) {
             p.connection.close();
@@ -207,184 +317,242 @@ export function useWebRTC({
         });
     }
 
-    // Main effect — only depends on stable values, NOT on callbacks
-    useEffect(() => {
-        if (!enabled || !roomId || !userId) return;
-        const channel = supabase.channel(`room:${roomId}`, { config: { broadcast: { self: false } } });
-        channelRef.current = channel;
-
-        // When anyone joins, tell them (and others) our camera/screen state — remote track.muted is unreliable for camera-off.
-        channel.on('broadcast', { event: 'peer-joined' }, (msg) => {
-            const { senderId } = msg.payload as { senderId: string };
-            if (!senderId || senderId === userIdRef.current) return;
-            const snap = getCameraSendingSnapshotRef.current?.() ?? true;
-            channel.send({
-                type: 'broadcast',
-                event: 'participant-camera',
-                payload: { senderId: userIdRef.current, cameraOn: snap },
+    async function sendOffer(pc: RTCPeerConnection, peerId: string) {
+        makingOfferRef.current.add(peerId);
+        try {
+            await pc.setLocalDescription(await pc.createOffer());
+            await waitIceGathering(pc);
+            const sdp = sdpJson(pc.localDescription);
+            if (!sdp) return;
+            await sendSignal('sdp-offer', {
+                senderId: userIdRef.current,
+                senderName: userNameRef.current,
+                targetId: peerId,
+                sdp,
             });
-        });
+        } catch (err) {
+            console.error('Offer error:', err);
+        } finally {
+            makingOfferRef.current.delete(peerId);
+        }
+    }
 
-        channel.on('broadcast', { event: 'participant-camera' }, (msg) => {
-            const { senderId, cameraOn } = msg.payload as { senderId: string; cameraOn: boolean };
-            if (!senderId || senderId === userIdRef.current) return;
-            setPeerCameraSendingVideo((prev) => ({ ...prev, [senderId]: Boolean(cameraOn) }));
-        });
-
-        channel.on('broadcast', { event: 'peer-joined' }, async (msg) => {
-            const { senderId, senderName } = msg.payload as { senderId: string; senderName?: string };
-            if (senderId === userIdRef.current || peersRef.current.has(senderId)) return;
-            // Glare avoidance: only the lexicographically smaller userId sends the initial offer.
-            if (userIdRef.current > senderId) return;
-            const pc = createPC(senderId, String(senderName ?? '').trim() || 'Participant');
-            if (!pc) return;
-            try {
-                const offer = await pc.createOffer();
-                await pc.setLocalDescription(offer);
-                channel.send({ type: 'broadcast', event: 'sdp-offer', payload: { senderId: userIdRef.current, senderName: userNameRef.current, targetId: senderId, sdp: pc.localDescription } });
-            } catch (err) { console.error('Offer error:', err); }
-        });
-
-        channel.on('broadcast', { event: 'sdp-offer' }, async (msg) => {
-            const { senderId, senderName, targetId, sdp } = msg.payload as { senderId: string; senderName?: string; targetId: string; sdp: RTCSessionDescriptionInit };
-            if (targetId !== userIdRef.current) return;
-            const existing = peersRef.current.get(senderId);
-            if (existing) {
-                const conn = existing.connection;
+    async function acceptOffer(pc: RTCPeerConnection, peerId: string, sdp: RTCSessionDescriptionInit) {
+        const polite = userIdRef.current > peerId;
+        const offerCollision = makingOfferRef.current.has(peerId) || pc.signalingState !== 'stable';
+        if (offerCollision && !polite) return;
+        try {
+            if (offerCollision && polite) {
                 try {
-                    await conn.setRemoteDescription(new RTCSessionDescription(sdp));
-                    if (conn.signalingState === 'have-remote-offer') {
-                        const answer = await conn.createAnswer();
-                        await conn.setLocalDescription(answer);
-                        channel.send({ type: 'broadcast', event: 'sdp-answer', payload: { senderId: userIdRef.current, targetId: senderId, sdp: conn.localDescription } });
-                    }
-                } catch (err) {
-                    console.error('Renegotiation answer error:', err);
+                    await pc.setLocalDescription({ type: 'rollback' } as RTCSessionDescriptionInit);
+                } catch {
+                    /* Safari and some browsers reject rollback; continue with remote offer. */
                 }
-                return;
             }
-            const pc = createPC(senderId, String(senderName ?? '').trim() || 'Participant');
-            if (!pc) return;
-            try {
-                await pc.setRemoteDescription(new RTCSessionDescription(sdp));
-                const answer = await pc.createAnswer();
-                await pc.setLocalDescription(answer);
-                channel.send({ type: 'broadcast', event: 'sdp-answer', payload: { senderId: userIdRef.current, targetId: senderId, sdp: pc.localDescription } });
-            } catch (err) { console.error('Answer error:', err); }
-        });
-
-        channel.on('broadcast', { event: 'sdp-answer' }, async (msg) => {
-            const { senderId, targetId, sdp } = msg.payload as { senderId: string; targetId: string; sdp: RTCSessionDescriptionInit };
-            if (targetId !== userIdRef.current) return;
-            const peer = peersRef.current.get(senderId);
-            if (peer) { try { await peer.connection.setRemoteDescription(new RTCSessionDescription(sdp)); } catch (err) { console.error('SDP answer error:', err); } }
-        });
-
-        channel.on('broadcast', { event: 'ice-candidate' }, async (msg) => {
-            const { senderId, targetId, candidate } = msg.payload as { senderId: string; targetId: string; candidate: RTCIceCandidateInit };
-            if (targetId !== userIdRef.current) return;
-            const peer = peersRef.current.get(senderId);
-            if (!peer) return;
-            try {
-                if (peer.connection.remoteDescription) { await peer.connection.addIceCandidate(new RTCIceCandidate(candidate)); }
-                else {
-                    const retry = async (n: number) => { if (n <= 0) return; await new Promise(r => setTimeout(r, 200)); const p = peersRef.current.get(senderId); if (p?.connection.remoteDescription) await p.connection.addIceCandidate(new RTCIceCandidate(candidate)); else await retry(n - 1); };
-                    retry(15).catch(console.error);
-                }
-            } catch (err) { console.error('ICE error:', err); }
-        });
-
-        channel.on('broadcast', { event: 'peer-left' }, (msg) => {
-            removePC((msg.payload as { senderId: string }).senderId);
-        });
-        channel.on('broadcast', { event: 'chat-message' }, (msg) => { setChatMessages(prev => [...prev, msg.payload as ChatMessage]); });
-        channel.on('broadcast', { event: 'room-control' }, (msg) => {
-            onRoomControlRef.current?.(msg.payload as RoomControlPayload);
-        });
-        channel.on('presence', { event: 'leave' }, ({ leftPresences }) => {
-            const left = Array.isArray(leftPresences) ? leftPresences : [];
-            left.forEach((p) => {
-                const uid = (p as { userId?: string } | null | undefined)?.userId;
-                if (uid && uid !== userIdRef.current) removePC(uid);
-            });
-        });
-        channel.on('presence', { event: 'sync' }, () => {
-            const state = channel.presenceState();
-            const list: RoomParticipant[] = [];
-            for (const key of Object.keys(state)) {
-                for (const p of metasFromPresenceValue(state[key])) {
-                    const uid = typeof p.userId === 'string' ? p.userId : '';
-                    if (!uid) continue;
-                    list.push({
-                        userId: uid,
-                        userName: String(p.userName ?? '').trim() || 'Participant',
-                        userRole: (p.userRole as string | null | undefined) || null,
-                        joinedAt: typeof p.online_at === 'string' ? p.online_at : String(p.online_at ?? ''),
+            await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+            await flushIce(peerId, pc);
+            if (pc.signalingState === 'have-remote-offer') {
+                await pc.setLocalDescription(await pc.createAnswer());
+                await waitIceGathering(pc);
+                const answer = sdpJson(pc.localDescription);
+                if (answer) {
+                    await sendSignal('sdp-answer', {
+                        senderId: userIdRef.current,
+                        targetId: peerId,
+                        sdp: answer,
                     });
                 }
             }
-            setParticipants(list);
+        } catch (err) {
+            console.error('Answer error:', err);
+        }
+    }
 
-            // Self-heal race: if presence knows someone is here but no RTCPeerConnection exists,
-            // start initial SDP from the lexicographically smaller userId.
-            list.forEach((p) => {
-                const otherId = p.userId;
-                if (!otherId || otherId === userIdRef.current) return;
-                if (peersRef.current.has(otherId)) return;
-                if (userIdRef.current > otherId) return;
+    // Main effect — only depends on stable values, NOT on callbacks
+    useEffect(() => {
+        if (!enabled || !roomId || !userId) return;
+        let stopped = false;
+        let channel: RealtimeChannel | null = null;
 
-                const pc = createPC(otherId, p.userName || 'Participant');
+        const startTimer = window.setTimeout(() => {
+            if (stopped) return;
+            channel = supabase.channel(`room:${roomId}`, { config: { broadcast: { self: false } } });
+            channelRef.current = channel;
+
+            channel.on('broadcast', { event: 'peer-joined' }, (msg) => {
+                const { senderId } = msg.payload as { senderId: string };
+                if (!senderId || senderId === userIdRef.current) return;
+                const snap = getCameraSendingSnapshotRef.current?.() ?? true;
+                void sendSignal('participant-camera', { senderId: userIdRef.current, cameraOn: snap });
+            });
+
+            channel.on('broadcast', { event: 'participant-camera' }, (msg) => {
+                const { senderId, cameraOn } = msg.payload as { senderId: string; cameraOn: boolean };
+                if (!senderId || senderId === userIdRef.current) return;
+                setPeerCameraSendingVideo((prev) => ({ ...prev, [senderId]: Boolean(cameraOn) }));
+            });
+
+            channel.on('broadcast', { event: 'peer-joined' }, (msg) => {
+                const { senderId, senderName } = msg.payload as { senderId: string; senderName?: string };
+                if (senderId === userIdRef.current || peersRef.current.has(senderId)) return;
+                if (userIdRef.current > senderId) return;
+                const pc = createPC(senderId, String(senderName ?? '').trim() || 'Participant');
                 if (!pc) return;
+                void sendOffer(pc, senderId);
+            });
+
+            channel.on('broadcast', { event: 'sdp-offer' }, (msg) => {
+                const { senderId, senderName, targetId, sdp } = msg.payload as {
+                    senderId: string;
+                    senderName?: string;
+                    targetId: string;
+                    sdp: RTCSessionDescriptionInit;
+                };
+                if (targetId !== userIdRef.current || !sdp?.sdp) return;
+                void (async () => {
+                    let peer = peersRef.current.get(senderId);
+                    if (!peer) {
+                        const pc = createPC(senderId, String(senderName ?? '').trim() || 'Participant');
+                        if (!pc) return;
+                        peer = peersRef.current.get(senderId);
+                    }
+                    if (!peer) return;
+                    await acceptOffer(peer.connection, senderId, sdp);
+                })();
+            });
+
+            channel.on('broadcast', { event: 'sdp-answer' }, (msg) => {
+                const { senderId, targetId, sdp } = msg.payload as {
+                    senderId: string;
+                    targetId: string;
+                    sdp: RTCSessionDescriptionInit;
+                };
+                if (targetId !== userIdRef.current || !sdp?.sdp) return;
+                const peer = peersRef.current.get(senderId);
+                if (!peer) return;
                 void (async () => {
                     try {
-                        const offer = await pc.createOffer();
-                        await pc.setLocalDescription(offer);
-                        channel.send({
-                            type: 'broadcast',
-                            event: 'sdp-offer',
-                            payload: {
-                                senderId: userIdRef.current,
-                                senderName: userNameRef.current,
-                                targetId: otherId,
-                                sdp: pc.localDescription,
-                            },
-                        });
+                        if (peer.connection.signalingState === 'have-local-offer') {
+                            await peer.connection.setRemoteDescription(new RTCSessionDescription(sdp));
+                            await flushIce(senderId, peer.connection);
+                        }
                     } catch (err) {
-                        console.error('Presence sync offer error:', err);
+                        console.error('SDP answer error:', err);
                     }
                 })();
             });
-        });
 
-        channel.subscribe(async (status) => {
-            if (status === 'SUBSCRIBED') {
-                const trackName = String(userName ?? '').trim() || 'Participant';
-                await channel.track({ userId, userName: trackName, userRole: userRole || null, online_at: new Date().toISOString() });
-                await new Promise(r => setTimeout(r, 500));
-                channel.send({ type: 'broadcast', event: 'peer-joined', payload: { senderId: userId, senderName: trackName } });
-                const snap = getCameraSendingSnapshotRef.current?.() ?? true;
-                channel.send({
-                    type: 'broadcast',
-                    event: 'participant-camera',
-                    payload: { senderId: userId, cameraOn: snap },
+            channel.on('broadcast', { event: 'ice-candidate' }, (msg) => {
+                const { senderId, targetId, candidate } = msg.payload as {
+                    senderId: string;
+                    targetId: string;
+                    candidate: RTCIceCandidateInit;
+                };
+                if (targetId !== userIdRef.current || !candidate) return;
+                const peer = peersRef.current.get(senderId);
+                if (!peer) {
+                    queueIce(senderId, candidate);
+                    return;
+                }
+                void (async () => {
+                    try {
+                        if (peer.connection.remoteDescription) {
+                            await peer.connection.addIceCandidate(new RTCIceCandidate(candidate));
+                        } else {
+                            queueIce(senderId, candidate);
+                        }
+                    } catch (err) {
+                        console.error('ICE error:', err);
+                    }
+                })();
+            });
+
+            channel.on('broadcast', { event: 'peer-left' }, (msg) => {
+                removePC((msg.payload as { senderId: string }).senderId);
+            });
+            channel.on('broadcast', { event: 'chat-message' }, (msg) => { setChatMessages((prev) => [...prev, msg.payload as ChatMessage]); });
+            channel.on('broadcast', { event: 'room-control' }, (msg) => {
+                onRoomControlRef.current?.(msg.payload as RoomControlPayload);
+            });
+            channel.on('presence', { event: 'leave' }, ({ leftPresences }) => {
+                const left = Array.isArray(leftPresences) ? leftPresences : [];
+                left.forEach((p) => {
+                    const uid = (p as { userId?: string } | null | undefined)?.userId;
+                    if (uid && uid !== userIdRef.current) removePC(uid);
                 });
-            }
-        });
+            });
+            channel.on('presence', { event: 'sync' }, () => {
+                const state = channel!.presenceState();
+                const list: RoomParticipant[] = [];
+                for (const key of Object.keys(state)) {
+                    for (const p of metasFromPresenceValue(state[key])) {
+                        const uid = typeof p.userId === 'string' ? p.userId : '';
+                        if (!uid) continue;
+                        list.push({
+                            userId: uid,
+                            userName: String(p.userName ?? '').trim() || 'Participant',
+                            userRole: (p.userRole as string | null | undefined) || null,
+                            joinedAt: typeof p.online_at === 'string' ? p.online_at : String(p.online_at ?? ''),
+                        });
+                    }
+                }
+                setParticipants(list);
+
+                list.forEach((p) => {
+                    const otherId = p.userId;
+                    if (!otherId || otherId === userIdRef.current) return;
+                    if (peersRef.current.has(otherId)) return;
+                    if (userIdRef.current > otherId) return;
+
+                    const pc = createPC(otherId, p.userName || 'Participant');
+                    if (!pc) return;
+                    void sendOffer(pc, otherId);
+                });
+            });
+
+            channel.subscribe(async (status) => {
+                if (stopped || status !== 'SUBSCRIBED') return;
+                let waited = 0;
+                while (!localStreamRef.current && waited < 1500) {
+                    await new Promise((r) => setTimeout(r, 100));
+                    waited += 100;
+                    if (stopped) return;
+                }
+                const trackName = String(userNameRef.current ?? '').trim() || 'Participant';
+                await channel!.track({
+                    userId: userIdRef.current,
+                    userName: trackName,
+                    userRole: userRole || null,
+                    online_at: new Date().toISOString(),
+                });
+                await new Promise((r) => setTimeout(r, 400));
+                if (stopped) return;
+                await sendSignal('peer-joined', { senderId: userIdRef.current, senderName: trackName });
+                const snap = getCameraSendingSnapshotRef.current?.() ?? true;
+                await sendSignal('participant-camera', { senderId: userIdRef.current, cameraOn: snap });
+            });
+        }, 80);
 
         return () => {
+            stopped = true;
+            clearTimeout(startTimer);
             try {
-                channel.send({ type: 'broadcast', event: 'peer-left', payload: { senderId: userIdRef.current } });
+                channel?.send({ type: 'broadcast', event: 'peer-left', payload: { senderId: userIdRef.current } });
             } catch (e) {
                 console.warn('peer-left broadcast on teardown failed', e);
             }
-            peersRef.current.forEach(p => p.connection.close());
+            peersRef.current.forEach((p) => p.connection.close());
             peersRef.current.clear();
             disconnectTimersRef.current.forEach((t) => clearTimeout(t));
             disconnectTimersRef.current.clear();
+            pendingIceRef.current.clear();
+            makingOfferRef.current.clear();
             syncPeers();
-            channel.untrack();
-            supabase.removeChannel(channel);
-            channelRef.current = null;
+            if (channel) {
+                channel.untrack();
+                supabase.removeChannel(channel);
+            }
+            if (channelRef.current === channel) channelRef.current = null;
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [enabled, roomId, userId]);
@@ -392,29 +560,29 @@ export function useWebRTC({
     // Update tracks in existing connections when localStream changes
     useEffect(() => {
         if (!localStream) return;
-        peersRef.current.forEach(peer => {
-            const senders = peer.connection.getSenders();
-            localStream.getTracks().forEach(track => {
-                const sender = senders.find(s => s.track?.kind === track.kind);
-                if (sender) sender.replaceTrack(track).catch(console.error);
-                else peer.connection.addTrack(track, localStream);
+        peersRef.current.forEach((peer) => {
+            localStream.getTracks().forEach((track) => {
+                void attachTrackToPeer(peer.connection, track, localStream).catch(console.error);
             });
         });
     }, [localStream]);
 
     const replaceVideoTrack = useCallback(async (newTrack: MediaStreamTrack) => {
-        const promises: Promise<void>[] = [];
-        peersRef.current.forEach(peer => { const s = peer.connection.getSenders().find(s => s.track?.kind === 'video'); if (s) promises.push(s.replaceTrack(newTrack)); });
-        await Promise.all(promises);
+        const stream = new MediaStream([newTrack]);
+        await Promise.all(
+            Array.from(peersRef.current.values()).map((peer) =>
+                attachTrackToPeer(peer.connection, newTrack, stream),
+            ),
+        );
     }, []);
 
     const replaceAudioTrack = useCallback(async (newTrack: MediaStreamTrack) => {
-        const promises: Promise<void>[] = [];
-        peersRef.current.forEach((peer) => {
-            const s = peer.connection.getSenders().find((sender) => sender.track?.kind === 'audio');
-            if (s) promises.push(s.replaceTrack(newTrack));
-        });
-        await Promise.all(promises);
+        const stream = new MediaStream([newTrack]);
+        await Promise.all(
+            Array.from(peersRef.current.values()).map((peer) =>
+                attachTrackToPeer(peer.connection, newTrack, stream),
+            ),
+        );
     }, []);
 
     const sendChatMessage = useCallback((payload: SendChatPayload) => {
@@ -435,7 +603,7 @@ export function useWebRTC({
             fileName: fileName ?? null,
         };
         channelRef.current.send({ type: 'broadcast', event: 'chat-message', payload: chatMsg });
-        setChatMessages(prev => [...prev, chatMsg]);
+        setChatMessages((prev) => [...prev, chatMsg]);
     }, []);
 
     const sendRoomControl = useCallback((action: RoomControlAction, targetUserId?: string, opts?: SendRoomControlOptions) => {
