@@ -1,6 +1,6 @@
 /* IIChE Chat — chat-scoped service worker for push + static asset caching */
 
-const CACHE_NAME = 'iiche-chat-v2';
+const CACHE_NAME = 'iiche-chat-v3';
 const STATIC_PREFIXES = ['/icons/', '/_next/static/'];
 
 self.addEventListener('install', (event) => {
@@ -22,6 +22,15 @@ function isStaticAsset(url) {
   return STATIC_PREFIXES.some((prefix) => url.pathname.startsWith(prefix)) || url.pathname.endsWith('.svg');
 }
 
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(base64);
+  const arr = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i += 1) arr[i] = raw.charCodeAt(i);
+  return arr;
+}
+
 self.addEventListener('fetch', (event) => {
   const request = event.request;
   if (request.method !== 'GET') return;
@@ -30,13 +39,15 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== self.location.origin || !isStaticAsset(url)) return;
 
   event.respondWith(
-    caches.open(CACHE_NAME).then(async (cache) => {
-      const cached = await cache.match(request);
-      if (cached) return cached;
-      const response = await fetch(request);
-      if (response.ok) cache.put(request, response.clone());
-      return response;
-    }),
+    fetch(request)
+      .then(async (response) => {
+        if (response.ok) {
+          const cache = await caches.open(CACHE_NAME);
+          cache.put(request, response.clone());
+        }
+        return response;
+      })
+      .catch(() => caches.match(request)),
   );
 });
 
@@ -82,5 +93,25 @@ self.addEventListener('notificationclick', (event) => {
       }
       return self.clients.openWindow(absolute);
     }),
+  );
+});
+
+self.addEventListener('pushsubscriptionchange', (event) => {
+  event.waitUntil(
+    (async () => {
+      const status = await fetch('/api/push/status').then((r) => r.json()).catch(() => null);
+      const key = status?.vapidPublicKey;
+      if (!key) return;
+      const sub = await self.registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(key),
+      });
+      await fetch('/api/push/subscribe', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subscription: sub.toJSON() }),
+      });
+    })(),
   );
 });

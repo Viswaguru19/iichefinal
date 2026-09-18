@@ -2,85 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { BellRing } from 'lucide-react';
-import toast from 'react-hot-toast';
 import { isIOSDevice, isStandaloneDisplay, supportsWebPush } from '@/lib/pwa';
-
-function urlBase64ToUint8Array(base64String: string) {
-  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-  const raw = window.atob(base64);
-  const arr = new Uint8Array(raw.length);
-  for (let i = 0; i < raw.length; i += 1) arr[i] = raw.charCodeAt(i);
-  return arr;
-}
-
-async function registerServiceWorker() {
-  if (!('serviceWorker' in navigator)) return null;
-  const isChat = window.location.pathname.startsWith('/chat');
-  return navigator.serviceWorker.register(isChat ? '/sw-chat.js' : '/sw.js', {
-    scope: isChat ? '/chat' : '/dashboard',
-  });
-}
-
-export async function subscribeToPushNotifications(): Promise<boolean> {
-  if (!supportsWebPush()) {
-    toast.error('Push notifications are not supported in this browser');
-    return false;
-  }
-
-  if (isIOSDevice() && !isStandaloneDisplay()) {
-    toast.error('On iPhone: add the app to Home Screen first, then enable notifications');
-    return false;
-  }
-
-  const permission = await Notification.requestPermission();
-  if (permission !== 'granted') {
-    toast.error('Notification permission denied');
-    return false;
-  }
-
-  const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-  if (!vapidKey) {
-    toast.error('Push is not configured yet (missing VAPID key)');
-    return false;
-  }
-
-  const reg = await registerServiceWorker();
-  if (!reg) {
-    toast.error('Could not register service worker');
-    return false;
-  }
-
-  await navigator.serviceWorker.ready;
-
-  const existing = await reg.pushManager.getSubscription();
-  const subscription =
-    existing ||
-    (await reg.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(vapidKey),
-    }));
-
-  const res = await fetch('/api/push/subscribe', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ subscription: subscription.toJSON() }),
-  });
-
-  if (!res.ok) {
-    toast.error('Failed to save push subscription');
-    return false;
-  }
-
-  try {
-    localStorage.setItem('push-enabled', '1');
-  } catch {
-    // ignore
-  }
-
-  toast.success('Mobile notifications enabled');
-  return true;
-}
+import { subscribeToPushNotifications, syncPushSubscription } from '@/lib/push/client';
 
 export default function PushNotificationManager() {
   const [showBanner, setShowBanner] = useState(false);
@@ -88,16 +11,16 @@ export default function PushNotificationManager() {
 
   useEffect(() => {
     if (!supportsWebPush()) return;
+
+    if (Notification.permission === 'granted') {
+      void syncPushSubscription();
+      return;
+    }
+
     try {
-      if (localStorage.getItem('push-enabled') === '1') return;
       if (localStorage.getItem('push-banner-dismissed')) return;
     } catch {
       // ignore
-    }
-
-    if (Notification.permission === 'granted') {
-      void subscribeToPushNotifications();
-      return;
     }
 
     if (Notification.permission === 'denied') return;

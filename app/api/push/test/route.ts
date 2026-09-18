@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
-import { createAdminClient } from '@/lib/supabase/admin';
+import { tryCreateAdminClient } from '@/lib/supabase/admin';
 import { hasAdminAccess, isPortalAdmin } from '@/lib/permissions';
 import { sendWebPushToUsers } from '@/lib/push/send-web-push';
 
@@ -70,7 +70,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Select a user' }, { status: 400 });
     }
 
-    const { data: targetProfile } = await createAdminClient()
+    const { data: targetProfile } = await (tryCreateAdminClient() ?? (await createClient()))
       .from('profiles')
       .select('name, email')
       .eq('id', userId)
@@ -110,54 +110,63 @@ export async function POST(request: Request) {
 
 /** Admin: list users and whether they have push subscriptions. */
 export async function GET() {
-  const auth = await requireAdmin();
-  if ('error' in auth && auth.error) return auth.error;
+  try {
+    const auth = await requireAdmin();
+    if ('error' in auth && auth.error) return auth.error;
 
-  const admin = createAdminClient();
-  const [{ data: profiles, error: profilesErr }, { data: subs, error: subsErr }] = await Promise.all([
-    admin.from('profiles').select('id, name, email, role').eq('approved', true).order('name'),
-    admin.from('push_subscriptions').select('user_id, user_agent, updated_at'),
-  ]);
+    const sessionClient = await createClient();
+    const admin = tryCreateAdminClient();
+    const db = admin ?? sessionClient;
 
-  if (profilesErr) return NextResponse.json({ error: profilesErr.message }, { status: 500 });
-  if (subsErr) {
-    const msg = subsErr.message || 'Failed to load subscriptions';
-    const hint = msg.includes('push_subscriptions')
-      ? ' Run migration 109_push_subscriptions.sql in Supabase.'
-      : '';
-    return NextResponse.json({ error: msg + hint }, { status: 500 });
-  }
+    const [{ data: profiles, error: profilesErr }, subResult] = await Promise.all([
+      db.from('profiles').select('id, name, email, role').eq('approved', true).order('name'),
+      db.from('push_subscriptions').select('user_id, user_agent, updated_at'),
+    ]);
 
-  const subCounts = new Map<string, number>();
-  const subMeta = new Map<string, { userAgent: string | null; updatedAt: string | null }>();
-  for (const s of subs || []) {
-    subCounts.set(s.user_id, (subCounts.get(s.user_id) || 0) + 1);
-    const prev = subMeta.get(s.user_id);
-    const updatedAt = s.updated_at || null;
-    if (!prev || (updatedAt && (!prev.updatedAt || updatedAt > prev.updatedAt))) {
-      subMeta.set(s.user_id, { userAgent: s.user_agent || null, updatedAt });
+    if (profilesErr) return NextResponse.json({ error: profilesErr.message }, { status: 500 });
+
+    const subs = subResult.error ? [] : subResult.data;
+
+    const subCounts = new Map<string, number>();
+    const subMeta = new Map<string, { userAgent: string | null; updatedAt: string | null }>();
+    for (const s of subs || []) {
+      subCounts.set(s.user_id, (subCounts.get(s.user_id) || 0) + 1);
+      const prev = subMeta.get(s.user_id);
+      const updatedAt = s.updated_at || null;
+      if (!prev || (updatedAt && (!prev.updatedAt || updatedAt > prev.updatedAt))) {
+        subMeta.set(s.user_id, { userAgent: s.user_agent || null, updatedAt });
+      }
     }
+
+    const users = (profiles || [])
+      .map((p) => {
+        const pushDevices = subCounts.get(p.id) || 0;
+        const meta = subMeta.get(p.id);
+        return {
+          id: p.id,
+          name: p.name,
+          email: p.email,
+          role: p.role,
+          pushDevices,
+          hasPush: pushDevices > 0,
+          pushDeviceHint: meta?.userAgent || null,
+          pushUpdatedAt: meta?.updatedAt || null,
+        };
+      })
+      .sort((a, b) => {
+        if (a.hasPush !== b.hasPush) return a.hasPush ? -1 : 1;
+        return (a.name || a.email || '').localeCompare(b.name || b.email || '');
+      });
+
+    return NextResponse.json({ users });
+  } catch (err) {
+    console.error('[push/test] GET failed', err);
+    const message =
+      err instanceof Error && err.message.includes('admin credentials')
+        ? 'SUPABASE_SERVICE_ROLE_KEY is missing in .env.local. Add it from Supabase → Project Settings → API, then restart the server.'
+        : err instanceof Error
+          ? err.message
+          : 'Failed to load users';
+    return NextResponse.json({ error: message }, { status: 500 });
   }
-
-  const users = (profiles || [])
-    .map((p) => {
-      const pushDevices = subCounts.get(p.id) || 0;
-      const meta = subMeta.get(p.id);
-      return {
-        id: p.id,
-        name: p.name,
-        email: p.email,
-        role: p.role,
-        pushDevices,
-        hasPush: pushDevices > 0,
-        pushDeviceHint: meta?.userAgent || null,
-        pushUpdatedAt: meta?.updatedAt || null,
-      };
-    })
-    .sort((a, b) => {
-      if (a.hasPush !== b.hasPush) return a.hasPush ? -1 : 1;
-      return (a.name || a.email || '').localeCompare(b.name || b.email || '');
-    });
-
-  return NextResponse.json({ users });
 }

@@ -14,6 +14,8 @@ function createQueryBuilder(resolvedData: any = null, resolvedError: any = null)
         select: function (...args: any[]) { this._calls.push({ method: 'select', args }); return this; },
         insert: function (...args: any[]) { this._calls.push({ method: 'insert', args }); return this; },
         eq: function (...args: any[]) { this._calls.push({ method: 'eq', args }); return this; },
+        in: function (...args: any[]) { this._calls.push({ method: 'in', args }); return this; },
+        or: function (...args: any[]) { this._calls.push({ method: 'or', args }); return this; },
         not: function (...args: any[]) { this._calls.push({ method: 'not', args }); return this; },
         single: function () { this._calls.push({ method: 'single', args: [] }); return { data: resolvedData, error: resolvedError }; },
     };
@@ -44,6 +46,10 @@ vi.mock('next/headers', () => ({
         get: vi.fn(),
         set: vi.fn(),
     })),
+}));
+
+vi.mock('@/lib/send-meeting-invites', () => ({
+    sendMeetingInvitationEmails: vi.fn().mockResolvedValue({ sentCount: 0, total: 0, success: true }),
 }));
 
 // Import the handler after mocks are set up
@@ -215,12 +221,18 @@ describe('/api/meetings/create', () => {
             );
         });
 
-        it('general audience does not query profiles for participant resolution', async () => {
-            const { queryCalls } = setupMeetingInsertSuccess();
+        it('general audience still queries profiles for faculty coordinators', async () => {
+            const { queryCalls, profilesQueryBuilder } = setupMeetingInsertSuccess();
 
             await POST(makeRequest(validBody({ audience_type: 'general' })));
 
-            expect(queryCalls.some(c => c.table === 'profiles')).toBe(false);
+            expect(queryCalls.some(c => c.table === 'profiles')).toBe(true);
+            const orCalls = profilesQueryBuilder._calls.filter((c: any) => c.method === 'or');
+            expect(orCalls).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({ args: ['is_faculty.eq.true,role.eq.faculty_advisor'] }),
+                ]),
+            );
         });
 
         it('executive_committee queries profiles where executive_role IS NOT NULL', async () => {
@@ -256,6 +268,69 @@ describe('/api/meetings/create', () => {
                     expect.objectContaining({ args: ['committee_id', 'comm-42'] }),
                 ])
             );
+        });
+
+        it('heads_only queries committee_members heads and profiles with committee_head role', async () => {
+            const { queryCalls, committeeQueryBuilder, profilesQueryBuilder } = setupMeetingInsertSuccess();
+
+            await POST(makeRequest(validBody({ audience_type: 'heads_only' })));
+
+            expect(queryCalls.some(c => c.table === 'committee_members')).toBe(true);
+            expect(queryCalls.some(c => c.table === 'profiles')).toBe(true);
+            const inCalls = committeeQueryBuilder._calls.filter((c: any) => c.method === 'in');
+            expect(inCalls).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({ args: ['position', ['head']] }),
+                ])
+            );
+            const eqCalls = profilesQueryBuilder._calls.filter((c: any) => c.method === 'eq');
+            expect(eqCalls).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({ args: ['role', 'committee_head'] }),
+                ])
+            );
+        });
+
+        it('coheads_only queries committee_members co-heads and profiles with committee_cohead role', async () => {
+            const { queryCalls, committeeQueryBuilder, profilesQueryBuilder } = setupMeetingInsertSuccess();
+
+            await POST(makeRequest(validBody({ audience_type: 'coheads_only' })));
+
+            expect(queryCalls.some(c => c.table === 'committee_members')).toBe(true);
+            expect(queryCalls.some(c => c.table === 'profiles')).toBe(true);
+            const inCalls = committeeQueryBuilder._calls.filter((c: any) => c.method === 'in');
+            expect(inCalls.some((c: any) => c.args[0] === 'position' && Array.isArray(c.args[1]) && c.args[1].includes('co_head'))).toBe(true);
+            const eqCalls = profilesQueryBuilder._calls.filter((c: any) => c.method === 'eq');
+            expect(eqCalls).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({ args: ['role', 'committee_cohead'] }),
+                ])
+            );
+        });
+
+        it('includes faculty coordinators for every meeting audience', async () => {
+            const { profilesQueryBuilder } = setupMeetingInsertSuccess();
+
+            await POST(makeRequest(validBody({ audience_type: 'heads_only' })));
+
+            const orCalls = profilesQueryBuilder._calls.filter((c: any) => c.method === 'or');
+            expect(orCalls).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({ args: ['is_faculty.eq.true,role.eq.faculty_advisor'] }),
+                ]),
+            );
+        });
+
+        it('sends invitation emails after creating an offline meeting', async () => {
+            setupMeetingInsertSuccess();
+            const { sendMeetingInvitationEmails } = await import('@/lib/send-meeting-invites');
+
+            await POST(makeRequest(validBody({
+                meeting_type: 'offline',
+                location: 'Main Auditorium',
+            })));
+
+            expect(sendMeetingInvitationEmails).toHaveBeenCalled();
         });
 
         it('accepts valid optional room_id for online meetings', async () => {

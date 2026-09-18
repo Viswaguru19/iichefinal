@@ -38,29 +38,51 @@ export default function TestPushNotificationCard() {
   const [sending, setSending] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
 
-  useEffect(() => {
-    void fetch('/api/push/health')
-      .then((r) => r.json())
-      .then((data: PushHealth) => setHealth(data))
-      .catch(() => setHealth(null));
+  async function loadHealth() {
+    try {
+      const data = (await fetch('/api/push/health').then((r) => r.json())) as PushHealth;
+      setHealth(data);
+    } catch {
+      setHealth(null);
+    }
+  }
 
-    void fetch('/api/push/test')
-      .then((r) => r.json())
-      .then((data: { users?: PushUser[]; error?: string }) => {
-        if (data.error) {
-          setLastError(data.error);
-          toast.error(data.error, { duration: 8000 });
-        } else {
-          const list = data.users || [];
-          setUsers(list);
-          const withPush = list.filter((u) => u.hasPush);
-          if (withPush.length === 1) {
-            setUserId(withPush[0].id);
-          }
-        }
-      })
-      .catch(() => toast.error('Failed to load users'))
-      .finally(() => setLoadingUsers(false));
+  async function loadUsers() {
+    setLoadingUsers(true);
+    try {
+      const res = await fetch('/api/push/test');
+      const raw = await res.text();
+      let data: { users?: PushUser[]; error?: string } = {};
+      try {
+        data = raw ? (JSON.parse(raw) as { users?: PushUser[]; error?: string }) : {};
+      } catch {
+        throw new Error(raw ? `Server returned ${res.status}` : 'Failed to load users');
+      }
+      if (!res.ok || data.error) {
+        const err = data.error || 'Failed to load users';
+        setLastError(err);
+        toast.error(err, { duration: 8000 });
+        return;
+      }
+      const list = data.users || [];
+      setUsers(list);
+      setUserId((current) => {
+        if (current && list.some((u) => u.id === current)) return current;
+        const withPush = list.filter((u) => u.hasPush);
+        return withPush.length === 1 ? withPush[0].id : current;
+      });
+    } catch (e) {
+      const err = e instanceof Error ? e.message : 'Failed to load users';
+      setLastError(err);
+      toast.error(err, { duration: 8000 });
+    } finally {
+      setLoadingUsers(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadHealth();
+    void loadUsers();
   }, []);
 
   const selected = users.find((u) => u.id === userId);
@@ -96,9 +118,13 @@ export default function TestPushNotificationCard() {
         const err = data.error || 'Failed to send test notification';
         setLastError(err);
         toast.error(err, { duration: 8000 });
+        void loadUsers();
+        void loadHealth();
         return;
       }
       toast.success(data.message || 'Test notification sent');
+      void loadUsers();
+      void loadHealth();
     } catch (e) {
       const err =
         e instanceof DOMException && e.name === 'AbortError'

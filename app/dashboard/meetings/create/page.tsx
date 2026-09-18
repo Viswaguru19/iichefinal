@@ -19,7 +19,7 @@ export default function CreateMeetingPage() {
   const [committees, setCommittees] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [meetingType, setMeetingType] = useState('online');
-  const [audienceType, setAudienceType] = useState<'all_members' | 'executive_committee' | 'specific_committee' | 'general'>('all_members');
+  const [audienceType, setAudienceType] = useState<'all_members' | 'executive_committee' | 'heads_only' | 'coheads_only' | 'specific_committee' | 'general'>('all_members');
   const [requireApproval, setRequireApproval] = useState(false);
   const [createdLink, setCreatedLink] = useState('');
   const [minMeetingDateTime, setMinMeetingDateTime] = useState('');
@@ -123,9 +123,9 @@ export default function CreateMeetingPage() {
         } catch {
           /* clipboard may not be available */
         }
-        toast.success('Meeting scheduled! Link copied.');
+        toast.success('Meeting scheduled! Link copied. Invitations emailed.');
       } else {
-        toast.success('Meeting scheduled successfully!');
+        toast.success('Meeting scheduled! Invitations emailed with time and place.');
       }
 
       setLoading(false);
@@ -274,9 +274,14 @@ export default function CreateMeetingPage() {
               <select value={audienceType} onChange={e => setAudienceType(e.target.value as any)} className={inputClass}>
                 <option value="all_members">All Members</option>
                 <option value="executive_committee">Executive Committee</option>
+                <option value="heads_only">Only Heads</option>
+                <option value="coheads_only">Only Co-Heads</option>
                 <option value="specific_committee">Specific Committee</option>
                 <option value="general">General (Anyone with link)</option>
               </select>
+              <p className="text-xs text-gray-500 mt-1.5">
+                Invitees and faculty coordinators receive an email with the date, time{meetingType === 'offline' ? ', and place' : ', and join link'}.
+              </p>
             </div>
 
             {audienceType === 'general' && meetingType === 'online' && (

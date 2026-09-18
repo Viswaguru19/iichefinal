@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
+import { syncPushSubscription } from '@/lib/push/client';
 
 /** Registers the IIChE Chat worker without claiming portal routes. */
 export default function ChatServiceWorkerRegistrar() {
@@ -16,6 +17,7 @@ export default function ChatServiceWorkerRegistrar() {
             .map((registration) => registration.unregister()),
         );
         await navigator.serviceWorker.register('/sw-chat.js', { scope: '/chat' });
+        await syncPushSubscription();
       } catch {
         // Service-worker support is an enhancement, not a navigation blocker.
       }

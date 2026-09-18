@@ -1,9 +1,21 @@
 import { createClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 import { nanoid } from 'nanoid';
+import { sendMeetingInvitationEmails } from '@/lib/send-meeting-invites';
 
 /** Client may supply the same id shown in the schedule form so preview URL === saved meeting link. */
 const ROOM_ID_PATTERN = /^[A-Za-z0-9_-]{10,64}$/;
+
+const HEAD_POSITIONS = ['head'];
+const COHEAD_POSITIONS = ['co_head', 'co-head', 'cohead'];
+
+type AudienceType =
+    | 'all_members'
+    | 'executive_committee'
+    | 'heads_only'
+    | 'coheads_only'
+    | 'specific_committee'
+    | 'general';
 
 interface CreateMeetingRequest {
     title: string;
@@ -13,12 +25,16 @@ interface CreateMeetingRequest {
     duration: number;
     location?: string;
     agenda?: string;
-    audience_type: 'all_members' | 'executive_committee' | 'specific_committee' | 'general';
+    audience_type: AudienceType;
     committee_id?: string;
     access_type?: 'invite_only' | 'general';
     require_approval?: boolean;
     /** Optional portal room slug (nanoid). If missing or invalid, server generates one. */
     room_id?: string;
+}
+
+function uniqueIds(ids: Array<string | null | undefined>): string[] {
+    return [...new Set(ids.filter((id): id is string => Boolean(id)))];
 }
 
 export async function POST(request: Request) {
@@ -73,10 +89,46 @@ export async function POST(request: Request) {
         } else if (body.audience_type === 'executive_committee') {
             const { data } = await supabase.from('profiles').select('id').not('executive_role', 'is', null);
             participantIds = data?.map((p: any) => p.id) || [];
+        } else if (body.audience_type === 'heads_only') {
+            const { data: members } = await supabase
+                .from('committee_members')
+                .select('user_id')
+                .in('position', HEAD_POSITIONS);
+            const { data: byRole } = await supabase
+                .from('profiles')
+                .select('id')
+                .eq('role', 'committee_head');
+            participantIds = uniqueIds([
+                ...(members || []).map((m: any) => m.user_id),
+                ...(byRole || []).map((p: any) => p.id),
+            ]);
+        } else if (body.audience_type === 'coheads_only') {
+            const { data: members } = await supabase
+                .from('committee_members')
+                .select('user_id')
+                .in('position', COHEAD_POSITIONS);
+            const { data: byRole } = await supabase
+                .from('profiles')
+                .select('id')
+                .eq('role', 'committee_cohead');
+            participantIds = uniqueIds([
+                ...(members || []).map((m: any) => m.user_id),
+                ...(byRole || []).map((p: any) => p.id),
+            ]);
         } else if (body.audience_type === 'specific_committee' && body.committee_id) {
             const { data } = await supabase.from('committee_members').select('user_id').eq('committee_id', body.committee_id);
             participantIds = data?.map((m: any) => m.user_id) || [];
         }
+
+        // Faculty coordinators always receive every meeting (online and offline).
+        const { data: facultyRows } = await supabase
+            .from('profiles')
+            .select('id')
+            .or('is_faculty.eq.true,role.eq.faculty_advisor');
+        participantIds = uniqueIds([
+            ...participantIds,
+            ...(facultyRows || []).map((p: any) => p.id),
+        ]);
 
         // --- Insert meeting record (only columns that exist in schema) ---
         const meetingRecord: Record<string, any> = {
@@ -92,6 +144,7 @@ export async function POST(request: Request) {
             created_by: user.id,
             agenda: body.agenda || null,
             participants: participantIds,
+            audience_type: body.audience_type,
             access_type: body.access_type || 'invite_only',
             require_approval: body.require_approval || false,
         };
@@ -114,15 +167,14 @@ export async function POST(request: Request) {
                 .insert(participantIds.map(uid => ({ meeting_id: meeting.id, user_id: uid })));
         }
 
-        // --- Trigger email invitations ---
-        try {
-            const origin = request.headers.get('origin') || '';
-            await fetch(`${origin}/api/meetings/send-invites`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ meetingId: meeting.id }),
-            });
-        } catch { /* Non-fatal */ }
+        // --- Email invitations (online and offline: time, place, agenda) ---
+        if (participantIds.length > 0) {
+            try {
+                await sendMeetingInvitationEmails(supabase, { meetingId: meeting.id });
+            } catch (err) {
+                console.error('Failed to send meeting invitations:', err);
+            }
+        }
 
         return NextResponse.json({
             meeting,

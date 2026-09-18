@@ -57,7 +57,7 @@ function describePushError(err: unknown): string {
     return 'VAPID key mismatch — user must open Profile and tap Enable notifications again.';
   }
   if (e.statusCode === 404 || e.statusCode === 410) {
-    return 'Subscription expired — user must enable notifications again in Profile.';
+    return 'Subscription expired and was removed. Ask the user to open the portal on their phone — it will re-enable automatically.';
   }
   return e.body || e.message || 'Unknown push delivery error';
 }

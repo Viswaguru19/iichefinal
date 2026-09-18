@@ -1,6 +1,6 @@
 /* IIChE AVVU SC — service worker for Web Push + static asset caching */
 
-const CACHE_NAME = 'iiche-portal-v2';
+const CACHE_NAME = 'iiche-portal-v3';
 const STATIC_PREFIXES = ['/icons/', '/_next/static/'];
 
 self.addEventListener('install', (event) => {
@@ -26,6 +26,15 @@ function isStaticAsset(url) {
   return STATIC_PREFIXES.some((p) => url.pathname.startsWith(p)) || url.pathname.endsWith('.svg');
 }
 
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(base64);
+  const arr = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i += 1) arr[i] = raw.charCodeAt(i);
+  return arr;
+}
+
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
@@ -34,13 +43,15 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== self.location.origin || !isStaticAsset(url)) return;
 
   event.respondWith(
-    caches.open(CACHE_NAME).then(async (cache) => {
-      const cached = await cache.match(req);
-      if (cached) return cached;
-      const res = await fetch(req);
-      if (res.ok) cache.put(req, res.clone());
-      return res;
-    }),
+    fetch(req)
+      .then(async (res) => {
+        if (res.ok) {
+          const cache = await caches.open(CACHE_NAME);
+          cache.put(req, res.clone());
+        }
+        return res;
+      })
+      .catch(() => caches.match(req)),
   );
 });
 
@@ -82,5 +93,25 @@ self.addEventListener('notificationclick', (event) => {
       }
       return self.clients.openWindow(absolute);
     }),
+  );
+});
+
+self.addEventListener('pushsubscriptionchange', (event) => {
+  event.waitUntil(
+    (async () => {
+      const status = await fetch('/api/push/status').then((r) => r.json()).catch(() => null);
+      const key = status?.vapidPublicKey;
+      if (!key) return;
+      const sub = await self.registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(key),
+      });
+      await fetch('/api/push/subscribe', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subscription: sub.toJSON() }),
+      });
+    })(),
   );
 });

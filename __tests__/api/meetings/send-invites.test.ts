@@ -24,6 +24,10 @@ function createQueryBuilder(resolvedData: any = null, resolvedError: any = null)
       this._calls.push({ method: 'eq', args });
       return this;
     },
+    or: function (...args: any[]) {
+      this._calls.push({ method: 'or', args });
+      return this;
+    },
     single: function () {
       this._calls.push({ method: 'single', args: [] });
       return { data: resolvedData, error: resolvedError };
@@ -81,6 +85,7 @@ describe('/api/meetings/send-invites', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockFromHandlers = {};
+    process.env.RESEND_API_KEY = process.env.RESEND_API_KEY || 're_test_key';
   });
 
   it('returns 404 when meeting is not found', async () => {
@@ -168,6 +173,8 @@ describe('/api/meetings/send-invites', () => {
     expect(call.to).toBe('bob@test.com');
     expect(call.html).toContain('Room 301');
     expect(call.html).toContain('In-Person');
+    expect(call.html).toContain('Place:');
+    expect(call.html).toContain('Time:');
   });
 
   it('sends to multiple participants', async () => {

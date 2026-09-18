@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import * as fc from 'fast-check';
-import { buildMeetingNotificationEmail } from '../lib/meeting-email-builder';
+import { buildMeetingCalendarInvite, buildMeetingNotificationEmail, buildMeetingNotificationText } from '../lib/meeting-email-builder';
 
 // ============================================================
 // Unit Tests — buildMeetingNotificationEmail
@@ -51,8 +51,11 @@ describe('buildMeetingNotificationEmail', () => {
 
         expect(html).toContain('Monthly Review');
         expect(html).toContain('60 minutes');
-        // Date is formatted via toLocaleString — just check the year is present
+                // Date is formatted via toLocaleString — just check the year is present
         expect(html).toContain('2025');
+        expect(html).toContain('Date:');
+        expect(html).toContain('Time:');
+        expect(html).toContain('Place:');
     });
 
     it('handles null description gracefully', () => {
@@ -79,6 +82,43 @@ describe('buildMeetingNotificationEmail', () => {
         });
 
         expect(html).not.toContain('minutes');
+    });
+});
+
+describe('buildMeetingCalendarInvite', () => {
+    it('includes METHOD:REQUEST and offline place', () => {
+        const ics = buildMeetingCalendarInvite({
+            id: 'meeting-1',
+            title: 'Monthly Review',
+            description: 'Discuss progress',
+            meeting_type: 'offline',
+            meeting_date: '2025-03-15T10:00:00Z',
+            duration: 60,
+            location: 'Room 301',
+            meeting_link: null,
+            agenda: 'Budget',
+        });
+
+        expect(ics).toContain('METHOD:REQUEST');
+        expect(ics).toContain('Room 301');
+        expect(ics).toContain('Monthly Review');
+    });
+});
+
+describe('buildMeetingNotificationText', () => {
+    it('offline text includes date, time, and place', () => {
+        const text = buildMeetingNotificationText({
+            title: 'Monthly Review',
+            meeting_type: 'offline',
+            meeting_date: '2025-03-15T10:00:00Z',
+            duration: 60,
+            location: 'Room 301',
+        });
+
+        expect(text).toContain('Monthly Review');
+        expect(text).toContain('Place: Room 301');
+        expect(text).toContain('Date:');
+        expect(text).toContain('Time:');
     });
 });
 
@@ -110,7 +150,10 @@ describe('Property 1: Email content completeness', () => {
                 expect(html).toContain(meeting.title);
 
                 // Date year must appear (formatted date always includes the year)
-                const year = new Date(meeting.meeting_date).getFullYear().toString();
+                const year = new Intl.DateTimeFormat('en-IN', {
+                    timeZone: 'Asia/Kolkata',
+                    year: 'numeric',
+                }).format(new Date(meeting.meeting_date));
                 expect(html).toContain(year);
             }),
             { numRuns: 150 },

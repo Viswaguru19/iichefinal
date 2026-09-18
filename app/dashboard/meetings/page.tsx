@@ -162,7 +162,18 @@ export default function MeetingsPage() {
     if (meeting.committee?.name) {
       return { label: meeting.committee.name, className: 'bg-purple-50 text-purple-700 border border-purple-200' };
     }
-    return { label: 'All Members', className: 'bg-indigo-50 text-indigo-700 border border-indigo-200' };
+    switch (meeting.audience_type) {
+      case 'executive_committee':
+        return { label: 'Executive Committee', className: 'bg-amber-50 text-amber-700 border border-amber-200' };
+      case 'heads_only':
+        return { label: 'Heads', className: 'bg-sky-50 text-sky-700 border border-sky-200' };
+      case 'coheads_only':
+        return { label: 'Co-Heads', className: 'bg-teal-50 text-teal-700 border border-teal-200' };
+      case 'general':
+        return { label: 'Open', className: 'bg-gray-50 text-gray-700 border border-gray-200' };
+      default:
+        return { label: 'All Members', className: 'bg-indigo-50 text-indigo-700 border border-indigo-200' };
+    }
   }
 
   const platformColors: Record<string, string> = {

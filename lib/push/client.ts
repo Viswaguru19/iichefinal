@@ -112,6 +112,68 @@ export async function subscribeToPushNotifications(): Promise<boolean> {
   return true;
 }
 
+/** Re-save or replace the browser subscription if permission is already granted (no prompts). */
+export async function syncPushSubscription(): Promise<boolean> {
+  if (typeof window === 'undefined' || !supportsWebPush()) return false;
+  if (Notification.permission !== 'granted') return false;
+  if (isIOSDevice() && !isStandaloneDisplay()) return false;
+
+  const vapidKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+  if (!vapidKey) return false;
+
+  try {
+    const reg = await registerServiceWorker();
+    if (!reg) return false;
+    await navigator.serviceWorker.ready;
+
+    let local = await reg.pushManager.getSubscription();
+    const saved = await fetch('/api/push/subscribe', { credentials: 'include' })
+      .then((r) => (r.ok ? r.json() : { endpoints: [] }))
+      .catch(() => ({ endpoints: [] as string[] }));
+    const endpoints: string[] = Array.isArray(saved.endpoints) ? saved.endpoints : [];
+
+    const localEndpoint = local?.endpoint;
+    const stillValid = Boolean(localEndpoint && endpoints.includes(localEndpoint));
+    if (stillValid) {
+      try {
+        localStorage.setItem('push-enabled', '1');
+      } catch {
+        // ignore
+      }
+      return true;
+    }
+
+    if (local) {
+      try {
+        await local.unsubscribe();
+      } catch {
+        // continue
+      }
+    }
+
+    local = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(vapidKey),
+    });
+
+    const res = await fetch('/api/push/subscribe', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ subscription: local.toJSON() }),
+    });
+    if (!res.ok) return false;
+    try {
+      localStorage.setItem('push-enabled', '1');
+    } catch {
+      // ignore
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function isPushEnabledLocally(): boolean {
   try {
     return localStorage.getItem('push-enabled') === '1' || Notification.permission === 'granted';
