@@ -374,6 +374,7 @@ export default function MeetingRoomPage() {
         sendCameraState,
         peerCameraSendingVideo,
         selfPeerId,
+        relayAvailable,
     } = useWebRTC({
         supabase,
         roomId,
@@ -1990,6 +1991,7 @@ export default function MeetingRoomPage() {
                                     <ParticipantsPanel
                                         participants={participants}
                                         peers={peers}
+                                        relayAvailable={relayAvailable}
                                         currentUserId={currentUserId}
                                         currentPeerId={selfPeerId}
                                         canModerateMeetingRoom={canModerateMeetingRoom}
@@ -2045,6 +2047,7 @@ export default function MeetingRoomPage() {
                                     <ParticipantsPanel
                                         participants={participants}
                                         peers={peers}
+                                        relayAvailable={relayAvailable}
                                         currentUserId={currentUserId}
                                         currentPeerId={selfPeerId}
                                         canModerateMeetingRoom={canModerateMeetingRoom}
@@ -2769,7 +2772,7 @@ type PeerDiagnosticRow = {
 };
 
 /** Shows whether each peer link is up and whether media bytes are actually arriving. */
-function ConnectionHealth({ peers }: { peers: Map<string, PeerState> }) {
+function ConnectionHealth({ peers, relayAvailable }: { peers: Map<string, PeerState>; relayAvailable: boolean | null }) {
     const [rows, setRows] = useState<PeerDiagnosticRow[]>([]);
 
     useEffect(() => {
@@ -2822,6 +2825,11 @@ function ConnectionHealth({ peers }: { peers: Map<string, PeerState> }) {
     return (
         <div className="shrink-0 border-b border-white/5 px-3 py-2 space-y-1">
             <p className="text-white/40 text-[10px] uppercase tracking-widest">Connection</p>
+            {relayAvailable === false ? (
+                <p className="text-amber-300/80 text-[10px] leading-snug">
+                    No relay server configured. Calls work on the same Wi-Fi, but usually fail between mobile networks.
+                </p>
+            ) : null}
             {rows.length === 0 ? (
                 <p className="text-amber-300/80 text-[10px] leading-snug">
                     No media connection yet. If someone is listed below, their audio and video cannot reach you.
@@ -2852,6 +2860,7 @@ function ConnectionHealth({ peers }: { peers: Map<string, PeerState> }) {
 function ParticipantsPanel({
     participants,
     peers,
+    relayAvailable = null,
     currentUserId,
     currentPeerId = '',
     canModerateMeetingRoom = false,
@@ -2864,6 +2873,7 @@ function ParticipantsPanel({
 }: {
     participants: RoomParticipant[];
     peers: Map<string, PeerState>;
+    relayAvailable?: boolean | null;
     currentUserId: string;
     currentPeerId?: string;
     canModerateMeetingRoom?: boolean;
@@ -2887,7 +2897,7 @@ function ParticipantsPanel({
 
     return (
         <div className="flex-1 flex flex-col overflow-hidden min-h-0">
-            <ConnectionHealth peers={peers} />
+            <ConnectionHealth peers={peers} relayAvailable={relayAvailable} />
             {canModerateMeetingRoom ? (
                 <p className="text-white/35 text-[10px] px-3 pt-2 pb-1 leading-snug shrink-0 border-b border-white/5">
                     Mic: allow this person to unmute. Kick: remove from room (not shown for the meeting creator).

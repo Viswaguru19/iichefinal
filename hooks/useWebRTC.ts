@@ -1,24 +1,39 @@
 'use client';
 import { useEffect, useRef, useCallback, useState } from 'react';
 import type { SupabaseClient, RealtimeChannel } from '@supabase/supabase-js';
+import { hasUsableRelay, normalizeIceServers, parseStaticTurn, STUN_SERVERS } from '@/lib/ice-servers';
 
-function iceConfig(): RTCConfiguration {
-    const iceServers: RTCIceServer[] = [
-        { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] },
-        { urls: 'stun:stun.cloudflare.com:3478' },
-        { urls: 'stun:freeturn.net:3478' },
-        { urls: 'turn:freeturn.net:3478', username: 'free', credential: 'free' },
-        { urls: 'turns:freeturn.net:5349', username: 'free', credential: 'free' },
-        { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
-        { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
-        { urls: 'turns:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
-    ];
-    const turnUrls = (process.env.NEXT_PUBLIC_TURN_URLS || '').split(',').map((s) => s.trim()).filter(Boolean);
-    const turnUser = process.env.NEXT_PUBLIC_TURN_USERNAME || '';
-    const turnCred = process.env.NEXT_PUBLIC_TURN_CREDENTIAL || '';
-    if (turnUrls.length && turnUser && turnCred) {
-        iceServers.push({ urls: turnUrls, username: turnUser, credential: turnCred });
+/**
+ * Relay credentials come from `/api/webrtc/ice` so they can be rotated without
+ * a redeploy. The bundled list is STUN-only and is just a same-network fallback.
+ */
+function fallbackIceServers(): RTCIceServer[] {
+    const servers: RTCIceServer[] = [...(STUN_SERVERS as RTCIceServer[])];
+    const staticTurn = parseStaticTurn({
+        urls: process.env.NEXT_PUBLIC_TURN_URLS,
+        username: process.env.NEXT_PUBLIC_TURN_USERNAME,
+        credential: process.env.NEXT_PUBLIC_TURN_CREDENTIAL,
+    });
+    if (staticTurn) servers.push(staticTurn as RTCIceServer);
+    return servers;
+}
+
+let iceServersPromise: Promise<RTCIceServer[]> | null = null;
+
+function loadIceServers(): Promise<RTCIceServer[]> {
+    if (!iceServersPromise) {
+        iceServersPromise = fetch('/api/webrtc/ice', { cache: 'no-store' })
+            .then((res) => (res.ok ? res.json() : null))
+            .then((body) => {
+                const servers = normalizeIceServers(body) as RTCIceServer[];
+                return servers.length ? servers : fallbackIceServers();
+            })
+            .catch(() => fallbackIceServers());
     }
+    return iceServersPromise;
+}
+
+function iceConfig(iceServers: RTCIceServer[]): RTCConfiguration {
     return { iceServers, iceCandidatePoolSize: 10 };
 }
 
@@ -155,6 +170,8 @@ export function useWebRTC({
     const peersRef = useRef<Map<string, PeerState>>(new Map());
     const channelRef = useRef<RealtimeChannel | null>(null);
     const localStreamRef = useRef<MediaStream | null>(null);
+    const iceServersRef = useRef<RTCIceServer[]>(fallbackIceServers());
+    const [relayAvailable, setRelayAvailable] = useState<boolean | null>(null);
     /** Unique per browser tab, so one account on two devices is still two peers. */
     const selfPeerIdRef = useRef('');
     if (userId && !selfPeerIdRef.current.startsWith(`${userId}#`)) {
@@ -222,7 +239,7 @@ export function useWebRTC({
                 return null;
             }
             const safeName = String(peerName ?? '').trim() || 'Participant';
-            const pc = new RTCPeerConnection(iceConfig());
+            const pc = new RTCPeerConnection(iceConfig(iceServersRef.current));
             const audioTr = pc.addTransceiver('audio', { direction: 'sendrecv' });
             const videoTr = pc.addTransceiver('video', { direction: 'sendrecv' });
             const local = localStreamRef.current;
@@ -412,6 +429,12 @@ export function useWebRTC({
         let stopped = false;
         let channel: RealtimeChannel | null = null;
 
+        void loadIceServers().then((servers) => {
+            if (stopped) return;
+            iceServersRef.current = servers;
+            setRelayAvailable(hasUsableRelay(servers));
+        });
+
         const startTimer = window.setTimeout(() => {
             if (stopped) return;
             channel = supabase.channel(`room:${roomId}`, { config: { broadcast: { self: false } } });
@@ -552,6 +575,10 @@ export function useWebRTC({
 
             channel.subscribe(async (status) => {
                 if (stopped || status !== 'SUBSCRIBED') return;
+                // Announce presence only once relay credentials are in hand, so the
+                // first peer connection is created with a working candidate set.
+                iceServersRef.current = await loadIceServers();
+                if (stopped) return;
                 let waited = 0;
                 while (!localStreamRef.current && waited < 1500) {
                     await new Promise((r) => setTimeout(r, 100));
@@ -670,6 +697,7 @@ export function useWebRTC({
 
     return {
         selfPeerId: selfPeerIdRef.current,
+        relayAvailable,
         peers,
         participants,
         channelRef,
