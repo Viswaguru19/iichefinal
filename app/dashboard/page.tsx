@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import nextDynamic from 'next/dynamic';
 import { Crown, Send, ClipboardList } from 'lucide-react';
+import { canManageEcElection, electionCardCopy } from '@/lib/ec-election';
 import DashboardNav from '@/components/dashboard/DashboardNav';
 import AnimatedDashboardCard from '@/components/dashboard/AnimatedDashboardCard';
 import AnimatedSection from '@/components/dashboard/AnimatedSection';
@@ -65,6 +66,7 @@ export default async function DashboardPage() {
     pastEventsRes,
     userMembershipsRes,
     unreadDmCountRes,
+    ecElectionRes,
   ] = await Promise.all([
     supabase
       .from('committee_members')
@@ -90,12 +92,13 @@ export default async function DashboardPage() {
       .eq('status', 'completed')
       .order('event_date', { ascending: false })
       .limit(20),
-    supabase.from('committee_members').select('committee_id').eq('user_id', user.id),
+    supabase.from('committee_members').select('committee_id, position, committees(name)').eq('user_id', user.id),
     supabase
       .from('direct_messages')
       .select('id', { count: 'exact', head: true })
       .eq('receiver_id', user.id)
       .or('read.is.null,read.eq.false'),
+    supabase.from('ec_elections').select('tab_visible, status, results_visible').limit(1).maybeSingle(),
   ]);
 
   const userCommittee = userCommitteeRes.data;
@@ -105,6 +108,23 @@ export default async function DashboardPage() {
   const pastEvents = pastEventsRes.data;
   const userMemberships = userMembershipsRes.data;
   const unreadDmCount = unreadDmCountRes.count ?? 0;
+  const electionRow = (ecElectionRes.data || null) as {
+    tab_visible?: boolean;
+    status?: 'nominations' | 'voting' | 'closed';
+    results_visible?: boolean;
+  } | null;
+  const electionTabVisible = !!electionRow?.tab_visible;
+  const canManageElection = canManageEcElection(
+    profile,
+    (userMemberships || []).map((m: any) => ({
+      name: m.committees?.name,
+      position: m.position,
+    })),
+  );
+  const showElectionCard = electionTabVisible || canManageElection;
+  const electionCopy = electionTabVisible
+    ? electionCardCopy(electionRow?.status || null, !!electionRow?.results_visible)
+    : { title: 'EC Election', description: 'Open' };
 
   // Skip expensive per-group unread counts on dashboard — DMs only keeps first paint fast
   const chatUnreadBadgeTotal = unreadDmCount;
@@ -213,7 +233,7 @@ export default async function DashboardPage() {
 
         {/* Quick Access: Proposals & Tasks with badges */}
         <AnimatedSection delay={0.15}>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 mb-6 sm:mb-8">
+          <div className={`grid grid-cols-1 sm:grid-cols-2 ${showElectionCard ? 'lg:grid-cols-3' : ''} gap-3 sm:gap-4 mb-6 sm:mb-8`}>
             {/* Proposals Card */}
             <Link href="/dashboard/proposals">
               <div className="premium-panel rounded-2xl p-4 sm:p-5 hover:shadow-xl transition-all cursor-pointer group border border-transparent hover:border-indigo-200">
@@ -257,6 +277,23 @@ export default async function DashboardPage() {
                 </div>
               </div>
             </Link>
+            {showElectionCard && (
+              <Link href="/dashboard/election">
+                <div className="premium-panel rounded-2xl p-4 sm:p-5 hover:shadow-xl transition-all cursor-pointer group border border-transparent hover:border-amber-200">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow-lg shadow-amber-500/20">
+                        <Crown className="w-5 h-5 text-white" />
+                      </div>
+                      <div>
+                        <h3 className="font-bold text-gray-900 group-hover:text-amber-700 transition-colors">{electionCopy.title}</h3>
+                        <p className="text-xs text-gray-500">{electionCopy.description}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </Link>
+            )}
           </div>
         </AnimatedSection>
 
