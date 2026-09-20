@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
+import PortalLoadingScreen from '@/components/PortalLoadingScreen';
 
 type AppRow = {
   id: string;
@@ -59,11 +60,7 @@ export default function HiringPortalPage() {
   }, [router, supabase]);
 
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 text-gray-600">
-        Loading…
-      </div>
-    );
+    return <PortalLoadingScreen message="Loading hiring…" />;
   }
 
   return (

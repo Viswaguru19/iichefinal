@@ -160,14 +160,14 @@
 }
 
 html[data-portal-theme='dark'] .text-gradient {
-  background: linear-gradient(135deg, #fde68a, #f59e0b, #92400e);
+  background: linear-gradient(135deg, #fef9c3, #fde68a, #fbbf24);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
 
 html[data-portal-theme='dark'] .portal-header-brand {
-  background: linear-gradient(135deg, #fde68a, #fbbf24, #b45309);
+  background: linear-gradient(135deg, #fef3c7, #fde68a, #fbbf24);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -183,6 +183,40 @@ html[data-portal-theme='dark'] .portal-header-link {
 
 html[data-portal-theme='dark'] .portal-header-link:hover {
   color: #fbbf24;
+}
+
+html[data-portal-theme='dark'] .portal-online-trigger {
+  color: #a7f3d0;
+  background: rgba(16, 185, 129, 0.18);
+  border-color: rgba(52, 211, 153, 0.4);
+}
+
+html[data-portal-theme='dark'] .portal-online-panel {
+  background: #171717;
+  border-color: rgba(52, 211, 153, 0.35);
+  color: #f8fafc;
+}
+
+html[data-portal-theme='dark'] .portal-online-head {
+  background: rgba(6, 78, 59, 0.55);
+  border-color: rgba(52, 211, 153, 0.22);
+}
+
+html[data-portal-theme='dark'] .portal-online-title {
+  color: #6ee7b7 !important;
+}
+
+html[data-portal-theme='dark'] .portal-online-sub,
+html[data-portal-theme='dark'] .portal-online-muted {
+  color: #d1fae5 !important;
+}
+
+html[data-portal-theme='dark'] .portal-online-row {
+  color: #f8fafc !important;
+}
+
+html[data-portal-theme='dark'] .portal-online-row:hover {
+  background: rgba(16, 185, 129, 0.14);
 }
 
 html[data-portal-theme='dark'] .portal-header-divider {
@@ -264,7 +298,75 @@ html[data-portal-theme='dark'] .btn-gradient-red {
   border: 1px solid rgba(248, 113, 113, 0.34);
 }
 
-/* Dark theme readability pass for common gray utility text inside surfaces */
+/* Dark theme readability — all portal copy, not only cards */
+html[data-portal-theme='dark'] .text-gray-950,
+html[data-portal-theme='dark'] .text-gray-900,
+html[data-portal-theme='dark'] .text-gray-800,
+html[data-portal-theme='dark'] .text-slate-950,
+html[data-portal-theme='dark'] .text-slate-900,
+html[data-portal-theme='dark'] .text-slate-800,
+html[data-portal-theme='dark'] .text-zinc-900,
+html[data-portal-theme='dark'] .text-zinc-800,
+html[data-portal-theme='dark'] .text-neutral-900,
+html[data-portal-theme='dark'] .text-black {
+  color: #f8fafc !important;
+}
+
+html[data-portal-theme='dark'] .text-gray-700,
+html[data-portal-theme='dark'] .text-slate-700,
+html[data-portal-theme='dark'] .text-zinc-700 {
+  color: #e2e8f0 !important;
+}
+
+html[data-portal-theme='dark'] .text-gray-600,
+html[data-portal-theme='dark'] .text-slate-600,
+html[data-portal-theme='dark'] .text-zinc-600 {
+  color: #cbd5e1 !important;
+}
+
+html[data-portal-theme='dark'] .text-gray-500,
+html[data-portal-theme='dark'] .text-gray-400,
+html[data-portal-theme='dark'] .text-slate-500,
+html[data-portal-theme='dark'] .text-slate-400,
+html[data-portal-theme='dark'] .text-zinc-500 {
+  color: #94a3b8 !important;
+}
+
+html[data-portal-theme='dark'] .text-indigo-950,
+html[data-portal-theme='dark'] .text-indigo-900,
+html[data-portal-theme='dark'] .text-indigo-800 {
+  color: #c7d2fe !important;
+}
+
+html[data-portal-theme='dark'] .text-amber-900,
+html[data-portal-theme='dark'] .text-amber-800,
+html[data-portal-theme='dark'] .text-amber-700 {
+  color: #fde68a !important;
+}
+
+html[data-portal-theme='dark'] .bg-white\/80,
+html[data-portal-theme='dark'] .bg-white\/90 {
+  background-color: rgba(23, 23, 23, 0.9) !important;
+  color: #f8fafc !important;
+}
+
+html[data-portal-theme='dark'] .bg-gray-100,
+html[data-portal-theme='dark'] .bg-gray-200,
+html[data-portal-theme='dark'] .bg-slate-50,
+html[data-portal-theme='dark'] .bg-slate-100 {
+  background-color: rgba(30, 41, 59, 0.92) !important;
+}
+
+html[data-portal-theme='dark'] ::placeholder {
+  color: #94a3b8 !important;
+}
+
+html[data-portal-theme='dark'] th,
+html[data-portal-theme='dark'] td,
+html[data-portal-theme='dark'] label {
+  color: inherit;
+}
+
 html[data-portal-theme='dark'] .premium-panel .text-gray-900,
 html[data-portal-theme='dark'] .premium-card .text-gray-900,
 html[data-portal-theme='dark'] .glass .text-gray-900,
@@ -346,15 +448,20 @@ html[data-portal-theme='dark'] .glass-strong .text-gray-300 {
   color: #94a3b8 !important;
 }
 
-/* Inputs/selects without explicit text-* were browser-default (often black on dark cards) */
+/* Inputs/selects: light text-gray-900 remap + leftover bg-white = invisible copy */
 html[data-portal-theme='dark'] .premium-panel input,
 html[data-portal-theme='dark'] .premium-panel textarea,
 html[data-portal-theme='dark'] .premium-panel select,
 html[data-portal-theme='dark'] .premium-card input,
 html[data-portal-theme='dark'] .premium-card textarea,
-html[data-portal-theme='dark'] .premium-card select {
-  color: #f1f5f9;
-  caret-color: #f1f5f9;
+html[data-portal-theme='dark'] .premium-card select,
+html[data-portal-theme='dark'] input.bg-white,
+html[data-portal-theme='dark'] textarea.bg-white,
+html[data-portal-theme='dark'] select.bg-white {
+  background-color: #1e293b !important;
+  color: #f8fafc !important;
+  caret-color: #f8fafc;
+  border-color: rgba(148, 163, 184, 0.4);
 }
 
 html[data-portal-theme='dark'] .premium-panel input::placeholder,
@@ -473,6 +580,31 @@ html[data-portal-theme='dark'] .iiche-ai-poster {
   0%, 80%, 100% { opacity: 0.25; transform: translateY(0); }
   40% { opacity: 1; transform: translateY(-3px); }
 }
+.iiche-ai-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.iiche-ai-table th,
+.iiche-ai-table td {
+  border: 1px solid #e2e8f0;
+  padding: 6px 8px;
+  text-align: left;
+  vertical-align: top;
+}
+.iiche-ai-table th {
+  font-weight: 600;
+  background: #f8fafc;
+}
+.iiche-ai-list-mark { color: #64748b; }
+html[data-portal-theme='dark'] .iiche-ai-table th,
+html[data-portal-theme='dark'] .iiche-ai-table td {
+  border-color: rgba(148, 163, 184, 0.28);
+}
+html[data-portal-theme='dark'] .iiche-ai-table th {
+  background: rgba(15, 23, 42, 0.65);
+}
+html[data-portal-theme='dark'] .iiche-ai-list-mark { color: #fbbf24; }
 
 /* Light-theme callout boxes inside dark panels */
 html[data-portal-theme='dark'] .premium-panel .border-indigo-100,
@@ -489,6 +621,13 @@ html[data-portal-theme='dark'] .premium-card .bg-indigo-50\/70 {
 
 .text-gradient-warm {
   background: linear-gradient(135deg, #f59e0b, #ef4444);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+html[data-portal-theme='dark'] .text-gradient-warm {
+  background: linear-gradient(135deg, #fde68a, #fb923c, #f87171);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;

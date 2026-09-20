@@ -54,7 +54,7 @@ export default function AdminOnlinePresenceControls() {
       <button
         type="button"
         onClick={onToggle}
-        className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-800 border border-emerald-200/60 text-[11px] sm:text-xs font-semibold transition-colors portal-header-link"
+        className="portal-online-trigger flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-800 border border-emerald-200/60 text-[11px] sm:text-xs font-semibold transition-colors"
         title="Members online in the portal (admin)"
       >
         <Users className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
@@ -73,17 +73,17 @@ export default function AdminOnlinePresenceControls() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -6 }}
               transition={{ duration: motionTokens.modal.duration, ease: motionTokens.easing }}
-              className="absolute right-0 top-full mt-1.5 w-[min(100vw-1.5rem,280px)] max-h-72 overflow-hidden rounded-xl border border-emerald-200/80 bg-white shadow-xl z-[70]"
+              className="portal-online-panel absolute right-0 top-full mt-1.5 w-[min(100vw-1.5rem,280px)] max-h-72 overflow-hidden rounded-xl border border-emerald-200/80 bg-white shadow-xl z-[70]"
             >
-              <div className="px-3 py-2 border-b border-gray-100 bg-emerald-50/50">
-                <p className="text-[11px] font-bold text-emerald-900 uppercase tracking-wide">In portal now</p>
-                <p className="text-[10px] text-emerald-800/80 mt-0.5">Anyone with a dashboard tab open</p>
+              <div className="portal-online-head px-3 py-2 border-b border-gray-100 bg-emerald-50/50">
+                <p className="portal-online-title text-[11px] font-bold text-emerald-900 uppercase tracking-wide">In portal now</p>
+                <p className="portal-online-sub text-[10px] text-emerald-800 mt-0.5">Anyone with a dashboard tab open</p>
               </div>
               <div className="overflow-y-auto max-h-56 p-2">
                 {loadingNames ? (
-                  <p className="text-xs text-gray-500 px-2 py-3 text-center">Loading names…</p>
+                  <p className="portal-online-muted text-xs text-gray-500 px-2 py-3 text-center">Loading names…</p>
                 ) : rows.length === 0 ? (
-                  <p className="text-xs text-gray-500 px-2 py-3 text-center">No other members online</p>
+                  <p className="portal-online-muted text-xs text-gray-500 px-2 py-3 text-center">No other members online</p>
                 ) : (
                   <ul className="space-y-0.5">
                     {rows.map((r) => {
@@ -92,7 +92,7 @@ export default function AdminOnlinePresenceControls() {
                       return (
                         <li
                           key={r.id}
-                          className="flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm text-gray-800 hover:bg-gray-50"
+                          className="portal-online-row flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm text-gray-800 hover:bg-gray-50"
                         >
                           <span
                             className={`w-2 h-2 rounded-full shrink-0 ${dot ? 'bg-emerald-500' : 'bg-gray-300'}`}

@@ -1,5 +1,5 @@
 import PortalLoadingScreen from '@/components/PortalLoadingScreen';
 
 export default function Loading() {
-  return <PortalLoadingScreen variant="events" />;
+  return <PortalLoadingScreen message="Loading posters…" />;
 }

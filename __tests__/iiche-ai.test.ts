@@ -65,6 +65,12 @@ describe('IIChE AI tool heuristics', () => {
     expect(maybeHeuristicTool('Explain McCabe-Thiele step by step')).toBeNull();
     expect(maybeHeuristicTool('Help me research membrane bioreactors')).toBeNull();
   });
+
+  it('answers who-am-I from the signed-in profile instead of opening Profile', () => {
+    expect(maybeHeuristicTool('who am i')?.name).toBe('get_my_identity');
+    expect(maybeHeuristicTool("what's my name")?.name).toBe('get_my_identity');
+    expect(maybeHeuristicTool('open my profile')?.name).toBe('open_portal_page');
+  });
 });
 
 describe('IIChE AI reply formatting', () => {
@@ -76,7 +82,7 @@ describe('IIChE AI reply formatting', () => {
     expect(plain).toContain('Abhinav R');
     expect(parseIicheAiReply(raw).some((b) => b.t === 'li')).toBe(true);
     expect(
-      parseIicheAiReply(raw).some((b) => b.t !== 'img' && b.children.some((c) => c.t === 'b' && c.v === 'Program Committee')),
+      parseIicheAiReply(raw).some((b) => 'children' in b && b.children.some((c) => c.t === 'b' && c.v === 'Program Committee')),
     ).toBe(true);
   });
 
@@ -95,8 +101,9 @@ describe('IIChE AI reply formatting', () => {
     const split = splitPortalNavigate(`POSTER:${url} DRAFT:inline|evt-1|Chem%20Week;; Here is a designed poster.`);
     expect(split.posterDraft?.eventId).toBe('evt-1');
     expect(split.posterDraft?.dataUrl).toMatch(/^data:image\/svg\+xml;base64,/);
-    expect(split.posterUrl).toMatch(/^data:image\/svg\+xml;base64,/);
+    expect(split.posterUrl).toMatch(/^data:image\//);
     expect(split.reply).toContain('designed poster');
+    expect(splitPortalNavigate('Hello\n\n- one\n- two').reply).toContain('\n- one');
     expect(pickPosterHeroUrl('Kickoff Football Tournament')).toMatch(/unsplash/);
     const football = buildIichePosterSvg({
       title: 'Kickoff Football Tournament',
@@ -133,5 +140,16 @@ describe('IIChE AI reply formatting', () => {
     expect(workshop).toMatch(/PYTHON/i);
     expect(workshop).toContain('REGISTER NOW');
     expect(workshop).toContain('Hands-on');
+  });
+
+  it('keeps lists and tables in replies', () => {
+    const blocks = parseIicheAiReply(
+      '## Ideas\n\n1. First\n2. Second\n\n| Date | Venue |\n| --- | --- |\n| 12 Oct | AB2 |',
+    );
+    expect(blocks.some((b) => b.t === 'h')).toBe(true);
+    expect(blocks.filter((b) => b.t === 'li' && 'n' in b && b.n === 1).length).toBe(1);
+    const table = blocks.find((b) => b.t === 'table');
+    expect(table?.t === 'table' && table.headers).toEqual(['Date', 'Venue']);
+    expect(table?.t === 'table' && table.rows[0]).toEqual(['12 Oct', 'AB2']);
   });
 });

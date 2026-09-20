@@ -64,6 +64,10 @@ export default function MeetingsPage() {
       .slice(0, 30);
     setUpcoming(upcomingMeetings);
     setPast(pastMeetings);
+    setFilter((prev) => {
+      if (prev === 'upcoming' && upcomingMeetings.length === 0 && pastMeetings.length > 0) return 'past';
+      return prev;
+    });
     setLoading(false);
   }
 
@@ -226,11 +230,17 @@ export default function MeetingsPage() {
         {/* Stats */}
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
           {[
-            { icon: Calendar, label: 'Upcoming', value: upcoming.length, gradient: 'from-indigo-500 to-purple-500', glow: 'glow-purple' },
-            { icon: Clock, label: 'Past', value: past.length, gradient: 'from-emerald-500 to-green-500', glow: 'glow-green' },
-            { icon: Users, label: 'Total', value: upcoming.length + past.length, gradient: 'from-amber-500 to-orange-500', glow: 'glow-amber' },
-          ].map((s, i) => (
-            <motion.div key={i} whileHover={{ y: -4 }} className={`glass-strong rounded-2xl p-5 flex items-center gap-4 shadow-md ${s.glow}`}>
+            { key: 'upcoming' as const, icon: Calendar, label: 'Upcoming', value: upcoming.length, gradient: 'from-indigo-500 to-purple-500', glow: 'glow-purple' },
+            { key: 'past' as const, icon: Clock, label: 'Past', value: past.length, gradient: 'from-emerald-500 to-green-500', glow: 'glow-green' },
+            { key: 'all' as const, icon: Users, label: 'Total', value: upcoming.length + past.length, gradient: 'from-amber-500 to-orange-500', glow: 'glow-amber' },
+          ].map((s) => (
+            <motion.button
+              type="button"
+              key={s.key}
+              whileHover={{ y: -4 }}
+              onClick={() => setFilter(s.key)}
+              className={`glass-strong rounded-2xl p-5 flex items-center gap-4 shadow-md text-left ${s.glow} ${filter === s.key ? 'ring-2 ring-indigo-400/60' : ''}`}
+            >
               <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${s.gradient} flex items-center justify-center shadow-lg`}>
                 <s.icon className="w-6 h-6 text-white" />
               </div>
@@ -238,7 +248,7 @@ export default function MeetingsPage() {
                 <p className="text-2xl font-extrabold text-gray-800">{s.value}</p>
                 <p className="text-sm text-gray-400">{s.label}</p>
               </div>
-            </motion.div>
+            </motion.button>
           ))}
         </motion.div>
 
@@ -297,7 +307,7 @@ export default function MeetingsPage() {
                 <motion.div key={meeting.id} variants={item} whileHover={{ y: -6, transition: { duration: 0.2 } }} className="group">
                   <div
                     onClick={() => router.push(`/dashboard/meetings/${meeting.id}`)}
-                    className={`glass-strong rounded-2xl overflow-hidden shadow-md hover:shadow-2xl transition-all duration-300 cursor-pointer ${isPast || meeting.status === 'cancelled' || meeting.status === 'completed' ? 'opacity-70' : ''}`}>
+                    className={`glass-strong rounded-2xl overflow-hidden shadow-md hover:shadow-2xl transition-all duration-300 cursor-pointer ${meeting.status === 'cancelled' ? 'opacity-80' : ''}`}>
                     {/* Top accent */}
                     <div className={`h-1.5 bg-gradient-to-r ${gradientClass}`} />
 

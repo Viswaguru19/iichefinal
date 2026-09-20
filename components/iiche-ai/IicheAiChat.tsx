@@ -64,7 +64,7 @@ function TypewriterBody({
 
   const done = !animate || n >= content.length;
   return (
-    <div className="space-y-2 text-sm leading-relaxed">
+    <div className="space-y-3 text-sm leading-relaxed">
       {posterUrl ? (
         <img
           src={posterUrl}
@@ -87,7 +87,7 @@ function TypewriterBody({
 function AssistantBody({ content, posterUrl }: { content: string; posterUrl?: string }) {
   const blocks = parseIicheAiReply(content);
   return (
-    <div className="space-y-2 text-sm leading-relaxed">
+    <div className="space-y-3 text-sm leading-relaxed">
       {posterUrl ? (
         <img
           src={posterUrl}
@@ -108,15 +108,41 @@ function AssistantBody({ content, posterUrl }: { content: string; posterUrl?: st
         }
         if (block.t === 'h') {
           return (
-            <p key={i} className="font-semibold">
+            <p key={i} className="pt-1 font-semibold">
               <InlineBits parts={block.children} linkClass="iiche-ai-link" />
             </p>
+          );
+        }
+        if (block.t === 'table') {
+          return (
+            <div key={i} className="iiche-ai-table-wrap overflow-x-auto">
+              <table className="iiche-ai-table">
+                <thead>
+                  <tr>
+                    {block.headers.map((h, hi) => (
+                      <th key={hi}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {block.rows.map((row, ri) => (
+                    <tr key={ri}>
+                      {row.map((cell, ci) => (
+                        <td key={ci}>{cell}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           );
         }
         if (block.t === 'li') {
           return (
             <div key={i} className="flex gap-2">
-              <span className="iiche-ai-bullet mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full" />
+              <span className="iiche-ai-list-mark mt-0.5 w-4 shrink-0 text-right text-xs">
+                {block.n != null ? `${block.n}.` : '•'}
+              </span>
               <p>
                 <InlineBits parts={block.children} linkClass="iiche-ai-link" />
               </p>

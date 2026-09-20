@@ -443,9 +443,119 @@ async function fetchHeroDataUrl(url: string): Promise<string | null> {
 
 export async function composeIichePoster(input: IichePosterInput): Promise<string> {
   const theme = resolvePosterTheme(`${input.query || ''} ${input.title || ''} ${input.variant || ''}`);
+  const generated = await generateGeminiPosterImage(input, theme);
+  if (generated) return generated;
   const hero = await Promise.race([
     fetchHeroDataUrl(theme.urls[0] || ''),
     new Promise<null>((resolve) => setTimeout(() => resolve(null), 1300)),
   ]);
   return svgDataUrl(buildEventPosterSvg({ ...input, heroDataUrl: hero || undefined }, theme));
+}
+
+function env(name: string): string {
+  return String(process.env[name] || '').trim();
+}
+
+function posterImagePrompt(input: IichePosterInput, theme: PosterTheme): string {
+  const loc = input.location || theme.venueDefault;
+  const dateLabel = input.dateLabel || 'Date TBA';
+  const rules = input.rules || theme.rules;
+  const cta = input.cta || theme.cta;
+  const organizer = input.organizer || theme.organizer;
+  const tagline = input.tagline || theme.tagline;
+  const register = input.registerLine || '';
+  return `Create a unique finished vertical event poster photograph+typography composite, portrait 3:4.
+
+This poster is ONLY for this event. Do not use a generic gold certificate frame or the same layout as other campus posters. Composition, photography, color, and type must match a ${theme.id} event.
+
+Brand (small, top): Indian Institute of Chemical Engineers — IIChE AVVU Student Chapter — Amrita Vishwa Vidyapeetham.
+
+Paint this copy on the poster, large and readable:
+Title: ${input.title}
+Date: ${dateLabel}
+Venue: ${loc}
+Details: ${rules}
+Button text: ${cta}
+${register ? `Register URL: ${register}` : ''}
+Organized by ${organizer}
+Tagline: ${tagline}
+
+Visual: ${theme.photoQuery}. Cinematic, high-contrast, original scene (not a repeated template). No watermarks, no extra crests.`;
+}
+
+function extractGeminiImage(data: unknown): string | null {
+  const parts =
+    (data as { candidates?: { content?: { parts?: { inlineData?: { mimeType?: string; data?: string }; inline_data?: { mimeType?: string; data?: string } }[] } }[] })
+      ?.candidates?.[0]?.content?.parts || [];
+  for (const part of parts) {
+    const inline = part.inlineData || part.inline_data;
+    const mime = String(inline?.mimeType || 'image/png');
+    const b64 = String(inline?.data || '');
+    if (b64 && mime.startsWith('image/')) return `data:${mime};base64,${b64}`;
+  }
+  const imagen = (data as { predictions?: { bytesBase64Encoded?: string; mimeType?: string }[] })?.predictions?.[0];
+  if (imagen?.bytesBase64Encoded) {
+    return `data:${imagen.mimeType || 'image/png'};base64,${imagen.bytesBase64Encoded}`;
+  }
+  return null;
+}
+
+async function generateGeminiPosterImage(input: IichePosterInput, theme: PosterTheme): Promise<string | null> {
+  const key = env('GEMINI_API_KEY') || env('GOOGLE_GENERATIVE_AI_API_KEY');
+  if (!key) return null;
+  const preferred = env('GEMINI_IMAGE_MODEL');
+  const models = [...new Set([preferred, 'gemini-2.5-flash-image', 'gemini-2.0-flash-preview-image-generation'].filter(Boolean))].slice(
+    0,
+    2,
+  );
+  const prompt = posterImagePrompt(input, theme);
+  for (const model of models) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 18000);
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`,
+        {
+          method: 'POST',
+          signal: controller.signal,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            generationConfig: {
+              responseModalities: ['TEXT', 'IMAGE'],
+              imageConfig: { aspectRatio: '3:4' },
+            },
+          }),
+        },
+      );
+      if (!res.ok) {
+        if (res.status === 400) {
+          const retry = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`,
+            {
+              method: 'POST',
+              signal: controller.signal,
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                contents: [{ role: 'user', parts: [{ text: prompt }] }],
+                generationConfig: { responseModalities: ['IMAGE'] },
+              }),
+            },
+          );
+          if (retry.ok) {
+            const image = extractGeminiImage(await retry.json());
+            if (image) return image;
+          }
+        }
+        continue;
+      }
+      const image = extractGeminiImage(await res.json());
+      if (image) return image;
+    } catch (err) {
+      if ((err as { name?: string }).name === 'AbortError') break;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  return null;
 }

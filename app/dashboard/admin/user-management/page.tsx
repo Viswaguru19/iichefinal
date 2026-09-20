@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { UserRole, ExecutiveRole } from '@/types/database';
+import PortalLoadingScreen from '@/components/PortalLoadingScreen';
 
 export default function UserManagementPage() {
     const [users, setUsers] = useState<any[]>([]);
@@ -195,14 +196,7 @@ export default function UserManagementPage() {
     }
 
     if (loading) {
-        return (
-            <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-                <div className="text-center">
-                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-                    <p className="mt-4 text-gray-600">Loading users...</p>
-                </div>
-            </div>
-        );
+        return <PortalLoadingScreen message="Loading users…" />;
     }
 
     return (

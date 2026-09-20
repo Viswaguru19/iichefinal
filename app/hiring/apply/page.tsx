@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import toast from 'react-hot-toast';
+import PortalLoadingScreen from '@/components/PortalLoadingScreen';
 
 type Committee = { id: string; name: string };
 
@@ -146,11 +147,7 @@ export default function HiringApplyPage() {
   };
 
   if (!ready) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 text-gray-600">
-        Loading…
-      </div>
-    );
+    return <PortalLoadingScreen message="Loading application…" />;
   }
 
   return (

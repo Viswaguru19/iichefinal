@@ -48,6 +48,8 @@ export async function POST(request: NextRequest) {
       supabase,
       directory: tryCreateAdminClient() ?? supabase,
       userId: user.id,
+      userEmail: user.email || '',
+      userName: String(user.user_metadata?.full_name || user.user_metadata?.name || user.user_metadata?.display_name || '').trim(),
       origin,
       cookie: request.headers.get('cookie') || '',
       posterDraft: posterDraft?.eventId

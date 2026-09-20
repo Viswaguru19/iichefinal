@@ -7,17 +7,9 @@ export type AiInline =
 export type AiBlock =
   | { t: 'p'; children: AiInline[] }
   | { t: 'h'; children: AiInline[] }
-  | { t: 'li'; children: AiInline[] }
+  | { t: 'li'; children: AiInline[]; n?: number }
+  | { t: 'table'; headers: string[]; rows: string[][] }
   | { t: 'img'; src: string; alt: string };
-
-function tidyStars(s: string): string {
-  return s
-    .replace(/\*{3,}/g, '')
-    .replace(/\*\*/g, '')
-    .replace(/(^|[\s(])\*(\s|$)/g, '$1$2')
-    .replace(/\s{2,}/g, ' ')
-    .trim();
-}
 
 function parseInline(raw: string): AiInline[] {
   const out: AiInline[] = [];
@@ -41,7 +33,19 @@ function parseInline(raw: string): AiInline[] {
     const chunk = raw.slice(last).replace(/\*/g, '');
     if (chunk) out.push({ t: 'text', v: chunk });
   }
-  return out.length ? out : [{ t: 'text', v: tidyStars(raw) }];
+  return out.length ? out : [{ t: 'text', v: raw.replace(/\*/g, '').trim() || raw }];
+}
+
+function splitCells(line: string): string[] {
+  return line
+    .replace(/^\|/, '')
+    .replace(/\|$/, '')
+    .split('|')
+    .map((c) => c.trim());
+}
+
+function isTableSep(line: string): boolean {
+  return /^\|?[\s:|-]+$/.test(line) && /---/.test(line);
 }
 
 export function parseIicheAiReply(raw: string): AiBlock[] {
@@ -55,13 +59,34 @@ export function parseIicheAiReply(raw: string): AiBlock[] {
     if (text) blocks.push({ t: 'p', children: parseInline(text) });
   };
 
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed || /^[-*]{3,}$/.test(trimmed)) {
+  for (let i = 0; i < lines.length; i += 1) {
+    const trimmed = lines[i].trim();
+    if (!trimmed) {
       flushPara();
       continue;
     }
-    const image = trimmed.match(/^!\[([^\]]*)\]\((https?:\/\/[^\s)]+|data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+)\)$/);
+    if (/^[-*]{3,}$/.test(trimmed)) {
+      flushPara();
+      continue;
+    }
+    if (trimmed.startsWith('|') && trimmed.includes('|', 1)) {
+      flushPara();
+      const tableLines = [trimmed];
+      while (i + 1 < lines.length && lines[i + 1].trim().startsWith('|')) {
+        i += 1;
+        tableLines.push(lines[i].trim());
+      }
+      const bodyLines = tableLines.filter((l) => !isTableSep(l));
+      if (bodyLines.length) {
+        const headers = splitCells(bodyLines[0]);
+        const rows = bodyLines.slice(1).map(splitCells);
+        blocks.push({ t: 'table', headers, rows });
+      }
+      continue;
+    }
+    const image = trimmed.match(
+      /^!\[([^\]]*)\]\((https?:\/\/[^\s)]+|data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+)\)$/,
+    );
     if (image) {
       flushPara();
       blocks.push({ t: 'img', src: image[2], alt: image[1] || 'Poster' });
@@ -73,7 +98,13 @@ export function parseIicheAiReply(raw: string): AiBlock[] {
       blocks.push({ t: 'h', children: parseInline(heading[1]) });
       continue;
     }
-    const bullet = trimmed.match(/^[-*]\s+(.+)$/) || trimmed.match(/^\d+\.\s+(.+)$/);
+    const numbered = trimmed.match(/^(\d+)\.\s+(.+)$/);
+    if (numbered) {
+      flushPara();
+      blocks.push({ t: 'li', n: Number(numbered[1]), children: parseInline(numbered[2]) });
+      continue;
+    }
+    const bullet = trimmed.match(/^[-*]\s+(.+)$/);
     if (bullet) {
       flushPara();
       blocks.push({ t: 'li', children: parseInline(bullet[1]) });
@@ -89,11 +120,14 @@ export function iicheAiReplyPlain(raw: string): string {
   return parseIicheAiReply(raw)
     .map((b) => {
       if (b.t === 'img') return b.alt || b.src;
+      if (b.t === 'table') {
+        return [b.headers.join(' | '), ...b.rows.map((r) => r.join(' | '))].join('\n');
+      }
       return b.children
         .map((c) => c.v)
         .join('')
         .trim();
     })
     .filter(Boolean)
-    .join('\n');
+    .join('\n\n');
 }

@@ -28,12 +28,20 @@ When they ask to open the election, call manage_election with action "open" (fac
 Also call tools to propose events, approve proposals, and design posters. When they ask for a poster, call design_poster and show it in chat only. Call upload_poster only when they explicitly say to upload, save, or attach it to the event.
 
 Other tools:
+- Who am I / my name / my role / my committees → get_my_identity (answer in chat; do not only open Profile)
 - Who is head / co-head of a committee → get_committee_officers
 - Create a form, meeting, event report, or minutes/MoM → the matching create tool
 
-Do not invent current officers' names; use the tool. Never ask for passwords. Never bypass elections or approvals. If a tool fails for permissions, say so and still give the page link.
+Do not invent the signed-in member's name or role; use get_my_identity. Do not invent current officers' names; use the tool. Never ask for passwords. Never bypass elections or approvals. If a tool fails for permissions, say so and still give the page link.
 
-For general questions, answer fully in clear language. Prefer short paragraphs and bullet lists. Use **bold** only for names and titles — never leave stray asterisks in the reply.
+Format every answer so it is easy to scan:
+- Blank line between sections
+- ## headings when there are two or more parts
+- Bullet lists for options, steps, officers, or ideas
+- Numbered lists for sequences
+- Markdown tables when comparing items, listing dates/venues/roles, or showing several fields
+- Short paragraphs, not one long block
+- Use **bold** only for names and titles — never leave stray asterisks
 `;
 
 const GUIDE: { keys: string[]; reply: string }[] = [
@@ -204,7 +212,7 @@ async function completeGemini(
     tools: runTool ? [{ functionDeclarations: IICHE_AI_TOOL_DECLARATIONS }] : undefined,
     generationConfig: {
       temperature: 0.45,
-      maxOutputTokens: 1024,
+      maxOutputTokens: 2048,
       thinkingConfig: { thinkingBudget: 0 },
     },
   };
@@ -312,7 +320,8 @@ export function splitPortalNavigate(reply: string): {
     .replace(/NAVIGATE:\S+/g, '')
     .replace(/POSTER:\S+/g, '')
     .replace(/DRAFT:\S+;;?/g, '')
-    .replace(/\s+/g, ' ')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
     .trim();
   const posterUrlRaw = poster?.[1] || '';
   const posterUrl = posterUrlRaw.startsWith('data:image/')
@@ -359,28 +368,17 @@ export async function answerIicheAi(
     if (runTool && last?.content) {
       const { maybeHeuristicTool } = await import('@/lib/iiche-ai-actions');
       const guessed = maybeHeuristicTool(last.content);
-      if (
-        guessed?.name === 'get_committee_officers' ||
-        guessed?.name === 'open_portal_page' ||
-        guessed?.name === 'manage_election' ||
-        guessed?.name === 'propose_event' ||
-        guessed?.name === 'approve_proposal' ||
-        guessed?.name === 'design_poster' ||
-        guessed?.name === 'upload_poster'
-      ) {
+      if (guessed) {
         const result = await runTool(guessed.name, guessed.args);
         return withNav(result, 'portal');
       }
     }
-    const gemini = await completeGemini(history, runTool);
+    const gemini = await completeGemini(history);
     if (gemini.text) {
-      if (runTool && last?.content && (!gemini.usedTools || REFUSED_NAV.test(gemini.text))) {
+      if (REFUSED_NAV.test(gemini.text) && runTool && last?.content) {
         const { maybeHeuristicTool } = await import('@/lib/iiche-ai-actions');
         const guessed = maybeHeuristicTool(last.content);
-        if (guessed) {
-          const extra = await runTool(guessed.name, guessed.args);
-          return withNav(extra, 'gemini');
-        }
+        if (guessed) return withNav(await runTool(guessed.name, guessed.args), 'gemini');
       }
       return withNav(gemini.text, 'gemini');
     }

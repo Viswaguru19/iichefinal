@@ -16,6 +16,8 @@ export type IicheAiToolCtx = {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   directory: any;
   userId: string;
+  userEmail?: string;
+  userName?: string;
   origin: string;
   cookie?: string;
   posterDraft?: { path?: string; eventId: string; title?: string; dataUrl?: string } | null;
@@ -31,6 +33,12 @@ export const IICHE_AI_TOOL_DECLARATIONS = [
         committee_name: { type: 'string', description: 'Committee name or partial name. Empty string lists every committee.' },
       },
     },
+  },
+  {
+    name: 'get_my_identity',
+    description:
+      'Look up the signed-in member: name, email, portal role, executive role, faculty/admin flags, and committee posts. Use for “who am I”, “what is my name”, “my role”, or “which committee am I in”. Do not only open the profile page.',
+    parameters: { type: 'object', properties: {} },
   },
   {
     name: 'open_portal_page',
@@ -262,6 +270,83 @@ export async function getCommitteeOfficers(ctx: IicheAiToolCtx, committeeName: s
     );
   }
   return lines.join('\n\n');
+}
+
+function titleCaseRole(value: string | null | undefined): string {
+  const v = String(value || '').trim();
+  if (!v) return '—';
+  return v.replace(/[_-]+/g, ' ').replace(/\b\w/g, (ch) => ch.toUpperCase());
+}
+
+function membershipLabel(position: string | null | undefined, fallbackRole?: string | null): string {
+  if (isHeadPosition(position)) return 'Head';
+  if (isCoHeadPosition(position)) return 'Co-head';
+  const n = String(position || fallbackRole || 'member').trim();
+  if (!n || n.toLowerCase() === 'member') return 'Member';
+  return titleCaseRole(n);
+}
+
+export async function getMyIdentity(ctx: IicheAiToolCtx): Promise<string> {
+  const db = ctx.directory || ctx.supabase;
+  const { data: profile, error } = await db
+    .from('profiles')
+    .select('name, email, username, role, executive_role, is_admin, is_faculty, approved')
+    .eq('id', ctx.userId)
+    .maybeSingle();
+  if (error) {
+    return `Could not load your profile: ${error.message}`;
+  }
+
+  const displayName =
+    String(profile?.name || ctx.userName || '').trim() ||
+    String(profile?.username || '').trim() ||
+    String(ctx.userEmail || profile?.email || '').split('@')[0] ||
+    '';
+
+  if (!profile && !displayName) {
+    return 'You are signed in, but there is no profile row for this account yet. Open /dashboard/profile after an admin approves you.';
+  }
+
+  const { data: memberships } = await db
+    .from('committee_members')
+    .select('position, designation, committees(name)')
+    .eq('user_id', ctx.userId);
+
+  const flags = [
+    profile?.approved === false ? 'pending approval' : 'approved',
+    profile?.is_faculty ? 'faculty' : null,
+    profile?.is_admin ? 'admin' : null,
+  ].filter(Boolean);
+
+  const rows = [
+    `| Name | ${displayName || '—'} |`,
+    `| Email | ${profile?.email || ctx.userEmail || '—'} |`,
+    profile?.username ? `| Username | ${profile.username} |` : null,
+    `| Portal role | ${titleCaseRole(profile?.role)} |`,
+    `| Executive role | ${titleCaseRole(profile?.executive_role)} |`,
+    `| Account | ${flags.join(', ') || '—'} |`,
+  ].filter(Boolean);
+
+  const memberLines = (memberships || []).map(
+    (row: { position?: string; designation?: string; committees?: { name?: string } | { name?: string }[] }) => {
+      const c = Array.isArray(row.committees) ? row.committees[0] : row.committees;
+      const committee = String(c?.name || 'Committee').trim();
+      return `- **${committee}** — ${membershipLabel(row.position || row.designation)}`;
+    },
+  );
+
+  return [
+    `You are signed in as **${displayName || 'a chapter member'}**.`,
+    '',
+    '| Field | Detail |',
+    '| --- | --- |',
+    ...rows,
+    '',
+    '## Committees',
+    memberLines.length ? memberLines.join('\n') : '- You are not listed on a committee yet.',
+    '',
+    'Edit photo and bio at /dashboard/profile if you need to change something.',
+  ].join('\n');
 }
 
 export async function createForm(ctx: IicheAiToolCtx, args: Record<string, unknown>): Promise<string> {
@@ -764,7 +849,23 @@ export async function designPoster(ctx: IicheAiToolCtx, args: Record<string, unk
     photoQuery: theme.photoQuery,
   });
   const eventId = event?.id || 'none';
-  return `POSTER:${dataUrl} DRAFT:inline|${eventId}|${encodeURIComponent(title)};; Here is a designed poster for "${title}". It is only in this chat. Say **upload this poster** to put it on the event.`;
+  const caption = [
+    `Here is a designed poster for **${title}**.`,
+    '',
+    '| Field | Detail |',
+    '| --- | --- |',
+    `| Date | ${dateLabel} |`,
+    `| Venue | ${location} |`,
+    `| Details | ${theme.rules} |`,
+    `| Call to action | ${theme.cta} |`,
+    registerLine ? `| Register | ${registerLine} |` : null,
+    `| Organized by | ${theme.organizer} |`,
+    '',
+    'It is only in this chat. Say **upload this poster** to put it on the event.',
+  ]
+    .filter((line) => line != null)
+    .join('\n');
+  return `POSTER:${dataUrl} DRAFT:inline|${eventId}|${encodeURIComponent(title)};; ${caption}`;
 }
 
 export async function uploadPoster(ctx: IicheAiToolCtx, args: Record<string, unknown>): Promise<string> {
@@ -845,6 +946,8 @@ export async function runIicheAiTool(ctx: IicheAiToolCtx, name: string, args: Re
   switch (name) {
     case 'get_committee_officers':
       return getCommitteeOfficers(ctx, str(args.committee_name));
+    case 'get_my_identity':
+      return getMyIdentity(ctx);
     case 'open_portal_page':
       return openPortalPage(ctx, args);
     case 'manage_election':
@@ -872,7 +975,17 @@ export async function runIicheAiTool(ctx: IicheAiToolCtx, name: string, args: Re
 
 export function maybeHeuristicTool(message: string): { name: string; args: Record<string, unknown> } | null {
   const m = message.trim();
-  const lower = m.toLowerCase();
+  const lower = m.toLowerCase().replace(/[?.!]+$/g, '');
+  if (
+    /\bwho am i\b/.test(lower) ||
+    /\bwho'm i\b/.test(lower) ||
+    /\bwhat(?:'s| is) my (name|role|position|email|status|committee|committees)\b/.test(lower) ||
+    /\bwhich committee am i\b/.test(lower) ||
+    /\bam i (an |a )?(admin|faculty|head|co[-\s]?head)\b/.test(lower) ||
+    (/\bmy (name|role|committees?|position)\b/.test(lower) && /\b(what|who|tell|show)\b/.test(lower))
+  ) {
+    return { name: 'get_my_identity', args: {} };
+  }
   const wantsCreate = /\b(create|ceate|make|add|new|schedule|write|save)\b/.test(lower);
   if (/\b(election|elections|voting)\b/.test(lower) && !wantsCreate) {
     if (/\b(stop|end|close voting)\b/.test(lower)) return { name: 'manage_election', args: { action: 'stop' } };

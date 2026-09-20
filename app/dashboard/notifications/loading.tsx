@@ -1,5 +1,5 @@
 import PortalLoadingScreen from '@/components/PortalLoadingScreen';
 
 export default function Loading() {
-  return <PortalLoadingScreen variant="updates" />;
+  return <PortalLoadingScreen message="Loading updates…" />;
 }
