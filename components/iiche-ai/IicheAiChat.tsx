@@ -5,7 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { Sparkles, Send } from 'lucide-react';
 import { parseIicheAiReply, type AiInline } from '@/lib/iiche-ai-format';
 
-type ChatTurn = { role: 'user' | 'assistant'; content: string };
+type ChatTurn = { role: 'user' | 'assistant'; content: string; posterUrl?: string; animate?: boolean };
 
 const STARTERS = [
   'Give event ideas for Chemical Engineering week',
@@ -33,10 +33,68 @@ function InlineBits({ parts, linkClass }: { parts: AiInline[]; linkClass: string
   );
 }
 
-function AssistantBody({ content }: { content: string }) {
+function TypewriterBody({
+  content,
+  posterUrl,
+  animate,
+}: {
+  content: string;
+  posterUrl?: string;
+  animate?: boolean;
+}) {
+  const [n, setN] = useState(animate ? 0 : content.length);
+  useEffect(() => {
+    if (!animate) {
+      setN(content.length);
+      return;
+    }
+    setN(0);
+    const step = Math.max(2, Math.ceil(content.length / 70));
+    const id = window.setInterval(() => {
+      setN((prev) => {
+        if (prev >= content.length) {
+          window.clearInterval(id);
+          return content.length;
+        }
+        return Math.min(content.length, prev + step);
+      });
+    }, 18);
+    return () => window.clearInterval(id);
+  }, [animate, content]);
+
+  const done = !animate || n >= content.length;
+  return (
+    <div className="space-y-2 text-sm leading-relaxed">
+      {posterUrl ? (
+        <img
+          src={posterUrl}
+          alt="Event poster"
+          className="iiche-ai-poster mt-1 block h-auto w-[240px] max-w-full rounded-xl border border-white/10 bg-black/40 object-contain shadow-lg"
+        />
+      ) : null}
+      {done ? (
+        <AssistantBody content={content} />
+      ) : (
+        <p className="whitespace-pre-wrap break-words">
+          {content.slice(0, n)}
+          <span className="iiche-ai-caret">&nbsp;</span>
+        </p>
+      )}
+    </div>
+  );
+}
+
+function AssistantBody({ content, posterUrl }: { content: string; posterUrl?: string }) {
   const blocks = parseIicheAiReply(content);
   return (
     <div className="space-y-2 text-sm leading-relaxed">
+      {posterUrl ? (
+        <img
+          src={posterUrl}
+          alt="Event poster"
+          className="iiche-ai-poster mt-1 block h-auto w-[240px] max-w-full rounded-xl border border-white/10 bg-black/40 object-contain shadow-lg"
+        />
+      ) : null}
       {blocks.map((block, i) => {
         if (block.t === 'img') {
           return (
@@ -112,8 +170,17 @@ export default function IicheAiChat({ compact = false }: { compact?: boolean }) 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message,
-          history: nextTurns.slice(-8),
-          posterDraft,
+          history: nextTurns.slice(-8).map((t) => ({ role: t.role, content: t.content.slice(0, 800) })),
+          posterDraft: posterDraft
+            ? {
+                eventId: posterDraft.eventId,
+                path: posterDraft.path,
+                title: posterDraft.title,
+                dataUrl: /\b(upload|attach|publish|save this|save the)\b/i.test(message)
+                  ? posterDraft.dataUrl
+                  : undefined,
+              }
+            : null,
         }),
       });
       const data = (await res.json()) as {
@@ -121,9 +188,18 @@ export default function IicheAiChat({ compact = false }: { compact?: boolean }) 
         error?: string;
         navigate?: string;
         posterDraft?: { path?: string; eventId: string; title?: string; dataUrl?: string };
+        posterUrl?: string;
       };
       if (!res.ok) throw new Error(data.error || 'Could not reach IIChE AI');
-      setTurns((prev) => [...prev, { role: 'assistant', content: data.reply || 'I could not answer that.' }]);
+      setTurns((prev) => [
+        ...prev,
+        {
+          role: 'assistant',
+          content: data.reply || 'I could not answer that.',
+          posterUrl: data.posterUrl || data.posterDraft?.dataUrl,
+          animate: true,
+        },
+      ]);
       if (data.posterDraft?.eventId) setPosterDraft(data.posterDraft);
       const dest = String(data.navigate || '').trim();
       if (dest.startsWith('/dashboard') && dest !== pathname) {
@@ -155,14 +231,27 @@ export default function IicheAiChat({ compact = false }: { compact?: boolean }) 
                 </p>
               )}
               {turn.role === 'assistant' ? (
-                <AssistantBody content={turn.content} />
+                <TypewriterBody content={turn.content} posterUrl={turn.posterUrl} animate={turn.animate} />
               ) : (
                 <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{turn.content}</p>
               )}
             </div>
           </div>
         ))}
-        {busy && <p className="iiche-ai-muted text-xs px-1">IIChE AI is thinking…</p>}
+        {busy && (
+          <div className="flex justify-start">
+            <div className="iiche-ai-bubble-assistant max-w-[85%] rounded-2xl px-3.5 py-2.5">
+              <p className="iiche-ai-label mb-1 flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide">
+                <Sparkles className="w-3 h-3" /> IIChE AI
+              </p>
+              <p className="iiche-ai-wait iiche-ai-muted" aria-label="IIChE AI is typing">
+                <span />
+                <span />
+                <span />
+              </p>
+            </div>
+          </div>
+        )}
         <div ref={bottomRef} />
       </div>
 

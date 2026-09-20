@@ -127,25 +127,39 @@ export function iicheAiProvider(): 'groq' | 'gemini' | 'openai' | 'guide' {
   return 'guide';
 }
 
+async function timedFetch(url: string, init: RequestInit, ms: number): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function completeGroq(history: IicheAiMessage[]): Promise<string | null> {
   const key = env('GROQ_API_KEY');
   if (!key) return null;
-  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${key}`,
-      'Content-Type': 'application/json',
+  const res = await timedFetch(
+    'https://api.groq.com/openai/v1/chat/completions',
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${key}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: env('GROQ_MODEL') || 'llama-3.1-8b-instant',
+        temperature: 0.6,
+        max_tokens: 900,
+        messages: [
+          { role: 'system', content: IICHE_AI_SYSTEM_PROMPT },
+          ...history.map((m) => ({ role: m.role, content: m.content })),
+        ],
+      }),
     },
-    body: JSON.stringify({
-      model: env('GROQ_MODEL') || 'llama-3.1-8b-instant',
-      temperature: 0.6,
-      max_tokens: 1800,
-      messages: [
-        { role: 'system', content: IICHE_AI_SYSTEM_PROMPT },
-        ...history.map((m) => ({ role: m.role, content: m.content })),
-      ],
-    }),
-  });
+    6000,
+  );
   if (!res.ok) return null;
   const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
   return data.choices?.[0]?.message?.content?.trim() || null;
@@ -161,15 +175,9 @@ async function completeGemini(
   const retired = new Set(['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-2.5-flash', 'gemini-2.5-flash-lite']);
   const models = [
     ...new Set(
-      [
-        preferred,
-        'gemini-3.5-flash',
-        'gemini-flash-latest',
-        'gemini-3.6-flash',
-        'gemini-3.1-flash-lite',
-      ].filter((m) => m && !retired.has(m)),
+      [preferred, 'gemini-3.5-flash', 'gemini-flash-latest'].filter((m) => m && !retired.has(m)),
     ),
-  ];
+  ].slice(0, 2);
 
   type Part =
     | { text: string }
@@ -183,25 +191,48 @@ async function completeGemini(
   }));
 
   const { IICHE_AI_TOOL_DECLARATIONS } = await import('@/lib/iiche-ai-actions');
-  const payloadBase = {
+  const payloadBase: {
+    systemInstruction: { parts: { text: string }[] };
+    tools?: { functionDeclarations: unknown }[];
+    generationConfig: {
+      temperature: number;
+      maxOutputTokens: number;
+      thinkingConfig?: { thinkingBudget: number };
+    };
+  } = {
     systemInstruction: { parts: [{ text: IICHE_AI_SYSTEM_PROMPT }] },
     tools: runTool ? [{ functionDeclarations: IICHE_AI_TOOL_DECLARATIONS }] : undefined,
-    generationConfig: { temperature: 0.55, maxOutputTokens: 4096 },
+    generationConfig: {
+      temperature: 0.45,
+      maxOutputTokens: 1024,
+      thinkingConfig: { thinkingBudget: 0 },
+    },
   };
 
   for (const model of models) {
     let roundContents = [...contents];
     let usedTools = false;
-    for (let round = 0; round < 6; round += 1) {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...payloadBase, contents: roundContents }),
-        },
-      );
+    for (let round = 0; round < 2; round += 1) {
+      let res: Response;
+      try {
+        res = await timedFetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...payloadBase, contents: roundContents }),
+          },
+          7000,
+        );
+      } catch {
+        break;
+      }
       if (!res.ok) {
+        if (res.status === 400 && payloadBase.generationConfig.thinkingConfig) {
+          delete payloadBase.generationConfig.thinkingConfig;
+          round -= 1;
+          continue;
+        }
         console.error('IIChE AI Gemini model failed', model, res.status);
         break;
       }
@@ -240,22 +271,26 @@ async function completeGemini(
 async function completeOpenAi(history: IicheAiMessage[]): Promise<string | null> {
   const key = env('OPENAI_API_KEY');
   if (!key) return null;
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${key}`,
-      'Content-Type': 'application/json',
+  const res = await timedFetch(
+    'https://api.openai.com/v1/chat/completions',
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${key}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: env('OPENAI_MODEL') || 'gpt-4o-mini',
+        temperature: 0.6,
+        max_tokens: 900,
+        messages: [
+          { role: 'system', content: IICHE_AI_SYSTEM_PROMPT },
+          ...history.map((m) => ({ role: m.role, content: m.content })),
+        ],
+      }),
     },
-    body: JSON.stringify({
-      model: env('OPENAI_MODEL') || 'gpt-4o-mini',
-      temperature: 0.6,
-      max_tokens: 1800,
-      messages: [
-        { role: 'system', content: IICHE_AI_SYSTEM_PROMPT },
-        ...history.map((m) => ({ role: m.role, content: m.content })),
-      ],
-    }),
-  });
+    6000,
+  );
   if (!res.ok) return null;
   const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
   return data.choices?.[0]?.message?.content?.trim() || null;
@@ -283,7 +318,7 @@ export function splitPortalNavigate(reply: string): {
   const posterUrl = posterUrlRaw.startsWith('data:image/')
     ? posterUrlRaw
     : posterUrlRaw.replace(/[).,;]+$/, '') || undefined;
-  const text = posterUrl ? `![Poster](${posterUrl})\n\n${cleaned}` : cleaned;
+  const text = cleaned;
   return {
     reply: text,
     navigate: tagged?.[1]?.replace(/[).,;]+$/, ''),
@@ -349,10 +384,12 @@ export async function answerIicheAi(
       }
       return withNav(gemini.text, 'gemini');
     }
-    const groq = await completeGroq(history);
-    if (groq) return withNav(groq, 'groq');
-    const openai = await completeOpenAi(history);
-    if (openai) return withNav(openai, 'openai');
+    if (!env('GEMINI_API_KEY') && !env('GOOGLE_GENERATIVE_AI_API_KEY')) {
+      const groq = await completeGroq(history);
+      if (groq) return withNav(groq, 'groq');
+      const openai = await completeOpenAi(history);
+      if (openai) return withNav(openai, 'openai');
+    }
     if (runTool && last?.content) {
       const { maybeHeuristicTool } = await import('@/lib/iiche-ai-actions');
       const guessed = maybeHeuristicTool(last.content);

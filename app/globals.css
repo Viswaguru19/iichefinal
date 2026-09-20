@@ -442,6 +442,37 @@ html[data-portal-theme='dark'] .iiche-ai-input::placeholder { color: #94a3b8 !im
 html[data-portal-theme='dark'] .iiche-ai-poster {
   border-color: rgba(251, 191, 36, 0.35);
 }
+.iiche-ai-caret {
+  display: inline-block;
+  width: 0.45em;
+  margin-left: 1px;
+  border-radius: 1px;
+  background: currentColor;
+  animation: iiche-ai-blink 0.7s step-end infinite;
+}
+.iiche-ai-wait {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  min-height: 1.25rem;
+}
+.iiche-ai-wait span {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.35;
+  animation: iiche-ai-dot 1s ease-in-out infinite;
+}
+.iiche-ai-wait span:nth-child(2) { animation-delay: 0.15s; }
+.iiche-ai-wait span:nth-child(3) { animation-delay: 0.3s; }
+@keyframes iiche-ai-blink {
+  50% { opacity: 0; }
+}
+@keyframes iiche-ai-dot {
+  0%, 80%, 100% { opacity: 0.25; transform: translateY(0); }
+  40% { opacity: 1; transform: translateY(-3px); }
+}
 
 /* Light-theme callout boxes inside dark panels */
 html[data-portal-theme='dark'] .premium-panel .border-indigo-100,

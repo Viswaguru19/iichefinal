@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { fallbackIicheAiReply, splitPortalNavigate } from '@/lib/iiche-ai';
 import { maybeHeuristicTool } from '@/lib/iiche-ai-actions';
 import { iicheAiReplyPlain, parseIicheAiReply } from '@/lib/iiche-ai-format';
-import { buildIichePosterSvg, pickPosterHeroUrl, svgDataUrl } from '@/lib/iiche-ai-poster';
+import { buildIichePosterSvg, pickPosterHeroUrl, resolvePosterTheme, svgDataUrl } from '@/lib/iiche-ai-poster';
 
 describe('IIChE AI guide', () => {
   it('points members to propose-event for event questions', () => {
@@ -88,13 +88,50 @@ describe('IIChE AI reply formatting', () => {
       tagline: 'IGNITE · INNOVATE · INSPIRE',
       heroDataUrl: 'data:image/jpeg;base64,/9j/4AAQ',
     });
-    expect(svg).toContain('Chem Week');
+    expect(svg).toContain('CHEM WEEK');
     expect(svg).toContain('data:image/jpeg');
     expect(pickPosterHeroUrl('IDP Orientation')).toContain('images.unsplash.com');
     const url = svgDataUrl(svg);
     const split = splitPortalNavigate(`POSTER:${url} DRAFT:inline|evt-1|Chem%20Week;; Here is a designed poster.`);
     expect(split.posterDraft?.eventId).toBe('evt-1');
     expect(split.posterDraft?.dataUrl).toMatch(/^data:image\/svg\+xml;base64,/);
-    expect(parseIicheAiReply(split.reply).some((b) => b.t === 'img')).toBe(true);
+    expect(split.posterUrl).toMatch(/^data:image\/svg\+xml;base64,/);
+    expect(split.reply).toContain('designed poster');
+    expect(pickPosterHeroUrl('Kickoff Football Tournament')).toMatch(/unsplash/);
+    const football = buildIichePosterSvg({
+      title: 'Kickoff Football Tournament',
+      dateLabel: '12 October 2026',
+      location: 'Amrita Grounds',
+      tagline: 'PLAY · COMPETE · CELEBRATE',
+      variant: 'football',
+      registerLine: 'https://example.com/kickoff/register',
+      rules: 'Teams of 7–11 players  ·  Open to all students',
+    });
+    expect(football).toContain('KICKOFF');
+    expect(football).toContain('FOOTBALL TOURNAMENT');
+    expect(football).toContain('REGISTER YOUR TEAM');
+    expect(football).toContain('7–11');
+    expect(football).toContain('kickoff/register');
+    expect(maybeHeuristicTool('make me a poster for a kick off football tournament')?.name).toBe('design_poster');
+    expect(resolvePosterTheme('Inter-hostel Cricket Tournament').id).toBe('cricket');
+    expect(resolvePosterTheme('Python Workshop').id).toBe('workshop');
+    expect(pickPosterHeroUrl('Inter-hostel Cricket Tournament')).not.toBe(pickPosterHeroUrl('Kickoff Football Tournament'));
+    const cricket = buildIichePosterSvg({
+      title: 'Inter-hostel Cricket Tournament',
+      dateLabel: 'Date TBA',
+      location: 'Amrita Grounds',
+      tagline: 'PLAY · COMPETE · CELEBRATE',
+    });
+    expect(cricket).toMatch(/CRICKET/i);
+    expect(cricket).toContain('REGISTER YOUR TEAM');
+    const workshop = buildIichePosterSvg({
+      title: 'Python Workshop',
+      dateLabel: 'Date TBA',
+      location: 'AB2 Seminar Hall',
+      tagline: 'LEARN · BUILD · GROW',
+    });
+    expect(workshop).toMatch(/PYTHON/i);
+    expect(workshop).toContain('REGISTER NOW');
+    expect(workshop).toContain('Hands-on');
   });
 });

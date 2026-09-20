@@ -60,10 +60,16 @@ export async function POST(request: NextRequest) {
         : null,
     };
 
-    const { reply, provider, navigate, posterDraft: nextDraft } = await answerIicheAi(history, (name, args) =>
+    const { reply, provider, navigate, posterDraft: nextDraft, posterUrl } = await answerIicheAi(history, (name, args) =>
       runIicheAiTool(ctx, name, args),
     );
-    return NextResponse.json({ reply, provider, navigate, posterDraft: nextDraft || ctx.posterDraft });
+    return NextResponse.json({
+      reply,
+      provider,
+      navigate,
+      posterDraft: nextDraft || ctx.posterDraft,
+      posterUrl: posterUrl || nextDraft?.dataUrl,
+    });
   } catch (error: unknown) {
     const err = error as { message?: string };
     return NextResponse.json({ error: err.message || 'IIChE AI is unavailable' }, { status: 500 });

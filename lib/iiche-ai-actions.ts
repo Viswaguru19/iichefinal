@@ -8,7 +8,7 @@ import {
   normalizeProposalThresholds,
   proposalEcSatisfied,
 } from '@/lib/proposal-workflow-rules';
-import { composeIichePoster } from '@/lib/iiche-ai-poster';
+import { composeIichePoster, resolvePosterTheme } from '@/lib/iiche-ai-poster';
 
 export type IicheAiToolCtx = {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -709,21 +709,60 @@ export async function approveProposal(ctx: IicheAiToolCtx, args: Record<string, 
 }
 
 export async function designPoster(ctx: IicheAiToolCtx, args: Record<string, unknown>): Promise<string> {
-  const q = str(args.event_title).replace(/\b(design|make|create|generate|upload|a|the|poster|for)\b/gi, ' ').replace(/\s+/g, ' ').trim();
+  const raw = str(args.event_title);
+  const q = raw.replace(/\b(design|make|create|generate|upload|a|the|poster|for)\b/gi, ' ').replace(/\s+/g, ' ').trim();
+  const blob = `${raw} ${q}`;
+  const theme = resolvePosterTheme(blob);
+  const themedSearch = theme.id !== 'general';
+
   let event: { id: string; title: string; event_date?: string; location?: string } | undefined;
-  const { data: events, error } = q
-    ? await ctx.supabase.from('events').select('id, title, event_date, location').ilike('title', `%${q}%`).order('created_at', { ascending: false }).limit(1)
-    : await ctx.supabase.from('events').select('id, title, event_date, location').order('created_at', { ascending: false }).limit(1);
-  if (error) return `Could not find events: ${error.message}`;
-  event = (events || [])[0];
-  const title = event?.title || q || 'IIChE Chapter Event';
+  if (q && !/^(it|this|that)$/i.test(q) && !themedSearch) {
+    const { data: events, error } = await ctx.supabase
+      .from('events')
+      .select('id, title, event_date, location')
+      .ilike('title', `%${q}%`)
+      .order('created_at', { ascending: false })
+      .limit(1);
+    if (error) return `Could not find events: ${error.message}`;
+    event = (events || [])[0];
+  }
+  if (themedSearch && q) {
+    const { data: events } = await ctx.supabase
+      .from('events')
+      .select('id, title, event_date, location')
+      .ilike('title', `%${q.split(/\s+/)[0]}%`)
+      .order('created_at', { ascending: false })
+      .limit(1);
+    const hit = (events || [])[0];
+    if (hit && resolvePosterTheme(hit.title).id === theme.id) event = hit;
+  }
+
+  const title =
+    event?.title && resolvePosterTheme(event.title).id === theme.id
+      ? event.title
+      : q || event?.title || 'IIChE Chapter Event';
   const dateLabel = event?.event_date
     ? new Date(event.event_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })
     : 'Date TBA';
-  const location = event?.location || 'Venue TBA';
-  const tagline = str(args.tagline) || 'IGNITE · INNOVATE · INSPIRE';
+  const location = event?.location || theme.venueDefault;
+  const tagline = str(args.tagline) || theme.tagline;
+  const registerLine = theme.registerPath
+    ? `${(ctx.origin || '').replace(/\/$/, '')}${theme.registerPath}`
+    : undefined;
 
-  const dataUrl = await composeIichePoster({ title, dateLabel, location, tagline });
+  const dataUrl = await composeIichePoster({
+    title,
+    dateLabel,
+    location,
+    tagline,
+    query: blob,
+    variant: theme.id,
+    registerLine,
+    rules: theme.rules,
+    cta: theme.cta,
+    organizer: theme.organizer,
+    photoQuery: theme.photoQuery,
+  });
   const eventId = event?.id || 'none';
   return `POSTER:${dataUrl} DRAFT:inline|${eventId}|${encodeURIComponent(title)};; Here is a designed poster for "${title}". It is only in this chat. Say **upload this poster** to put it on the event.`;
 }
@@ -855,7 +894,14 @@ export function maybeHeuristicTool(message: string): { name: string; args: Recor
   }
   if (/\bposter\b/.test(lower) && /\b(design|make|create|generate)\b/.test(lower)) {
     const titled = m.match(/poster (?:for|of)\s+["']?(.+?)["']?$/i);
-    return { name: 'design_poster', args: { event_title: titled?.[1]?.trim() || '' } };
+    let eventTitle = titled?.[1]?.trim() || '';
+    if (!eventTitle || /^(it|this|that|me|us)$/i.test(eventTitle)) {
+      eventTitle = m
+        .replace(/\b(please|we are going to|going to|conduct|through iiche|iiche|design|make|create|generate|upload|a|the|poster|for|me|it)\b/gi, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+    return { name: 'design_poster', args: { event_title: eventTitle } };
   }
   const wantsOpen =
     /\b(open|go to|take me|show me|where is|where are|find|access|navigate|section|tab)\b/.test(lower) ||
