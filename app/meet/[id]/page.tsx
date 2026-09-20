@@ -45,7 +45,6 @@ import {
     getMeetingAudioContext,
     playSpeakerTestTone,
     resolvePreferredAudioOutput,
-    routeRemoteStreamToSpeaker,
     disconnectRemoteStreamFromSpeaker,
     setMeetingAudioSink,
     unlockRemoteMediaElements,
@@ -84,7 +83,6 @@ async function acquireMeetingMedia(): Promise<MediaStream | null> {
         try {
             const stream = await navigator.mediaDevices.getUserMedia(constraints);
             applyMeetingAudioSession(true);
-            void getMeetingAudioContext();
             return markMeetingTracks(stream);
         } catch {
             /* try a simpler constraint set */
@@ -2404,16 +2402,13 @@ function AudioPlayer({ stream, outputDeviceId }: { stream: MediaStream; outputDe
         el.muted = false;
         el.volume = 1;
         el.srcObject = audioOnly;
-        const tryPlay = () => {
+        const tryPlay = async () => {
             el.muted = false;
             el.volume = 1;
-            void applyAudioOutputToElement(el, outputDeviceId);
-            void el.play().catch(() => undefined);
-            // Extra speaker path for phones without setSinkId. Never mute the <audio>
-            // element — WebRTC voices decode there; the beep uses a different oscillator.
-            void routeRemoteStreamToSpeaker(stream.id, stream, outputDeviceId);
+            await applyAudioOutputToElement(el, outputDeviceId);
+            await el.play().catch(() => undefined);
         };
-        tryPlay();
+        void tryPlay();
 
         const onAdd = (e: MediaStreamTrackEvent) => {
             if (e.track?.kind !== 'audio') return;
