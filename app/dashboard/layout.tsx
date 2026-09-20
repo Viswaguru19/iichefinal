@@ -4,6 +4,7 @@ import ServiceWorkerRegistrar from '@/components/ServiceWorkerRegistrar';
 import InstallAppPrompt from '@/components/InstallAppPrompt';
 import DemoModeBanner from '@/components/DemoModeBanner';
 import WinnerCelebration from '@/components/election/WinnerCelebration';
+import IicheAiLauncher from '@/components/iiche-ai/IicheAiLauncher';
 
 /**
  * Sync layout — no per-navigation server logo fetch (was a major delay with force-dynamic).
@@ -17,6 +18,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <DemoModeBanner />
         {children}
         <WinnerCelebration />
+        <IicheAiLauncher />
         <InstallAppPrompt />
       </PortalPresenceProvider>
     </PortalLogoProvider>

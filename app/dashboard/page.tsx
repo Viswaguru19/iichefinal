@@ -2,7 +2,7 @@ import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import nextDynamic from 'next/dynamic';
-import { Crown, Send, ClipboardList } from 'lucide-react';
+import { Crown, Send, ClipboardList, Sparkles } from 'lucide-react';
 import { canManageEcElection, electionCardCopy } from '@/lib/ec-election';
 import DashboardNav from '@/components/dashboard/DashboardNav';
 import AnimatedDashboardCard from '@/components/dashboard/AnimatedDashboardCard';
@@ -233,7 +233,7 @@ export default async function DashboardPage() {
 
         {/* Quick Access: Proposals & Tasks with badges */}
         <AnimatedSection delay={0.15}>
-          <div className={`grid grid-cols-1 sm:grid-cols-2 ${showElectionCard ? 'lg:grid-cols-3' : ''} gap-3 sm:gap-4 mb-6 sm:mb-8`}>
+          <div className={`grid grid-cols-1 sm:grid-cols-2 ${showElectionCard ? 'lg:grid-cols-4' : 'lg:grid-cols-3'} gap-3 sm:gap-4 mb-6 sm:mb-8`}>
             {/* Proposals Card */}
             <Link href="/dashboard/proposals">
               <div className="premium-panel rounded-2xl p-4 sm:p-5 hover:shadow-xl transition-all cursor-pointer group border border-transparent hover:border-indigo-200">
@@ -294,6 +294,21 @@ export default async function DashboardPage() {
                 </div>
               </Link>
             )}
+            <Link href="/dashboard/ai">
+              <div className="premium-panel rounded-2xl p-4 sm:p-5 hover:shadow-xl transition-all cursor-pointer group border border-transparent hover:border-teal-200">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-teal-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-teal-500/20">
+                      <Sparkles className="w-5 h-5 text-white" />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-gray-900 group-hover:text-teal-700 transition-colors">IIChE AI</h3>
+                      <p className="text-xs text-gray-500">Research, ideas, and portal help</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </Link>
           </div>
         </AnimatedSection>
 

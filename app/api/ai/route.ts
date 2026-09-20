@@ -1,30 +1,71 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@/lib/supabase/server';
+import { tryCreateAdminClient } from '@/lib/supabase/admin';
+import { answerIicheAi, type IicheAiMessage } from '@/lib/iiche-ai';
+import { runIicheAiTool, type IicheAiToolCtx } from '@/lib/iiche-ai-actions';
+
+export const dynamic = 'force-dynamic';
+
+function trimHistory(raw: unknown): IicheAiMessage[] {
+  if (!Array.isArray(raw)) return [];
+  const out: IicheAiMessage[] = [];
+  for (const row of raw.slice(-8)) {
+    const role = row?.role === 'assistant' ? 'assistant' : row?.role === 'user' ? 'user' : null;
+    const content = String(row?.content || '').trim();
+    if (!role || !content) continue;
+    out.push({ role, content: content.slice(0, 4000) });
+  }
+  return out;
+}
 
 export async function POST(request: NextRequest) {
   try {
-    const { message } = await request.json();
-
-    const responses: any = {
-      'event': 'To propose an event, go to Dashboard → Propose Event. Fill in details and submit for approval.',
-      'committee': 'You can view all committees at /committees. Each committee has specific roles and responsibilities.',
-      'kickoff': 'Kickoff tournament registration is at /kickoff/register. You need 7-11 players and payment proof.',
-      'help': 'I can help with: Events, Committees, Kickoff Tournament, Meetings, Finance. What do you need?',
-      'meeting': 'Schedule meetings through Dashboard → Meetings. Add agenda and invite members.',
-      'finance': 'Track expenses at Dashboard → Finance. Upload receipts for approval.',
-    };
-
-    const lowerMessage = message.toLowerCase();
-    let reply = responses['help'];
-
-    for (const [key, value] of Object.entries(responses)) {
-      if (lowerMessage.includes(key)) {
-        reply = value;
-        break;
-      }
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      return NextResponse.json({ error: 'Sign in to use IIChE AI' }, { status: 401 });
     }
 
-    return NextResponse.json({ reply });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    const body = await request.json().catch(() => ({}));
+    const message = String(body?.message || '').trim().slice(0, 4000);
+    if (!message) {
+      return NextResponse.json({ error: 'Ask a question' }, { status: 400 });
+    }
+
+    const history = trimHistory(body?.history);
+    if (!history.length || history[history.length - 1]?.content !== message) {
+      history.push({ role: 'user', content: message });
+    }
+
+    const origin = (request.headers.get('origin') || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000').replace(/\/$/, '');
+    const posterDraft = body?.posterDraft as {
+      path?: string;
+      eventId?: string;
+      title?: string;
+      dataUrl?: string;
+    } | undefined;
+    const ctx: IicheAiToolCtx = {
+      supabase,
+      directory: tryCreateAdminClient() ?? supabase,
+      userId: user.id,
+      origin,
+      cookie: request.headers.get('cookie') || '',
+      posterDraft: posterDraft?.eventId
+        ? {
+            path: String(posterDraft.path || ''),
+            eventId: String(posterDraft.eventId),
+            title: String(posterDraft.title || ''),
+            dataUrl: posterDraft.dataUrl ? String(posterDraft.dataUrl) : undefined,
+          }
+        : null,
+    };
+
+    const { reply, provider, navigate, posterDraft: nextDraft } = await answerIicheAi(history, (name, args) =>
+      runIicheAiTool(ctx, name, args),
+    );
+    return NextResponse.json({ reply, provider, navigate, posterDraft: nextDraft || ctx.posterDraft });
+  } catch (error: unknown) {
+    const err = error as { message?: string };
+    return NextResponse.json({ error: err.message || 'IIChE AI is unavailable' }, { status: 500 });
   }
 }
