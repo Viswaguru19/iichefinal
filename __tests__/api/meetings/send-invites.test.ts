@@ -173,10 +173,10 @@ describe('/api/meetings/send-invites', () => {
     expect(mockSend).toHaveBeenCalled();
     const recipients = mockSend.mock.calls.map((c: any[]) => c[0].to);
     expect(recipients).toEqual(expect.arrayContaining(['alice@test.com', 'admin@test.com']));
-    const call = mockSend.mock.calls.find((c: any[]) => c[0].to === 'alice@test.com')[0];
-    expect(call.html).toContain('View Meeting');
-    expect(call.html).toContain('https://meet.google.com/abc');
-    expect(call.html).toContain('Online');
+    const call = mockSend.mock.calls.find((c: any[]) => c[0].to === 'alice@test.com')?.[0];
+    expect(call?.html).toContain('View Meeting');
+    expect(call?.html).toContain('https://meet.google.com/abc');
+    expect(call?.html).toContain('Online');
   });
 
   it('sends in-person template with location when offline', async () => {
@@ -197,11 +197,11 @@ describe('/api/meetings/send-invites', () => {
     await POST(makeRequest({ meetingId: 'meeting-1' }));
 
     expect(mockSend).toHaveBeenCalled();
-    const call = mockSend.mock.calls.find((c: any[]) => c[0].to === 'bob@test.com')[0];
-    expect(call.html).toContain('Room 301');
-    expect(call.html).toContain('In-Person');
-    expect(call.html).toContain('Place:');
-    expect(call.html).toContain('Time:');
+    const call = mockSend.mock.calls.find((c: any[]) => c[0].to === 'bob@test.com')?.[0];
+    expect(call?.html).toContain('Room 301');
+    expect(call?.html).toContain('In-Person');
+    expect(call?.html).toContain('Place:');
+    expect(call?.html).toContain('Time:');
   });
 
   it('sends to multiple participants', async () => {

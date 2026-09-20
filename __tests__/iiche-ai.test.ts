@@ -68,7 +68,7 @@ describe('IIChE AI reply formatting', () => {
     expect(plain).not.toContain('*');
     expect(plain).toContain('Abhinav R');
     expect(parseIicheAiReply(raw).some((b) => b.t === 'li')).toBe(true);
-    expect(parseIicheAiReply(raw).some((b) => b.children.some((c) => c.t === 'b' && c.v === 'Program Committee'))).toBe(true);
+    expect(parseIicheAiReply(raw).some((b) => b.t === 'li' && b.children.some((c) => c.t === 'b' && c.v === 'Program Committee'))).toBe(true);
   });
 
   it('renders designed poster data URLs in chat', () => {

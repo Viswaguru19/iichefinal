@@ -279,13 +279,15 @@ export function splitPortalNavigate(reply: string): {
   };
 }
 
-function withNav(reply: string, provider: string): {
+export type IicheAiAnswer = {
   reply: string;
   provider: string;
   navigate?: string;
   posterUrl?: string;
   posterDraft?: { path: string; eventId: string; title: string; dataUrl?: string };
-} {
+};
+
+function withNav(reply: string, provider: string): IicheAiAnswer {
   const split = splitPortalNavigate(reply);
   return { reply: split.reply, provider, navigate: split.navigate, posterUrl: split.posterUrl, posterDraft: split.posterDraft };
 }
@@ -295,7 +297,7 @@ const REFUSED_NAV = /cannot open pages|can'?t open pages|cannot navigate|don'?t 
 export async function answerIicheAi(
   history: IicheAiMessage[],
   runTool?: (name: string, args: Record<string, unknown>) => Promise<string>,
-): Promise<{ reply: string; provider: string; navigate?: string }> {
+): Promise<IicheAiAnswer> {
   const last = [...history].reverse().find((m) => m.role === 'user');
   const fallback = fallbackIicheAiReply(last?.content || '');
   try {

@@ -1,13 +1,21 @@
 import { isPortalAdmin } from '@/lib/permissions';
 
+type CommitteeName = { name?: string | null };
+type CommitteeRef = CommitteeName | CommitteeName[] | null;
+
+function committeeDisplayName(value: CommitteeRef | undefined, fallback?: string | null): string {
+  if (Array.isArray(value)) return String(value[0]?.name || fallback || '');
+  return String(value?.name || fallback || '');
+}
+
 export function isGraphicsCommitteeMember(
   memberships:
-    | { committees?: { name?: string | null } | null; name?: string | null }[]
+    | { committees?: CommitteeRef; name?: string | null }[]
     | null
     | undefined,
 ): boolean {
   return (memberships || []).some((m) => {
-    const name = String(m.committees?.name || m.name || '').toLowerCase();
+    const name = committeeDisplayName(m.committees, m.name).toLowerCase();
     return name.includes('graphics');
   });
 }
@@ -15,7 +23,7 @@ export function isGraphicsCommitteeMember(
 export function canEditOtherMemberProfiles(
   profile: { is_admin?: boolean | null; role?: string | null } | null | undefined,
   memberships:
-    | { committees?: { name?: string | null } | null; name?: string | null }[]
+    | { committees?: CommitteeRef; name?: string | null }[]
     | null
     | undefined,
 ): boolean {
