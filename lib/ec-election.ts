@@ -55,6 +55,56 @@ export function canViewLiveElectionTally(profile: ElectionProfile | null | undef
   return String(profile.role || '') === 'super_admin' || String(profile.role || '') === 'admin';
 }
 
+export function canRemoveEcNomination(profile: ElectionProfile | null | undefined): boolean {
+  if (!profile) return false;
+  if (profile.is_faculty === true || profile.is_admin === true) return true;
+  const role = String(profile.role || '');
+  return role === 'faculty_advisor' || role === 'admin' || role === 'super_admin';
+}
+
+export const ELECTION_BALLOT_SIZE = 2;
+
+export function ballotContestants<T extends { createdAt?: string; created_at?: string; on_ballot?: boolean }>(
+  rows: T[],
+  limit = ELECTION_BALLOT_SIZE,
+): T[] {
+  if (rows.some((row) => typeof row.on_ballot === 'boolean')) {
+    return rows.filter((row) => row.on_ballot);
+  }
+  return [...rows]
+    .sort((a, b) => String(a.created_at || a.createdAt || '').localeCompare(String(b.created_at || b.createdAt || '')))
+    .slice(0, limit);
+}
+
+export function resolveElectionAvatarUrl(
+  raw: string | null | undefined,
+  publicUrlForPath: (path: string) => string,
+): string | null {
+  if (!raw || !String(raw).trim()) return null;
+  const value = String(raw).trim();
+  if (value.startsWith('http://') || value.startsWith('https://')) return value;
+  return publicUrlForPath(value);
+}
+
+export function formatElectionCountdown(endsAt: string | null | undefined, nowMs: number): string | null {
+  if (!endsAt) return null;
+  const remaining = new Date(endsAt).getTime() - nowMs;
+  if (!Number.isFinite(remaining)) return null;
+  if (remaining <= 0) return 'Ended';
+  const totalSec = Math.floor(remaining / 1000);
+  const hours = Math.floor(totalSec / 3600);
+  const minutes = Math.floor((totalSec % 3600) / 60);
+  const seconds = totalSec % 60;
+  if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
+}
+
+export function minutesToDurationParts(minutes: number | null | undefined): { hours: number; minutes: number } {
+  const total = Math.max(0, Math.floor(minutes || 0));
+  return { hours: Math.floor(total / 60), minutes: total % 60 };
+}
+
 export function canContestEcElection(
   committees: ElectionCommitteeRow[],
   category: ElectionCategoryId,

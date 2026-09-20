@@ -9,28 +9,36 @@ import DashboardAtmosphere from '@/components/react-bits/DashboardAtmosphere';
 import PortalLoadingScreen from '@/components/PortalLoadingScreen';
 import {
   ELECTION_CATEGORIES,
+  ballotContestants,
+  formatElectionCountdown,
+  minutesToDurationParts,
   rankContestants,
   winnersForCategory,
   type ElectionCategoryId,
   type ElectionStatus,
 } from '@/lib/ec-election';
 import PartyPoppers from '@/components/election/PartyPoppers';
+import CandidatePhoto from '@/components/election/CandidatePhoto';
 
 type Contestant = {
   id: string;
   user_id: string;
   name: string;
+  avatar_url?: string | null;
   category: ElectionCategoryId;
   created_at: string;
+  on_ballot?: boolean;
 };
 
 type TallyRow = {
   contestant_id: string;
   user_id: string;
   name: string;
+  avatar_url?: string | null;
   category: ElectionCategoryId;
   votes: number;
   created_at: string;
+  on_ballot?: boolean;
 };
 
 type BallotRow = {
@@ -40,13 +48,30 @@ type BallotRow = {
   category: ElectionCategoryId;
 };
 
+type RemovalRow = {
+  id: string;
+  name: string;
+  category: ElectionCategoryId;
+  reason: string;
+  removed_at: string;
+};
+
+type MyRemoval = {
+  category: ElectionCategoryId;
+  reason: string;
+  removed_at: string;
+};
+
 type ElectionState = {
   allowed: boolean;
   tab_visible: boolean;
   status: ElectionStatus;
   results_visible: boolean;
   roles_applied: boolean;
+  voting_minutes: number | null;
+  voting_ends_at: string | null;
   can_manage: boolean;
+  can_remove: boolean;
   can_contest: Partial<Record<ElectionCategoryId, boolean>>;
   can_vote: boolean;
   can_view_live: boolean;
@@ -55,6 +80,8 @@ type ElectionState = {
   my_votes: Record<string, string[]>;
   tally: TallyRow[] | null;
   ballots: BallotRow[] | null;
+  removals: RemovalRow[] | null;
+  my_removal: MyRemoval | null;
 };
 
 function rpcError(err: { message?: string } | null): string {
@@ -70,6 +97,11 @@ export default function ElectionPage() {
   const [busy, setBusy] = useState(false);
   const [state, setState] = useState<ElectionState | null>(null);
   const [picks, setPicks] = useState<Record<string, string[]>>({});
+  const [durationHours, setDurationHours] = useState(1);
+  const [durationMinutes, setDurationMinutes] = useState(0);
+  const [removeId, setRemoveId] = useState('');
+  const [removeReason, setRemoveReason] = useState('');
+  const [nowMs, setNowMs] = useState(() => Date.now());
 
   const load = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -90,6 +122,9 @@ export default function ElectionPage() {
       return;
     }
     setState(next);
+    const parts = minutesToDurationParts(next.voting_minutes);
+    setDurationHours(parts.hours || (next.voting_minutes ? 0 : 1));
+    setDurationMinutes(parts.minutes);
     const nextPicks: Record<string, string[]> = {};
     for (const cat of ELECTION_CATEGORIES) {
       nextPicks[cat.id] = Array.isArray(next.my_votes?.[cat.id]) ? next.my_votes[cat.id] : [];
@@ -101,6 +136,18 @@ export default function ElectionPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    if (state?.status !== 'voting' || !state.voting_ends_at) return;
+    const tick = window.setInterval(() => {
+      const t = Date.now();
+      setNowMs(t);
+      if (new Date(state.voting_ends_at as string).getTime() <= t) {
+        void load();
+      }
+    }, 1000);
+    return () => window.clearInterval(tick);
+  }, [load, state?.status, state?.voting_ends_at]);
 
   async function callRpc(fn: string, args: Record<string, unknown> = {}, ok?: string) {
     setBusy(true);
@@ -146,6 +193,8 @@ export default function ElectionPage() {
   const showResults = state.results_visible && !!state.tally;
   const showCategories =
     state.tab_visible && !showResults && (state.status !== 'closed' || state.can_view_live);
+  const countdown = state.status === 'voting' ? formatElectionCountdown(state.voting_ends_at, nowMs) : null;
+  const removable = state.contestants;
 
   return (
     <>
@@ -156,7 +205,8 @@ export default function ElectionPage() {
 
       <div className="max-w-5xl mx-auto px-4 py-8 relative z-10 space-y-6">
         {state.can_manage && (
-          <div className="premium-card rounded-2xl p-4 flex flex-wrap gap-2">
+          <div className="premium-card rounded-2xl p-4 space-y-3">
+            <div className="flex flex-wrap gap-2">
             {!state.tab_visible && (
               <button disabled={busy} onClick={() => callRpc('ec_election_open_tab', {}, 'Election opened')} className="btn-gradient-green px-4 py-2 rounded-xl text-sm font-semibold disabled:opacity-50">
                 Open Election
@@ -195,6 +245,119 @@ export default function ElectionPage() {
             {state.roles_applied && (
               <span className="px-3 py-2 text-xs font-semibold text-emerald-700 bg-emerald-50 rounded-xl">Roles updated</span>
             )}
+            </div>
+            {state.status !== 'closed' && (
+              <div className="flex flex-wrap items-end gap-3 pt-1 border-t border-gray-100">
+                <label className="text-xs font-semibold text-gray-600">
+                  Hours
+                  <input
+                    type="number"
+                    min={0}
+                    max={168}
+                    value={durationHours}
+                    onChange={(e) => setDurationHours(Math.max(0, Number(e.target.value) || 0))}
+                    className="mt-1 block w-20 rounded-lg border border-gray-200 px-2 py-1.5 text-sm"
+                  />
+                </label>
+                <label className="text-xs font-semibold text-gray-600">
+                  Minutes
+                  <input
+                    type="number"
+                    min={0}
+                    max={59}
+                    value={durationMinutes}
+                    onChange={(e) => setDurationMinutes(Math.max(0, Math.min(59, Number(e.target.value) || 0)))}
+                    className="mt-1 block w-20 rounded-lg border border-gray-200 px-2 py-1.5 text-sm"
+                  />
+                </label>
+                <button
+                  disabled={busy || durationHours * 60 + durationMinutes < 1}
+                  onClick={() => callRpc('ec_election_set_duration', { p_minutes: durationHours * 60 + durationMinutes }, 'Duration saved')}
+                  className="btn-gradient-amber px-4 py-2 rounded-xl text-sm font-semibold disabled:opacity-50"
+                >
+                  Set duration
+                </button>
+                {state.voting_minutes ? (
+                  <p className="text-xs text-gray-500 pb-2">{state.voting_minutes} minute voting window</p>
+                ) : (
+                  <p className="text-xs text-gray-500 pb-2">Set how long voting stays open</p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {countdown && (
+          <div className="premium-panel rounded-2xl px-4 py-3 text-sm font-semibold text-indigo-700">
+            Time left: {countdown}
+          </div>
+        )}
+
+        {state.my_removal && (
+          <div className="premium-panel rounded-2xl p-5 space-y-1">
+            <p className="text-sm font-bold text-rose-800">Your nomination was removed</p>
+            <p className="text-sm text-gray-700">
+              {ELECTION_CATEGORIES.find((c) => c.id === state.my_removal?.category)?.title || 'This post'}
+            </p>
+            <p className="text-sm text-gray-600">{state.my_removal.reason}</p>
+          </div>
+        )}
+
+        {state.can_remove && state.status === 'nominations' && (
+          <div className="premium-card rounded-2xl p-4 space-y-3">
+            <h3 className="text-sm font-bold text-gray-900">Remove a nomination</h3>
+            <p className="text-xs text-gray-500">Faculty only. Only the first 2 nominations for each post stay on the ballot.</p>
+            <label className="block text-xs font-semibold text-gray-600">
+              Candidate
+              <select
+                value={removeId}
+                onChange={(e) => setRemoveId(e.target.value)}
+                className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900"
+              >
+                <option value="">Select</option>
+                {removable.map((person) => (
+                  <option key={person.id} value={person.id}>
+                    {person.name} — {ELECTION_CATEGORIES.find((c) => c.id === person.category)?.title}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-xs font-semibold text-gray-600">
+              Reason
+              <textarea
+                value={removeReason}
+                onChange={(e) => setRemoveReason(e.target.value)}
+                rows={3}
+                placeholder="Why this nomination is being removed"
+                className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm text-gray-900"
+              />
+            </label>
+            <button
+              disabled={busy || !removeId || removeReason.trim().length < 3}
+              onClick={async () => {
+                await callRpc('ec_election_remove_nomination', { p_contestant_id: removeId, p_reason: removeReason.trim() }, 'Nomination removed');
+                setRemoveId('');
+                setRemoveReason('');
+              }}
+              className="btn-gradient-red px-4 py-2 rounded-xl text-sm font-semibold disabled:opacity-50"
+            >
+              Remove nomination
+            </button>
+          </div>
+        )}
+
+        {state.can_view_live && (state.removals || []).length > 0 && (
+          <div className="premium-card rounded-2xl p-4 space-y-2">
+            <h3 className="text-sm font-bold text-gray-900">Removed nominations</h3>
+            {(state.removals || []).map((row) => (
+              <p key={row.id} className="text-sm text-gray-600">
+                <span className="font-semibold text-gray-800">{row.name}</span>
+                {' — '}
+                {ELECTION_CATEGORIES.find((c) => c.id === row.category)?.title}
+                {': '}
+                {row.reason}
+              </p>
+            ))}
           </div>
         )}
 
@@ -214,37 +377,50 @@ export default function ElectionPage() {
           <div className="space-y-4">
             {ELECTION_CATEGORIES.map((cat) => {
               const ranked = rankContestants(
-                (state.tally || [])
+                ballotContestants(state.tally || [])
                   .filter((row) => row.category === cat.id)
                   .map((row) => ({
                     id: row.contestant_id,
                     name: row.name,
+                    avatar_url: row.avatar_url,
                     votes: row.votes,
                     createdAt: row.created_at,
+                    on_ballot: row.on_ballot,
                   })),
               );
               const winners = winnersForCategory(ranked);
               const catBallots = (state.ballots || []).filter((b) => b.category === cat.id);
+              const winnerRow = (id?: string | null) =>
+                (state.tally || []).find((row) => row.contestant_id === id);
               return (
                 <div key={cat.id} className="premium-panel rounded-2xl p-6">
                   <h2 className="text-lg font-bold text-gray-900 mb-4">{cat.title}</h2>
                   <div className="grid sm:grid-cols-2 gap-3">
-                    <div className="rounded-xl bg-amber-50 border border-amber-100 p-4">
-                      <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide">{cat.firstRole}</p>
-                      <p className="text-base font-bold text-gray-900 mt-1">{winners.first?.name || '—'}</p>
-                      {winners.first && <p className="text-sm font-semibold text-gray-600 mt-1">{winners.first.votes}</p>}
+                    <div className="rounded-xl bg-amber-50 border border-amber-100 p-4 flex items-center gap-3">
+                      <CandidatePhoto name={winners.first?.name || cat.firstRole} avatarUrl={winnerRow(winners.first?.id)?.avatar_url} size={56} />
+                      <div>
+                        <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide">{cat.firstRole}</p>
+                        <p className="text-base font-bold text-gray-900 mt-1">{winners.first?.name || '—'}</p>
+                        {winners.first && <p className="text-sm font-semibold text-gray-600 mt-1">{winners.first.votes}</p>}
+                      </div>
                     </div>
-                    <div className="rounded-xl bg-indigo-50 border border-indigo-100 p-4">
-                      <p className="text-xs font-semibold text-indigo-700 uppercase tracking-wide">{cat.secondRole}</p>
-                      <p className="text-base font-bold text-gray-900 mt-1">{winners.second?.name || '—'}</p>
-                      {winners.second && <p className="text-sm font-semibold text-gray-600 mt-1">{winners.second.votes}</p>}
+                    <div className="rounded-xl bg-indigo-50 border border-indigo-100 p-4 flex items-center gap-3">
+                      <CandidatePhoto name={winners.second?.name || cat.secondRole} avatarUrl={winnerRow(winners.second?.id)?.avatar_url} size={56} />
+                      <div>
+                        <p className="text-xs font-semibold text-indigo-700 uppercase tracking-wide">{cat.secondRole}</p>
+                        <p className="text-base font-bold text-gray-900 mt-1">{winners.second?.name || '—'}</p>
+                        {winners.second && <p className="text-sm font-semibold text-gray-600 mt-1">{winners.second.votes}</p>}
+                      </div>
                     </div>
                   </div>
                   {ranked.length > 0 && (
                     <div className="mt-4 space-y-1.5">
                       {ranked.map((row) => (
-                        <div key={row.id} className="flex items-center justify-between text-sm px-1">
-                          <span className="text-gray-800">{row.name}</span>
+                        <div key={row.id} className="flex items-center justify-between text-sm px-1 gap-3">
+                          <span className="flex items-center gap-2 text-gray-800">
+                            <CandidatePhoto name={row.name} avatarUrl={winnerRow(row.id)?.avatar_url} size={28} />
+                            {row.name}
+                          </span>
                           <span className="font-bold text-gray-900">{row.votes}</span>
                         </div>
                       ))}
@@ -269,12 +445,16 @@ export default function ElectionPage() {
           <div className="space-y-5">
             {ELECTION_CATEGORIES.map((cat) => {
               const people = state.contestants.filter((c) => c.category === cat.id);
+              const listPeople = state.status === 'nominations' ? people : ballotContestants(people);
               const selected = picks[cat.id] || [];
               const contestingHere = myContest?.category === cat.id;
               return (
                 <div key={cat.id} className="premium-panel rounded-2xl p-6">
                   <div className="flex items-center justify-between gap-3 mb-4">
-                    <h2 className="text-lg font-bold text-gray-900">{cat.title}</h2>
+                    <div>
+                      <h2 className="text-lg font-bold text-gray-900">{cat.title}</h2>
+                      <p className="text-xs text-gray-500 mt-0.5">2 candidates on the ballot</p>
+                    </div>
                     {state.status === 'nominations' && !!state.can_contest?.[cat.id] && (
                       contestingHere ? (
                         <button disabled={busy} onClick={() => callRpc('ec_election_walk_out', {}, 'Withdrawn')} className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-50 text-rose-700 disabled:opacity-50">
@@ -288,14 +468,15 @@ export default function ElectionPage() {
                     )}
                   </div>
 
-                  {people.length === 0 ? (
+                  {listPeople.length === 0 ? (
                     <p className="text-sm text-gray-400">No contestants</p>
                   ) : (
                     <div className="space-y-2">
-                      {people.map((person) => {
+                      {listPeople.map((person) => {
                         const chosen = selected.includes(person.id);
                         const votes = tallyByContestant.get(person.id);
-                        const clickable = state.status === 'voting' && state.can_vote;
+                        const clickable = state.status === 'voting' && state.can_vote && person.on_ballot !== false;
+                        const overflow = state.status === 'nominations' && person.on_ballot === false;
                         return (
                           <button
                             key={person.id}
@@ -309,8 +490,16 @@ export default function ElectionPage() {
                             } ${clickable ? 'hover:border-indigo-200' : ''} disabled:cursor-default`}
                           >
                             <div className="flex items-center justify-between gap-3">
-                              <span className="font-semibold text-gray-900">{person.name}</span>
-                              {showLive && typeof votes === 'number' && (
+                              <span className="flex items-center gap-3 min-w-0">
+                                <CandidatePhoto name={person.name} avatarUrl={person.avatar_url} />
+                                <span className="min-w-0">
+                                  <span className="block font-semibold text-gray-900 truncate">{person.name}</span>
+                                  {overflow && (
+                                    <span className="block text-xs text-amber-700">Not on ballot — only first 2 count</span>
+                                  )}
+                                </span>
+                              </span>
+                              {showLive && typeof votes === 'number' && person.on_ballot !== false && (
                                 <span className="text-sm font-bold text-indigo-700">{votes}</span>
                               )}
                             </div>
@@ -320,7 +509,7 @@ export default function ElectionPage() {
                     </div>
                   )}
 
-                  {state.status === 'voting' && state.can_vote && people.length > 0 && (
+                  {state.status === 'voting' && state.can_vote && listPeople.length > 0 && (
                     <button
                       disabled={busy || selected.length < 1}
                       onClick={() => callRpc('ec_election_cast_votes', { p_category: cat.id, p_contestant_ids: selected }, 'Vote saved')}

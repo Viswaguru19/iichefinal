@@ -1,12 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ballotContestants,
   canContestEcElection,
   canManageEcElection,
+  canRemoveEcNomination,
   canViewLiveElectionTally,
   canVoteEcElection,
   electionCardCopy,
+  formatElectionCountdown,
   formatExecutiveRole,
   rankContestants,
+  resolveElectionAvatarUrl,
   winnersForCategory,
 } from '@/lib/ec-election';
 
@@ -24,6 +28,15 @@ describe('ec-election access', () => {
     expect(canViewLiveElectionTally({ is_admin: true })).toBe(true);
     expect(canViewLiveElectionTally({ is_faculty: true })).toBe(false);
     expect(canViewLiveElectionTally({ role: 'secretary' })).toBe(false);
+  });
+
+  it('lets faculty and admins remove nominations, not committee managers', () => {
+    expect(canRemoveEcNomination({ is_faculty: true })).toBe(true);
+    expect(canRemoveEcNomination({ role: 'faculty_advisor' })).toBe(true);
+    expect(canRemoveEcNomination({ is_admin: true })).toBe(true);
+    expect(
+      canRemoveEcNomination({ role: 'student' }),
+    ).toBe(false);
   });
 
   it('lets heads contest Secretary and co-heads contest Joint Secretary and Treasurer', () => {
@@ -54,6 +67,40 @@ describe('ec-election ranking', () => {
 describe('ec-election role labels', () => {
   it('titles executive posts', () => {
     expect(formatExecutiveRole('associate_joint_secretary')).toBe('Associate Joint Secretary');
+  });
+});
+
+describe('ec-election ballot cap', () => {
+  it('keeps only the first two nominations per post', () => {
+    const picked = ballotContestants([
+      { id: 'c', created_at: '2026-01-03' },
+      { id: 'a', created_at: '2026-01-01' },
+      { id: 'b', created_at: '2026-01-02' },
+    ]);
+    expect(picked.map((row) => row.id)).toEqual(['a', 'b']);
+  });
+
+  it('uses on_ballot when the server already marked the slate', () => {
+    const picked = ballotContestants([
+      { id: 'a', created_at: '2026-01-01', on_ballot: true },
+      { id: 'b', created_at: '2026-01-02', on_ballot: false },
+      { id: 'c', created_at: '2026-01-03', on_ballot: true },
+    ]);
+    expect(picked.map((row) => row.id)).toEqual(['a', 'c']);
+  });
+});
+
+describe('ec-election avatars and duration', () => {
+  it('turns stored profile paths into public avatar urls', () => {
+    expect(resolveElectionAvatarUrl('https://cdn.example/a.jpg', () => 'nope')).toBe('https://cdn.example/a.jpg');
+    expect(resolveElectionAvatarUrl('me.png', (path) => `https://storage/${path}`)).toBe('https://storage/me.png');
+    expect(resolveElectionAvatarUrl(null, () => 'nope')).toBeNull();
+  });
+
+  it('formats remaining voting time', () => {
+    const now = Date.parse('2026-01-01T10:00:00.000Z');
+    expect(formatElectionCountdown('2026-01-01T11:05:07.000Z', now)).toBe('1h 5m 7s');
+    expect(formatElectionCountdown('2026-01-01T09:00:00.000Z', now)).toBe('Ended');
   });
 });
 
