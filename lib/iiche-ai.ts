@@ -38,6 +38,14 @@ For general questions, answer fully in clear language. Prefer short paragraphs a
 
 const GUIDE: { keys: string[]; reply: string }[] = [
   {
+    keys: ['how are you', 'how r you', "how's it going", 'whats up', "what's up"],
+    reply: "I'm doing well — ready to help with the portal, research, or event work. What do you need?",
+  },
+  {
+    keys: ['thank you', 'thanks', 'thx'],
+    reply: "You're welcome. Ask whenever you need officers, forms, meetings, or anything else.",
+  },
+  {
     keys: ['hello', 'hi', 'hey', 'help', 'what can you'],
     reply:
       'I am IIChE AI. Ask me anything — research, problem-solving, event ideas, chemical engineering, or the portal. I can also look up co-heads and create forms, meetings, reports, and minutes when you ask.',
@@ -88,12 +96,24 @@ const GUIDE: { keys: string[]; reply: string }[] = [
   },
 ];
 
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function guideKeyMatches(lower: string, key: string): boolean {
+  const k = key.trim().toLowerCase();
+  if (!k) return false;
+  if (k.includes(' ')) return lower.includes(k);
+  if (k.length <= 4) return new RegExp(`\\b${escapeRegExp(k)}\\b`, 'i').test(lower);
+  return new RegExp(`\\b${escapeRegExp(k)}`, 'i').test(lower);
+}
+
 export function fallbackIicheAiReply(message: string): string {
   const lower = message.toLowerCase();
   for (const row of GUIDE) {
-    if (row.keys.some((key) => lower.includes(key))) return row.reply;
+    if (row.keys.some((key) => guideKeyMatches(lower, key))) return row.reply;
   }
-  return GUIDE[0].reply;
+  return GUIDE.find((row) => row.keys.includes('hello'))?.reply || GUIDE[0].reply;
 }
 
 function env(name: string): string {

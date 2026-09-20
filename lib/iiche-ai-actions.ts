@@ -872,11 +872,18 @@ export function maybeHeuristicTool(message: string): { name: string; args: Recor
       }
     }
   }
-  const co = /(?:who\s+(?:are|is)\s+(?:all\s+)?(?:the\s+)?)?(?:the\s+)?co[-\s]?heads?|(?:head and co[-\s]?heads?)/i.test(lower);
-  if (co && !wantsCreate) {
-    const of = lower.match(/(?:of|for)\s+(?:the\s+)?(.+?)(?:\s+committe?e?s?)?[?.!]*$/i);
-    const name = (of?.[1] || 'this').replace(/\s+committe?e?s?\s*$/i, '').trim();
-    return { name: 'get_committee_officers', args: { committee_name: name || 'this' } };
+  const officers =
+    /\b(co[-\s]?heads?|heads?|officers?)\b/.test(lower) &&
+    (/\bcommitte?e?s?\b/.test(lower) || /\b(who|which|list)\b/.test(lower) || /\b(of|for)\s+(the\s+)?/.test(lower));
+  if (officers && !wantsCreate) {
+    let name = 'this';
+    if (/\bthis\s+committe?e?\b/.test(lower) || /\bmy\s+committe?e?\b/.test(lower) || /\bour\s+committe?e?\b/.test(lower)) {
+      name = 'this';
+    } else {
+      const of = lower.match(/(?:of|for)\s+(?:the\s+)?(.+?)(?:\s+committe?e?s?)?[?.!]*$/i);
+      name = (of?.[1] || 'this').replace(/\s+committe?e?s?\s*$/i, '').trim() || 'this';
+    }
+    return { name: 'get_committee_officers', args: { committee_name: name } };
   }
   if (wantsCreate && /\bform\b/.test(lower)) {
     const titled = m.match(/form (?:called|named|titled|:)\s*["']?(.+?)["']?$/i) || m.match(/["'](.+?)["']\s*form/i);

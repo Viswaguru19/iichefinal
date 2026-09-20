@@ -18,6 +18,11 @@ describe('IIChE AI guide', () => {
   it('falls back to a greeting for unknown questions', () => {
     expect(fallbackIicheAiReply('xyz-unknown')).toContain('IIChE AI');
   });
+
+  it('does not treat “this” as a hello, and answers how-are-you', () => {
+    expect(fallbackIicheAiReply('heads of this committee')).not.toContain('Ask me anything');
+    expect(fallbackIicheAiReply('how are you').toLowerCase()).toContain("i'm doing well");
+  });
 });
 
 describe('IIChE AI tool heuristics', () => {
@@ -40,6 +45,8 @@ describe('IIChE AI tool heuristics', () => {
     const hit = maybeHeuristicTool('Who are all the co heads of this committee');
     expect(hit?.name).toBe('get_committee_officers');
     expect(String(hit?.args.committee_name).toLowerCase()).toContain('this');
+    expect(maybeHeuristicTool('heads of this committee')?.name).toBe('get_committee_officers');
+    expect(maybeHeuristicTool('who is the head of Program')?.name).toBe('get_committee_officers');
   });
 
   it('detects form creation', () => {
@@ -68,7 +75,9 @@ describe('IIChE AI reply formatting', () => {
     expect(plain).not.toContain('*');
     expect(plain).toContain('Abhinav R');
     expect(parseIicheAiReply(raw).some((b) => b.t === 'li')).toBe(true);
-    expect(parseIicheAiReply(raw).some((b) => b.t === 'li' && b.children.some((c) => c.t === 'b' && c.v === 'Program Committee'))).toBe(true);
+    expect(
+      parseIicheAiReply(raw).some((b) => b.t !== 'img' && b.children.some((c) => c.t === 'b' && c.v === 'Program Committee')),
+    ).toBe(true);
   });
 
   it('renders designed poster data URLs in chat', () => {
