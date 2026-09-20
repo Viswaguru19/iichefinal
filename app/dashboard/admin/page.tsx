@@ -73,6 +73,7 @@ export default async function AdminDashboard() {
 
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
           <AdminCard href="/dashboard/admin/users" icon={<Power />} title="User Management" desc="Activate/Deactivate users" color="red" />
+          <AdminCard href="/dashboard/member-profiles" icon={<ImageIcon />} title="Member profiles" desc="Add photos and bios for other members" color="teal" />
           <AdminCard href="/dashboard/admin/add-user" icon={<Users />} title="Add User" desc="Create new user account" color="green" />
           <AdminCard href="/dashboard/admin/approvals" icon={<UserCheck />} title="User Approvals" desc="Approve & assign users" color="blue" />
           <AdminCard href="/dashboard/admin/committees" icon={<Users />} title="Edit Committees" desc="Edit committee details" color="purple" />

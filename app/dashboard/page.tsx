@@ -4,6 +4,7 @@ import Link from 'next/link';
 import nextDynamic from 'next/dynamic';
 import { Crown, Send, ClipboardList, Sparkles } from 'lucide-react';
 import { canManageEcElection, electionCardCopy } from '@/lib/ec-election';
+import { canEditOtherMemberProfiles } from '@/lib/member-profile-edit';
 import DashboardNav from '@/components/dashboard/DashboardNav';
 import AnimatedDashboardCard from '@/components/dashboard/AnimatedDashboardCard';
 import AnimatedSection from '@/components/dashboard/AnimatedSection';
@@ -132,6 +133,7 @@ export default async function DashboardPage() {
   const committeeRole = userCommittee ? `${(userCommittee as any).committees.name} ${(userCommittee as any).position === 'head' ? 'Head' : (userCommittee as any).position === 'co_head' ? 'Co-Head' : 'Member'}` : null;
 
   // Check if user can manage kickoff (admin OR Social & Environmental Committee head/co-head)
+  const canEditMemberProfiles = canEditOtherMemberProfiles(profile, userMemberships);
   const canManageKickoff = isAdmin || (
     userCommittee &&
     (userCommittee as any).committees?.name === 'Social and Environmental Committee' &&
@@ -475,6 +477,16 @@ export default async function DashboardPage() {
                   description="Approve event proposals"
                   iconColor="purple-600"
                   index={2}
+                />
+              )}
+              {canEditMemberProfiles && (
+                <AnimatedDashboardCard
+                  href="/dashboard/member-profiles"
+                  iconName="Users"
+                  title="Member profiles"
+                  description="Add photos and bios for members"
+                  iconColor="indigo-600"
+                  index={4}
                 />
               )}
               <AnimatedDashboardCard

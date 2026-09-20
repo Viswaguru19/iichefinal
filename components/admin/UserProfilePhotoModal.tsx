@@ -58,7 +58,7 @@ export default function UserProfilePhotoModal({ user, onClose, onSuccess }: User
             // Update user profile
             const { error: updateError } = await supabase
                 .from('profiles')
-                .update({ profile_photo: publicUrl })
+                .update({ profile_photo: publicUrl, avatar_url: filePath })
                 .eq('id', user.id);
 
             if (updateError) throw updateError;

@@ -787,6 +787,7 @@ const PORTAL_PAGES: { keys: string[]; path: string; label: string; note: string 
   { keys: ['chat', 'message'], path: '/dashboard/chat', label: 'Chat', note: 'Chapter chat.' },
   { keys: ['hiring'], path: '/dashboard/hiring', label: 'Hiring', note: 'Committee hiring.' },
   { keys: ['poster'], path: '/dashboard/posters', label: 'Posters', note: 'Poster tools.' },
+  { keys: ['member profile', 'member-profiles', 'bios', 'profile photo'], path: '/dashboard/member-profiles', label: 'Member profiles', note: 'Graphics and admins add photos and bios for members.' },
   { keys: ['dashboard', 'home'], path: '/dashboard', label: 'Dashboard', note: 'Chapter home.' },
 ];
 

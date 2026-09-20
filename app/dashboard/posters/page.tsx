@@ -168,6 +168,10 @@ export default function PostersPage() {
           {isAdmin
             ? 'As an admin, your poster uploads are published immediately. Graphics uploads still require faculty approval.'
             : 'Posters are reviewed by faculty first. After approval they are visible to everyone on event pages and forms.'}
+          {' '}
+          <Link href="/dashboard/member-profiles" className="text-indigo-600 hover:underline">
+            Add member photos and bios
+          </Link>
         </p>
 
         <div className="premium-panel rounded-2xl p-8 shadow-lg">
