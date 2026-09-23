@@ -59,11 +59,11 @@ export const IICHE_AI_TOOL_DECLARATIONS = [
   {
     name: 'manage_election',
     description:
-      'Open, start, stop, or hide the EC election if the signed-in user is an election manager (faculty). Use when they say open election, start voting, or stop election. Do not say you cannot; call this and report the result.',
+      'Start contesting, finalize contestants, open voting, stop, or hide the EC election if the signed-in user is an election manager. Use when they say start election, finalize contestants, open election, or stop election. Do not say you cannot; call this and report the result.',
     parameters: {
       type: 'object',
       properties: {
-        action: { type: 'string', description: 'open, start, stop, hide, results, or new' },
+        action: { type: 'string', description: 'start, finalize, open, stop, hide, results, or new' },
       },
       required: ['action'],
     },
@@ -579,30 +579,45 @@ function rpcErr(error: { message?: string } | null | undefined): string {
 export async function manageElection(ctx: IicheAiToolCtx, args: Record<string, unknown>): Promise<string> {
   let action = str(args.action).toLowerCase() || 'open';
   if (action === 'show_results' || action === 'publish') action = 'results';
+  if (action === 'finalize_contestants' || action === 'finalise') action = 'finalize';
+  if (action === 'open_voting' || action === 'start_voting') action = 'open';
   const { data: state, error: stErr } = await ctx.supabase.rpc('ec_election_state');
   if (stErr) return `Could not read election state: ${rpcErr(stErr)}`;
-  const s = state as { can_manage?: boolean; tab_visible?: boolean; status?: string; results_visible?: boolean };
+  const s = state as {
+    can_manage?: boolean;
+    can_finalize?: boolean;
+    tab_visible?: boolean;
+    status?: string;
+    results_visible?: boolean;
+    contestants_finalized?: boolean;
+  };
   const go = 'NAVIGATE:/dashboard/election';
   if (!s?.can_manage) {
-    return `${go} You do not have rights to ${action} the election. Only faculty election managers can. Opening the election page.`;
+    return `${go} You do not have rights to ${action} the election. Only faculty or Social & Environmental members can. Opening the election page.`;
   }
   const fn: Record<string, string> = {
-    open: 'ec_election_open_tab',
     start: 'ec_election_start',
+    finalize: 'ec_election_finalize_contestants',
+    open: 'ec_election_open_voting',
     stop: 'ec_election_stop',
     hide: 'ec_election_hide_tab',
     results: 'ec_election_show_results',
     new: 'ec_election_new',
   };
-  if (action === 'open' && s.tab_visible) {
-    return `${go} The election is already open (status: ${s.status || 'unknown'}).`;
+  if (action === 'finalize' && !s.can_finalize) {
+    return `${go} Only faculty can finalize contestants.`;
   }
-  if (action === 'start' && !s.tab_visible) {
-    const opened = await ctx.supabase.rpc('ec_election_open_tab');
-    if (opened.error) return `${go} Could not open the election: ${rpcErr(opened.error)}`;
+  if (action === 'open' && !s.contestants_finalized) {
+    return `${go} Faculty must finalize contestants before voting can open.`;
+  }
+  if (action === 'open' && s.status === 'voting') {
+    return `${go} Voting is already open.`;
+  }
+  if (action === 'start' && s.tab_visible && s.status === 'nominations' && !s.contestants_finalized) {
+    return `${go} Contesting is already open. Names stay hidden until faculty finalizes.`;
   }
   const rpcName = fn[action];
-  if (!rpcName) return `${go} Unknown election action "${action}". Use open, start, stop, hide, results, or new.`;
+  if (!rpcName) return `${go} Unknown election action "${action}". Use start, finalize, open, stop, hide, results, or new.`;
   const { error } = await ctx.supabase.rpc(rpcName);
   if (error) return `${go} Could not ${action} the election: ${rpcErr(error)}`;
   return `${go} Election ${action} succeeded.`;
@@ -911,7 +926,7 @@ const PORTAL_PAGES: { keys: string[]; path: string; label: string; note: string 
     keys: ['election', 'elections', 'voting', 'vote', 'contest'],
     path: '/dashboard/election',
     label: 'EC election',
-    note: 'Faculty open voting. Committee heads contest Secretary; co-heads contest Joint Secretary and Treasurer. Heads and co-heads vote.',
+    note: 'After start, heads and co-heads contest. Names stay hidden until faculty finalizes. Faculty or Social & Environmental then open voting. Results publish when voting stops, time ends, or everyone has voted.',
   },
   { keys: ['propose-event', 'propose event', 'propose'], path: '/dashboard/propose-event', label: 'Propose event', note: 'Submit a new event proposal.' },
   { keys: ['proposal'], path: '/dashboard/proposals', label: 'Proposals', note: 'Track submitted event proposals.' },
@@ -989,6 +1004,7 @@ export function maybeHeuristicTool(message: string): { name: string; args: Recor
   const wantsCreate = /\b(create|ceate|make|add|new|schedule|write|save)\b/.test(lower);
   if (/\b(election|elections|voting)\b/.test(lower) && !wantsCreate) {
     if (/\b(stop|end|close voting)\b/.test(lower)) return { name: 'manage_election', args: { action: 'stop' } };
+    if (/\bfinali[sz]e\b/.test(lower)) return { name: 'manage_election', args: { action: 'finalize' } };
     if (/\b(start|begin)\b/.test(lower)) return { name: 'manage_election', args: { action: 'start' } };
     if (/\b(open|launch|enable)\b/.test(lower) || /\belections? section\b/.test(lower)) {
       return { name: 'manage_election', args: { action: 'open' } };

@@ -62,6 +62,16 @@ export function canRemoveEcNomination(profile: ElectionProfile | null | undefine
   return role === 'faculty_advisor' || role === 'admin' || role === 'super_admin';
 }
 
+export function canSeeEcContestSlate(options: {
+  profile?: ElectionProfile | null;
+  contestantsFinalized?: boolean;
+  isSelf?: boolean;
+}): boolean {
+  if (options.contestantsFinalized) return true;
+  if (options.isSelf) return true;
+  return canRemoveEcNomination(options.profile);
+}
+
 export const ELECTION_BALLOT_SIZE = 2;
 
 export function ballotContestants<T extends { createdAt?: string; created_at?: string; on_ballot?: boolean }>(
@@ -148,13 +158,18 @@ export function formatExecutiveRole(role: string | null | undefined): string {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-export function electionCardCopy(status: ElectionStatus | null, resultsVisible: boolean): {
+export function electionCardCopy(
+  status: ElectionStatus | null,
+  resultsVisible: boolean,
+  contestantsFinalized = false,
+): {
   title: string;
   description: string;
 } {
   if (resultsVisible) return { title: 'EC Election', description: 'Results' };
   if (status === 'voting') return { title: 'EC Election', description: 'Vote' };
   if (status === 'closed') return { title: 'EC Election', description: 'Ended' };
+  if (status === 'nominations' && contestantsFinalized) return { title: 'EC Election', description: 'Ballot' };
   if (status === 'nominations') return { title: 'EC Election', description: 'Contest' };
   return { title: 'EC Election', description: 'Open' };
 }

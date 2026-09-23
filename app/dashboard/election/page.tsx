@@ -68,10 +68,13 @@ type ElectionState = {
   status: ElectionStatus;
   results_visible: boolean;
   roles_applied: boolean;
+  contestants_finalized: boolean;
   voting_minutes: number | null;
   voting_ends_at: string | null;
   can_manage: boolean;
   can_remove: boolean;
+  can_finalize: boolean;
+  can_see_slate: boolean;
   can_contest: Partial<Record<ElectionCategoryId, boolean>>;
   can_vote: boolean;
   can_view_live: boolean;
@@ -208,28 +211,28 @@ export default function ElectionPage() {
           <div className="premium-card rounded-2xl p-4 space-y-3">
             <div className="flex flex-wrap gap-2">
             {!state.tab_visible && (
-              <button disabled={busy} onClick={() => callRpc('ec_election_open_tab', {}, 'Election opened')} className="btn-gradient-green px-4 py-2 rounded-xl text-sm font-semibold disabled:opacity-50">
-                Open Election
+              <button disabled={busy} onClick={() => callRpc('ec_election_start', {}, 'Election started')} className="btn-gradient-green px-4 py-2 rounded-xl text-sm font-semibold disabled:opacity-50">
+                Start Election
               </button>
             )}
-            {state.tab_visible && (
+            {state.tab_visible && state.status !== 'closed' && (
               <button disabled={busy} onClick={() => callRpc('ec_election_hide_tab', {}, 'Hidden')} className="px-4 py-2 rounded-xl text-sm font-semibold bg-white/80 text-gray-700 border border-gray-200 disabled:opacity-50">
                 Hide
               </button>
             )}
-            {state.tab_visible && state.status === 'nominations' && (
-              <button disabled={busy} onClick={() => callRpc('ec_election_start', {}, 'Voting started')} className="btn-gradient-blue px-4 py-2 rounded-xl text-sm font-semibold disabled:opacity-50">
-                Start Election
+            {state.tab_visible && state.status === 'nominations' && !state.contestants_finalized && state.can_finalize && (
+              <button disabled={busy} onClick={() => callRpc('ec_election_finalize_contestants', {}, 'Contestants finalized')} className="btn-gradient-amber px-4 py-2 rounded-xl text-sm font-semibold disabled:opacity-50">
+                Finalize Contestants
+              </button>
+            )}
+            {state.tab_visible && state.status === 'nominations' && state.contestants_finalized && (
+              <button disabled={busy} onClick={() => callRpc('ec_election_open_voting', {}, 'Voting started')} className="btn-gradient-blue px-4 py-2 rounded-xl text-sm font-semibold disabled:opacity-50">
+                Open Election
               </button>
             )}
             {state.status === 'voting' && (
-              <button disabled={busy} onClick={() => callRpc('ec_election_stop', {}, 'Voting stopped')} className="btn-gradient-red px-4 py-2 rounded-xl text-sm font-semibold disabled:opacity-50">
+              <button disabled={busy} onClick={() => callRpc('ec_election_stop', {}, 'Results published')} className="btn-gradient-red px-4 py-2 rounded-xl text-sm font-semibold disabled:opacity-50">
                 Stop Election
-              </button>
-            )}
-            {state.status === 'closed' && !state.results_visible && (
-              <button disabled={busy} onClick={() => callRpc('ec_election_show_results', {}, 'Results published')} className="btn-gradient-purple px-4 py-2 rounded-xl text-sm font-semibold disabled:opacity-50">
-                Show Results
               </button>
             )}
             {state.results_visible && !state.roles_applied && (
@@ -303,10 +306,10 @@ export default function ElectionPage() {
           </div>
         )}
 
-        {state.can_remove && state.status === 'nominations' && (
+        {state.can_remove && state.status === 'nominations' && !state.contestants_finalized && (
           <div className="premium-card rounded-2xl p-4 space-y-3">
             <h3 className="text-sm font-bold text-gray-900">Remove a nomination</h3>
-            <p className="text-xs text-gray-500">Faculty only. Only the first 2 nominations for each post stay on the ballot.</p>
+            <p className="text-xs text-gray-500">Only faculty and admins can see who has contested until you finalize. Only the first 2 nominations for each post stay on the ballot.</p>
             <label className="block text-xs font-semibold text-gray-600">
               Candidate
               <select
@@ -364,6 +367,20 @@ export default function ElectionPage() {
         {!state.tab_visible && (
           <div className="premium-panel rounded-2xl p-8 text-center text-gray-500 text-sm">
             Hidden from members
+          </div>
+        )}
+
+        {state.tab_visible && state.status === 'nominations' && !state.contestants_finalized && (
+          <div className="premium-panel rounded-2xl px-4 py-3 text-sm text-gray-600">
+            {state.can_see_slate
+              ? 'Contest names are hidden from members until you finalize contestants.'
+              : 'You can contest now. Names stay hidden from others until faculty finalizes the list.'}
+          </div>
+        )}
+
+        {state.tab_visible && state.status === 'nominations' && state.contestants_finalized && (
+          <div className="premium-panel rounded-2xl px-4 py-3 text-sm text-gray-600">
+            Contestants are finalized. Faculty or Social & Environmental members can open the election to start voting.
           </div>
         )}
 
@@ -455,7 +472,7 @@ export default function ElectionPage() {
                       <h2 className="text-lg font-bold text-gray-900">{cat.title}</h2>
                       <p className="text-xs text-gray-500 mt-0.5">2 candidates on the ballot</p>
                     </div>
-                    {state.status === 'nominations' && !!state.can_contest?.[cat.id] && (
+                    {state.status === 'nominations' && !state.contestants_finalized && !!state.can_contest?.[cat.id] && (
                       contestingHere ? (
                         <button disabled={busy} onClick={() => callRpc('ec_election_walk_out', {}, 'Withdrawn')} className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-50 text-rose-700 disabled:opacity-50">
                           Walk out
@@ -469,7 +486,11 @@ export default function ElectionPage() {
                   </div>
 
                   {listPeople.length === 0 ? (
-                    <p className="text-sm text-gray-400">No contestants</p>
+                    <p className="text-sm text-gray-400">
+                      {state.status === 'nominations' && !state.contestants_finalized && !state.can_see_slate
+                        ? 'Contestants are hidden until faculty finalizes the list'
+                        : 'No contestants'}
+                    </p>
                   ) : (
                     <div className="space-y-2">
                       {listPeople.map((person) => {

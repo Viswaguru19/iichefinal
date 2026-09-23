@@ -99,7 +99,7 @@ export default async function DashboardPage() {
       .select('id', { count: 'exact', head: true })
       .eq('receiver_id', user.id)
       .or('read.is.null,read.eq.false'),
-    supabase.from('ec_elections').select('tab_visible, status, results_visible').limit(1).maybeSingle(),
+    supabase.from('ec_elections').select('tab_visible, status, results_visible, contestants_finalized').limit(1).maybeSingle(),
   ]);
 
   const userCommittee = userCommitteeRes.data;
@@ -113,6 +113,7 @@ export default async function DashboardPage() {
     tab_visible?: boolean;
     status?: 'nominations' | 'voting' | 'closed';
     results_visible?: boolean;
+    contestants_finalized?: boolean;
   } | null;
   const electionTabVisible = !!electionRow?.tab_visible;
   const canManageElection = canManageEcElection(
@@ -124,7 +125,11 @@ export default async function DashboardPage() {
   );
   const showElectionCard = electionTabVisible || canManageElection;
   const electionCopy = electionTabVisible
-    ? electionCardCopy(electionRow?.status || null, !!electionRow?.results_visible)
+    ? electionCardCopy(
+        electionRow?.status || null,
+        !!electionRow?.results_visible,
+        !!electionRow?.contestants_finalized,
+      )
     : { title: 'EC Election', description: 'Open' };
 
   // Skip expensive per-group unread counts on dashboard — DMs only keeps first paint fast

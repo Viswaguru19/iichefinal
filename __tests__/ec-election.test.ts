@@ -4,6 +4,7 @@ import {
   canContestEcElection,
   canManageEcElection,
   canRemoveEcNomination,
+  canSeeEcContestSlate,
   canViewLiveElectionTally,
   canVoteEcElection,
   electionCardCopy,
@@ -37,6 +38,14 @@ describe('ec-election access', () => {
     expect(
       canRemoveEcNomination({ role: 'student' }),
     ).toBe(false);
+  });
+
+  it('hides contest names until faculty finalizes, except the person, faculty, and admin', () => {
+    expect(canSeeEcContestSlate({ profile: { role: 'student' }, contestantsFinalized: false })).toBe(false);
+    expect(canSeeEcContestSlate({ profile: { role: 'student' }, contestantsFinalized: false, isSelf: true })).toBe(true);
+    expect(canSeeEcContestSlate({ profile: { is_faculty: true }, contestantsFinalized: false })).toBe(true);
+    expect(canSeeEcContestSlate({ profile: { is_admin: true }, contestantsFinalized: false })).toBe(true);
+    expect(canSeeEcContestSlate({ profile: { role: 'student' }, contestantsFinalized: true })).toBe(true);
   });
 
   it('lets heads contest Secretary and co-heads contest Joint Secretary and Treasurer', () => {
@@ -107,6 +116,7 @@ describe('ec-election avatars and duration', () => {
 describe('ec-election card copy', () => {
   it('keeps dashboard labels short', () => {
     expect(electionCardCopy('nominations', false).description).toBe('Contest');
+    expect(electionCardCopy('nominations', false, true).description).toBe('Ballot');
     expect(electionCardCopy('voting', false).description).toBe('Vote');
     expect(electionCardCopy('closed', true).description).toBe('Results');
   });

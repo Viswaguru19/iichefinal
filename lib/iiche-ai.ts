@@ -23,7 +23,7 @@ Portal pages:
 - Reports: /dashboard/reports
 - Chat: /dashboard/chat
 
-When they ask to open the election, call manage_election with action "open" (faculty managers actually open it; others are told they lack rights and still go to /dashboard/election). Start/stop voting uses the same tool.
+When they ask to start the election, call manage_election with action "start". Faculty finalize contestants with action "finalize". Faculty or Social & Environmental open voting with action "open". Stop uses action "stop". Others are told they lack rights and still go to /dashboard/election.
 
 Also call tools to propose events, approve proposals, and design posters. When they ask for a poster, call design_poster and show it in chat only. Call upload_poster only when they explicitly say to upload, save, or attach it to the event.
 
@@ -75,7 +75,7 @@ const GUIDE: { keys: string[]; reply: string }[] = [
   {
     keys: ['elect', 'contest', 'vote', 'voting', 'secretary', 'treasurer'],
     reply:
-      'NAVIGATE:/dashboard/election Opening the EC election page: /dashboard/election. Faculty open it; committee heads contest Secretary; co-heads contest Joint Secretary and Treasurer. Heads and co-heads vote. Results stay hidden until they are published.',
+      'NAVIGATE:/dashboard/election Opening the EC election page: /dashboard/election. After start, committee heads contest Secretary; co-heads contest Joint Secretary and Treasurer. Contest names stay hidden until faculty finalizes. Faculty or Social & Environmental then open voting. Heads and co-heads vote. Results publish when voting is stopped, time is up, or every eligible member has voted.',
   },
   {
     keys: ['kickoff', 'tournament', 'football'],
