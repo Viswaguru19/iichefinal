@@ -9,6 +9,7 @@ import { ArrowLeft, Plus, Filter, Upload, FileText, ExternalLink, X, Pencil, Tra
 import Link from 'next/link';
 import toast from 'react-hot-toast';
 import { notifyFaculty } from '@/lib/portal-notify-helpers';
+import { canManageStatementOfAccounts } from '@/lib/permissions';
 import DashboardAtmosphere from '@/components/react-bits/DashboardAtmosphere';
 import GradientText from '@/components/react-bits/GradientText';
 import GsapText from '@/components/react-bits/GsapText';
@@ -41,7 +42,7 @@ export default function StatementOfAccountsPage() {
   const [filterYear, setFilterYear] = useState<string>('all');
   const [filterEvent, setFilterEvent] = useState<string>('all');
   const [showAddModal, setShowAddModal] = useState(false);
-  /** Add / edit / delete / attach bills — treasurer, associate treasurer, or faculty only. */
+  /** Add / edit / delete / attach bills — admin, faculty, treasurer, or associate treasurer. */
   const [canManage, setCanManage] = useState(false);
   const [uploadingBill, setUploadingBill] = useState<string | null>(null);
   const [editingTxn, setEditingTxn] = useState<Transaction | null>(null);
@@ -97,14 +98,7 @@ export default function StatementOfAccountsPage() {
       }
 
       // Any signed-in user with a profile may view (RLS also allows all authenticated SELECT).
-      const exec = String(profile.executive_role || '')
-        .trim()
-        .toLowerCase();
-      setCanManage(
-        profile.is_faculty === true ||
-          exec === 'treasurer' ||
-          exec === 'associate_treasurer',
-      );
+      setCanManage(canManageStatementOfAccounts(profile));
 
       const isFirstLoad = !initialLoadDoneRef.current;
       if (isFirstLoad) {
@@ -131,7 +125,7 @@ export default function StatementOfAccountsPage() {
   async function handleAddTransaction(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!canManage) {
-      toast.error('Only Treasurer, Associate Treasurer, or Faculty can add transactions');
+      toast.error('Only Admin, Faculty, Treasurer, or Associate Treasurer can add transactions');
       return;
     }
     const formData = new FormData(e.currentTarget);
@@ -179,7 +173,7 @@ export default function StatementOfAccountsPage() {
   async function handleEditTransaction(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!canManage) {
-      toast.error('Only Treasurer, Associate Treasurer, or Faculty can edit');
+      toast.error('Only Admin, Faculty, Treasurer, or Associate Treasurer can edit');
       return;
     }
     if (!editingTxn) return;
@@ -213,7 +207,7 @@ export default function StatementOfAccountsPage() {
 
   async function handleDeleteTransaction() {
     if (!canManage) {
-      toast.error('Only Treasurer, Associate Treasurer, or Faculty can delete');
+      toast.error('Only Admin, Faculty, Treasurer, or Associate Treasurer can delete');
       return;
     }
     if (!deletingTxn) return;
@@ -224,7 +218,7 @@ export default function StatementOfAccountsPage() {
 
   async function uploadBillForTxn(txnId: string, file: File) {
     if (!canManage) {
-      toast.error('Only Treasurer, Associate Treasurer, or Faculty can attach bills');
+      toast.error('Only Admin, Faculty, Treasurer, or Associate Treasurer can attach bills');
       return;
     }
     setUploadingBill(txnId);
@@ -274,7 +268,7 @@ export default function StatementOfAccountsPage() {
                 stagger={0.03}
               />
               {!canManage && (
-                <p className="text-gray-500 text-xs mt-1">View only — edits are limited to Faculty, Treasurer, and Associate Treasurer.</p>
+                <p className="text-gray-500 text-xs mt-1">View only — edits are limited to Admin, Faculty, Treasurer, and Associate Treasurer.</p>
               )}
             </div>
           </div>

@@ -34,3 +34,17 @@ export function isPortalAdmin(profile: {
   const role = String(profile.role || '');
   return role === 'super_admin' || role === 'secretary';
 }
+
+/** Add / edit / delete statement-of-accounts rows and attach bills. */
+export function canManageStatementOfAccounts(profile: {
+  is_admin?: boolean | null;
+  is_faculty?: boolean | null;
+  role?: string | null;
+  executive_role?: string | null;
+} | null | undefined): boolean {
+  if (!profile) return false;
+  if (profile.is_faculty === true) return true;
+  if (isPortalAdmin(profile)) return true;
+  const exec = String(profile.executive_role || '').trim().toLowerCase();
+  return exec === 'treasurer' || exec === 'associate_treasurer';
+}
