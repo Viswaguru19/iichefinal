@@ -11,6 +11,7 @@ import toast from 'react-hot-toast';
 import { notifyFaculty } from '@/lib/portal-notify-helpers';
 import { canManageStatementOfAccounts } from '@/lib/permissions';
 import { formatPortalDate } from '@/lib/portal-date';
+import { sortStatementRows } from '@/lib/statement-of-accounts';
 import DateTextInput from '@/components/DateTextInput';
 import DashboardAtmosphere from '@/components/react-bits/DashboardAtmosphere';
 import GradientText from '@/components/react-bits/GradientText';
@@ -57,23 +58,33 @@ export default function StatementOfAccountsPage() {
   const router = useRouter();
 
   const fetchStatements = useCallback(async () => {
-    let query = supabase.from('statement_of_accounts').select('*').order('date', { ascending: true });
+    let query = supabase
+      .from('statement_of_accounts')
+      .select('*')
+      .order('date', { ascending: true })
+      .order('created_at', { ascending: true });
     if (filterYear !== 'all') query = query.eq('year', parseInt(filterYear, 10));
     if (filterEvent !== 'all') query = query.eq('event', filterEvent);
     const { data: txns } = await query;
     const { data: summaryData }: { data: any } = await supabase.rpc('get_finance_summary');
-    setTransactions(txns || []);
+    setTransactions(sortStatementRows(txns || []));
     if (summaryData && summaryData.length > 0) setSummary(summaryData[0]);
   }, [supabase, filterYear, filterEvent]);
+
+  const renumberLedger = useCallback(async () => {
+    const { error } = await supabase.rpc('renumber_statement_of_accounts');
+    if (error) console.warn('Could not renumber statement of accounts:', error.message);
+  }, [supabase]);
 
   const reloadAfterMutation = useCallback(async () => {
     setTableRefreshing(true);
     try {
+      await renumberLedger();
       await fetchStatements();
     } finally {
       setTableRefreshing(false);
     }
-  }, [fetchStatements]);
+  }, [fetchStatements, renumberLedger]);
 
   useEffect(() => {
     let cancelled = false;
@@ -141,8 +152,13 @@ export default function StatementOfAccountsPage() {
     const year = dateObj.getFullYear();
     const debit = parseFloat(formData.get('debit') as string) || 0;
     const credit = parseFloat(formData.get('credit') as string) || 0;
-    const lastBalance = transactions.length > 0 ? transactions[transactions.length - 1].balance : 0;
-    const newBalance = lastBalance + credit - debit;
+    const { data: lastRow } = await supabase
+      .from('statement_of_accounts')
+      .select('sr_no')
+      .order('sr_no', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const nextSr = (Number((lastRow as { sr_no?: number } | null)?.sr_no) || 0) + 1;
 
     // Upload bill if provided
     let billUrl: string | null = null;
@@ -157,9 +173,9 @@ export default function StatementOfAccountsPage() {
     }
 
     const { error } = await supabase.from('statement_of_accounts').insert({
-      sr_no: transactions.length + 1, date, month, year,
+      sr_no: nextSr, date, month, year,
       event: formData.get('event'), item: formData.get('item'),
-      debit, credit, balance: newBalance, bill_url: billUrl,
+      debit, credit, balance: 0, bill_url: billUrl,
     } as any);
 
     if (error) toast.error('Failed to add transaction');
@@ -340,9 +356,9 @@ export default function StatementOfAccountsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {transactions.map(txn => (
+                {transactions.map((txn, index) => (
                   <tr key={txn.id} className="hover:bg-indigo-50/30 transition-colors">
-                    <td className="px-4 py-3 text-sm text-gray-700">{txn.sr_no}</td>
+                    <td className="px-4 py-3 text-sm text-gray-700">{index + 1}</td>
                     <td className="px-4 py-3 text-sm text-gray-700">{formatPortalDate(txn.date)}</td>
                     <td className="px-4 py-3 text-sm text-gray-700">{txn.event}</td>
                     <td className="px-4 py-3 text-sm text-gray-700">{txn.item}</td>
@@ -377,7 +393,7 @@ export default function StatementOfAccountsPage() {
                         <button onClick={() => setEditingTxn(txn)} className="text-gray-400 hover:text-indigo-600 transition-colors" title="Edit">
                           <Pencil className="w-4 h-4" />
                         </button>
-                        <button onClick={() => setDeletingTxn(txn)} className="text-gray-400 hover:text-red-500 transition-colors" title="Delete">
+                        <button onClick={() => setDeletingTxn({ ...txn, sr_no: index + 1 })} className="text-gray-400 hover:text-red-500 transition-colors" title="Delete">
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </td>
