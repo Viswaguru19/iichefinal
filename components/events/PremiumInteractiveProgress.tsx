@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { CheckCircle, Circle, Clock, Users, Calendar, Sparkles, TrendingUp, Target, Zap, Moon, Sun } from 'lucide-react';
 import { motion, AnimatePresence, useAnimation } from 'framer-motion';
+import { formatPortalDate } from '@/lib/portal-date';
 
 interface CommitteeTask {
     committee_name: string;
@@ -125,12 +126,7 @@ export default function PremiumInteractiveProgress({ committeeTasks, eventDate }
                             <div>
                                 <p className={`text-sm font-medium ${theme.textSecondary}`}>Event Date</p>
                                 <p className={`text-xl font-bold ${theme.text}`}>
-                                    {eventDate ? new Date(eventDate).toLocaleDateString('en-US', {
-                                        weekday: 'long',
-                                        month: 'long',
-                                        day: 'numeric',
-                                        year: 'numeric'
-                                    }) : 'TBD'}
+                                    {eventDate ? formatPortalDate(eventDate) : 'TBD'}
                                 </p>
                             </div>
                         </div>

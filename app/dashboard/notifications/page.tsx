@@ -8,6 +8,7 @@ import toast from 'react-hot-toast';
 import { getNotificationHref } from '@/lib/notification-href';
 import DashboardAtmosphere from '@/components/react-bits/DashboardAtmosphere';
 import PageHeader from '@/components/PageHeader';
+import { formatPortalDateTime } from '@/lib/portal-date';
 
 interface Notification {
     id: string;
@@ -199,14 +200,7 @@ export default function NotificationsPage() {
     }
 
     function formatDateTime(dateString: string) {
-        const date = new Date(dateString);
-        return date.toLocaleString('en-IN', {
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-        });
+        return formatPortalDateTime(dateString);
     }
 
     const unreadCount = notifications.filter((n) => n.read !== true).length;

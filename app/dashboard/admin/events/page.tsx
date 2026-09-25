@@ -7,6 +7,7 @@ import { Edit, Trash2, Calendar, MapPin } from 'lucide-react';
 import toast from 'react-hot-toast';
 import DashboardAtmosphere from '@/components/react-bits/DashboardAtmosphere';
 import PageHeader from '@/components/PageHeader';
+import { formatPortalDate } from '@/lib/portal-date';
 
 export default function AdminEventsPage() {
     const [events, setEvents] = useState<any[]>([]);
@@ -164,7 +165,7 @@ export default function AdminEventsPage() {
                                         <td className="py-3 px-4 text-sm text-gray-600">{event.committee?.name}</td>
                                         <td className="py-3 px-4 text-sm text-gray-600">{event.proposer?.name}</td>
                                         <td className="py-3 px-4 text-sm text-gray-600">
-                                            {new Date(event.date).toLocaleDateString('en-IN')}
+                                            {formatPortalDate(event.date)}
                                         </td>
                                         <td className="py-3 px-4">
                                             <span className={`px-2 py-1 rounded-full text-xs font-medium ${event.status === 'active' ? 'bg-green-100 text-green-800' :

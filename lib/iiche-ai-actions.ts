@@ -9,6 +9,7 @@ import {
   proposalEcSatisfied,
 } from '@/lib/proposal-workflow-rules';
 import { composeIichePoster, resolvePosterTheme } from '@/lib/iiche-ai-poster';
+import { formatPortalDate, formatPortalDateTime } from '@/lib/portal-date';
 
 export type IicheAiToolCtx = {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -330,7 +331,7 @@ export async function listEvents(ctx: IicheAiToolCtx, query: string): Promise<st
     const committee = Array.isArray(ev.committees) ? ev.committees[0]?.name : ev.committees?.name;
     const when = ev.event_date;
     const dateLabel = when
-      ? new Date(when).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+      ? formatPortalDate(when)
       : 'TBA';
     lines.push(
       `| ${ev.title || 'Untitled'} | ${dateLabel} | ${ev.location || 'TBA'} | ${(ev.status || '—').replace(/_/g, ' ')} | ${committee || '—'} |`,
@@ -520,7 +521,7 @@ export async function createMeeting(ctx: IicheAiToolCtx, args: Record<string, un
   const data = (await res.json().catch(() => ({}))) as { error?: string; meeting?: { id: string }; meeting_link?: string };
   if (!res.ok) return `Could not create the meeting: ${data.error || res.statusText}`;
   const link = data.meeting_link || `${ctx.origin}/dashboard/meetings`;
-  return `Scheduled meeting "${title}" for ${when.toLocaleString('en-IN')}. Open ${ctx.origin}/dashboard/meetings — join link: ${link}`;
+  return `Scheduled meeting "${title}" for ${formatPortalDateTime(when)}. Open ${ctx.origin}/dashboard/meetings — join link: ${link}`;
 }
 
 export async function createEventReport(ctx: IicheAiToolCtx, args: Record<string, unknown>): Promise<string> {
@@ -548,7 +549,7 @@ export async function createEventReport(ctx: IicheAiToolCtx, args: Record<string
     `# Event report: ${event.title}`,
     '',
     `- Committee: ${event.committees?.name || 'N/A'}`,
-    `- Date: ${event.event_date ? new Date(event.event_date).toLocaleDateString('en-IN') : 'TBA'}`,
+    `- Date: ${event.event_date ? formatPortalDate(event.event_date) : 'TBA'}`,
     `- Venue: ${event.location || 'N/A'}`,
     `- Status: ${event.status || 'N/A'}`,
     '',
@@ -896,7 +897,7 @@ export async function designPoster(ctx: IicheAiToolCtx, args: Record<string, unk
       ? event.title
       : q || event?.title || 'IIChE Chapter Event';
   const dateLabel = event?.event_date
-    ? new Date(event.event_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })
+    ? formatPortalDate(event.event_date)
     : 'Date TBA';
   const location = event?.location || theme.venueDefault;
   const tagline = str(args.tagline) || theme.tagline;

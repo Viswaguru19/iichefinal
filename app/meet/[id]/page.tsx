@@ -39,6 +39,7 @@ import {
 import { useWebRTC, userIdFromPeerId, type PeerState } from '@/hooks/useWebRTC';
 import type { ChatMessage, RoomControlPayload, RoomParticipant, SendChatPayload } from '@/hooks/useWebRTC';
 import DynamicLogo from '@/components/DynamicLogo';
+import { formatPortalDate } from '@/lib/portal-date';
 import {
     applyAudioOutputToElement,
     applyMeetingAudioSession,
@@ -3044,7 +3045,7 @@ function MeetingDetailsPanel({
                 <p className="text-white/50 text-[11px] mb-2">Schedule</p>
                 {scheduleOk ? (
                     <>
-                        <p className="text-white/90 text-xs">{when.toLocaleDateString('en-IN', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}</p>
+                        <p className="text-white/90 text-xs">{formatPortalDate(when)}</p>
                         <p className="text-white/70 text-xs mt-1">{when.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</p>
                     </>
                 ) : (

@@ -1,3 +1,5 @@
+import { formatPortalDateTime } from '@/lib/portal-date';
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, '&amp;')
@@ -36,14 +38,7 @@ export function buildEventParticipantEmail(options: {
 
   let dateLine = '';
   if (event.event_date) {
-    const formatted = new Date(event.event_date).toLocaleString('en-IN', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-    });
+    const formatted = formatPortalDateTime(event.event_date);
     dateLine = `<p><strong>Date &amp; time:</strong> ${escapeHtml(formatted)}</p>`;
   }
 

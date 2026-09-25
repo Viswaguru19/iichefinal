@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { formatPortalDateTime } from '@/lib/portal-date';
 
 export default function SlideshowDebugPage() {
     const [photos, setPhotos] = useState<any[]>([]);
@@ -87,7 +88,7 @@ export default function SlideshowDebugPage() {
                             <p><strong>ID:</strong> {bucketInfo.id}</p>
                             <p><strong>Name:</strong> {bucketInfo.name}</p>
                             <p><strong>Public:</strong> {bucketInfo.public ? '✅ Yes' : '❌ No'}</p>
-                            <p><strong>Created:</strong> {new Date(bucketInfo.created_at).toLocaleString()}</p>
+                            <p><strong>Created:</strong> {formatPortalDateTime(bucketInfo.created_at)}</p>
                             {bucketInfo.file_size_limit && (
                                 <p><strong>File Size Limit:</strong> {(bucketInfo.file_size_limit / 1024 / 1024).toFixed(2)} MB</p>
                             )}

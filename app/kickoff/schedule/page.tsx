@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
 import Link from 'next/link';
-import { format } from 'date-fns';
+import { formatPortalDateTime } from '@/lib/portal-date';
 
 export default async function SchedulePage() {
   const supabase = await createClient();
@@ -65,7 +65,7 @@ function MatchCard({ match }: { match: any }) {
         <div className="flex-1">
           <div className="flex items-center justify-between mb-4">
             <span className="text-sm text-gray-500">
-              {format(new Date(match.match_date), 'PPP p')}
+              {formatPortalDateTime(match.match_date)}
             </span>
             {match.completed && (
               <span className="bg-green-100 text-green-800 text-xs font-semibold px-3 py-1 rounded-full">

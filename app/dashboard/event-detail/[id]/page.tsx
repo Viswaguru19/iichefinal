@@ -18,6 +18,7 @@ import { registrationSourceLabel } from '@/lib/event-participant-groups';
 import { isPortalAdmin } from '@/lib/permissions';
 import PortalLoadingScreen from '@/components/PortalLoadingScreen';
 import { insertPortalNotifications } from '@/lib/portal-notifications-client';
+import { formatPortalDate, formatPortalDateTime } from '@/lib/portal-date';
 import { notifyAllPortalUsers } from '@/lib/portal-notify-helpers';
 
 function taskSupportingDocHref(fileUrl: string) {
@@ -1431,13 +1432,7 @@ export default function EventDetailPage() {
                   <div className="flex items-center gap-2 text-gray-600">
                     <Calendar className="w-5 h-5 shrink-0" />
                     <span>
-                      {new Date(event.event_date).toLocaleString('en-IN', {
-                        day: 'numeric',
-                        month: 'long',
-                        year: 'numeric',
-                        hour: 'numeric',
-                        minute: '2-digit',
-                      })}
+                      {formatPortalDateTime(event.event_date)}
                     </span>
                   </div>
                 )}
@@ -1705,24 +1700,24 @@ export default function EventDetailPage() {
                         <p className="text-sm text-gray-600">{task.assigned_to?.name}</p>
                         {task.ec_approved_by && task.ec_approved_at && (
                           <p className="text-xs text-green-600 mt-1">
-                            ✓ Approved by {task.approver?.name} on {new Date(task.ec_approved_at).toLocaleDateString()}
+                            ✓ Approved by {task.approver?.name} on {formatPortalDate(task.ec_approved_at)}
                           </p>
                         )}
                         {task.deadline && (
                           <p className={`text-xs mt-1 font-medium ${new Date(task.deadline) < new Date() ? 'text-red-600' : 'text-amber-600'}`}>
-                            📅 Deadline: {new Date(task.deadline).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                            📅 Deadline: {formatPortalDate(task.deadline)}
                             {new Date(task.deadline) < new Date() && ' (Overdue)'}
                           </p>
                         )}
                         {!task.deadline && task.ec_approved_at && (
                           <p className={`text-xs mt-1 font-medium ${new Date(new Date(task.ec_approved_at).getTime() + 2 * 24 * 60 * 60 * 1000) < new Date() ? 'text-red-600' : 'text-amber-600'}`}>
-                            📅 Deadline: {new Date(new Date(task.ec_approved_at).getTime() + 2 * 24 * 60 * 60 * 1000).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })} (default)
+                            📅 Deadline: {formatPortalDate(new Date(new Date(task.ec_approved_at).getTime() + 2 * 24 * 60 * 60 * 1000))} (default)
                             {new Date(new Date(task.ec_approved_at).getTime() + 2 * 24 * 60 * 60 * 1000) < new Date() && ' (Overdue)'}
                           </p>
                         )}
                         {!task.deadline && !task.ec_approved_at && task.created_at && (
                           <p className={`text-xs mt-1 font-medium ${new Date(new Date(task.created_at).getTime() + 2 * 24 * 60 * 60 * 1000) < new Date() ? 'text-red-600' : 'text-amber-600'}`}>
-                            📅 Deadline: {new Date(new Date(task.created_at).getTime() + 2 * 24 * 60 * 60 * 1000).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })} (default)
+                            📅 Deadline: {formatPortalDate(new Date(new Date(task.created_at).getTime() + 2 * 24 * 60 * 60 * 1000))} (default)
                             {new Date(new Date(task.created_at).getTime() + 2 * 24 * 60 * 60 * 1000) < new Date() && ' (Overdue)'}
                           </p>
                         )}

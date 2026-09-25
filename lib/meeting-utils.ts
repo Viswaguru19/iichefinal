@@ -6,6 +6,7 @@
 import { createClient } from '@/lib/supabase/client';
 import type { MeetingType, MeetingPlatform } from '@/types/database';
 import { insertPortalNotifications } from '@/lib/portal-notifications-client';
+import { formatPortalDate, formatPortalDateTime } from '@/lib/portal-date';
 
 interface MeetingData {
     title: string;
@@ -174,16 +175,8 @@ async function sendMeetingInvitations(meeting: any, participantIds: string[]) {
 
 function generateMeetingEmailBody(meeting: any): string {
     const meetingDate = new Date(meeting.meeting_date);
-    const formattedDate = meetingDate.toLocaleDateString('en-IN', {
-        weekday: 'long',
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-    });
-    const formattedTime = meetingDate.toLocaleTimeString('en-IN', {
-        hour: '2-digit',
-        minute: '2-digit',
-    });
+    const formattedDate = formatPortalDate(meetingDate);
+    const formattedTime = formatPortalDateTime(meetingDate).replace(formattedDate, '').trim();
 
     let locationInfo = '';
     if (meeting.meeting_type === 'online') {

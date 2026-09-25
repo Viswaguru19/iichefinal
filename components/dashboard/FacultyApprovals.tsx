@@ -6,6 +6,7 @@ import { Calendar, CheckCircle, AlertCircle, TrendingUp, ImageIcon, Check, X, Pe
 import { motion } from 'framer-motion';
 import toast from 'react-hot-toast';
 import { insertPortalNotifications } from '@/lib/portal-notifications-client';
+import { formatPortalDate } from '@/lib/portal-date';
 
 export default function FacultyApprovals() {
     const [pendingApprovals, setPendingApprovals] = useState<any[]>([]);
@@ -232,7 +233,7 @@ export default function FacultyApprovals() {
                                     )}
                                 </div>
                                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-500 mb-3">
-                                    <span className="flex items-center gap-1 min-w-0"><Calendar className="w-4 h-4 shrink-0" /> {event.event_date ? new Date(event.event_date).toLocaleDateString('en-IN', { weekday: 'short', month: 'short', day: 'numeric' }) : 'TBA'}</span>
+                                    <span className="flex items-center gap-1 min-w-0"><Calendar className="w-4 h-4 shrink-0" /> {event.event_date ? formatPortalDate(event.event_date) : 'TBA'}</span>
                                     <span className="flex items-center gap-1 min-w-0"><CheckCircle className="w-4 h-4 text-green-500 shrink-0" /> Head: {event.head_approver?.name || 'Approved'}</span>
                                 </div>
                                 {event.ec_approvals?.length > 0 && (

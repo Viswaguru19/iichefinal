@@ -6,6 +6,7 @@ import toast from 'react-hot-toast';
 import { useRouter } from 'next/navigation';
 import { Check, X } from 'lucide-react';
 import type { ExecutiveRole } from '@/types/database';
+import { formatPortalDate } from '@/lib/portal-date';
 import {
   EXECUTIVE_COMMITTEE_SYNTHETIC_ID,
   EXECUTIVE_OFFICE_OPTIONS,
@@ -109,7 +110,7 @@ export default function ApprovalActions({ user, committees }: any) {
         <h3 className="text-lg font-bold text-gray-900">{user.name}</h3>
         <p className="text-sm text-gray-600">{user.email}</p>
         <p className="text-xs text-gray-500 mt-1">
-          Registered: {new Date(user.created_at).toLocaleDateString()}
+          Registered: {formatPortalDate(user.created_at)}
         </p>
       </div>
 

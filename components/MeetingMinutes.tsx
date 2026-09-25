@@ -10,6 +10,7 @@ import {
   FORMAL_ORG_LINE,
   FORMAL_CHAPTER_LINE,
 } from '@/lib/formal-doc-export';
+import { formatPortalDate } from '@/lib/portal-date';
 
 interface Props {
   meeting: any;
@@ -49,12 +50,7 @@ export default function MeetingMinutes({ meeting, participants, canEdit }: Props
     return {
       title: meeting.title,
       committee: meeting.committee?.name || 'N/A',
-      date: dt.toLocaleDateString('en-IN', {
-        weekday: 'long',
-        day: 'numeric',
-        month: 'long',
-        year: 'numeric',
-      }),
+      date: formatPortalDate(dt),
       time: dt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
       duration: (meeting.duration || 0) + ' min',
       location:
@@ -185,7 +181,7 @@ Confidential — for internal chapter use unless released by the Executive Commi
 <p class="section">Record of proceedings</p>
 <div class="body-text">${escapeHtml(minutes?.content || '').replace(/\n/g, '<br/>')}</div>
 <div class="footer">
-<p>Document generated ${escapeHtml(new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' }))}.</p>
+<p>Document generated ${escapeHtml(formatPortalDate(new Date()))}.</p>
 <p>Confidential — for internal chapter use unless released by the Executive Committee.</p>
 </div>`;
   }
@@ -308,7 +304,7 @@ Confidential — for internal chapter use unless released by the Executive Commi
       y += 6;
       doc.setFontSize(8);
       doc.setTextColor(148, 163, 184);
-      const foot = `Generated ${new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })} · Confidential — internal use unless released by the Executive Committee.`;
+      const foot = `Generated ${formatPortalDate(new Date())} · Confidential — internal use unless released by the Executive Committee.`;
       for (const fl of doc.splitTextToSize(foot, maxW)) {
         need(12);
         doc.text(fl, margin, y);
@@ -482,11 +478,7 @@ Confidential — for internal chapter use unless released by the Executive Commi
           </div>
           <p className="text-xs text-gray-400 pt-2 border-t">
             Record created{' '}
-            {new Date(minutes.created_at).toLocaleDateString('en-IN', {
-              day: 'numeric',
-              month: 'long',
-              year: 'numeric',
-            })}
+            {formatPortalDate(minutes.created_at)}
           </p>
         </div>
       )}

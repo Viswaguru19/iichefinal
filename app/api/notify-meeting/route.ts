@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 import { sendEmail } from '@/lib/notifications';
+import { formatPortalDateTime } from '@/lib/portal-date';
 
 export async function POST(request: Request) {
   const { invitees, meetingData } = await request.json();
@@ -11,13 +12,7 @@ export async function POST(request: Request) {
     .select('name, email')
     .in('id', invitees);
 
-  const meetingDate = new Date(meetingData.meeting_date).toLocaleString('en-IN', {
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  });
+  const meetingDate = formatPortalDateTime(meetingData.meeting_date);
 
   if (users) {
     for (const user of users) {

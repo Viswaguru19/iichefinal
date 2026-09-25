@@ -9,6 +9,7 @@ import DynamicLogo from '@/components/DynamicLogo';
 import GroupInfoPanel from '@/components/chat/GroupInfoPanel';
 import type { ChatItem, UserProfile } from '@/components/chat/types';
 import { attachmentLabel, isAudioUrl, isImageFile, isImageUrl } from '@/lib/chat-media';
+import { formatPortalDate, formatPortalDateTime } from '@/lib/portal-date';
 
 interface Props {
     chat: ChatItem;
@@ -807,7 +808,7 @@ export default function ChatWindow({
                                     {showDate && (
                                         <div className="flex justify-center my-3">
                                             <span className="bg-[#182229] text-gray-400 text-[11px] px-3 py-1 rounded-lg shadow-sm font-medium">
-                                                {new Date(msg.created_at).toLocaleDateString('en-IN', { weekday: 'short', month: 'short', day: 'numeric' })}
+                                                {formatPortalDate(msg.created_at)}
                                             </span>
                                         </div>
                                     )}
@@ -939,7 +940,7 @@ export default function ChatWindow({
                                                     <p className="text-sm text-gray-100 truncate">{v.name}</p>
                                                     {v.viewedAt && (
                                                         <p className="text-[10px] text-gray-500">
-                                                            {new Date(v.viewedAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                                                            {formatPortalDateTime(v.viewedAt)}
                                                         </p>
                                                     )}
                                                 </div>

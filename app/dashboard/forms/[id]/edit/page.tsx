@@ -13,6 +13,7 @@ import { EVENT_REGISTRATION_ELIGIBLE_STATUSES } from '@/lib/event-registration';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
+import { formatPortalDate } from '@/lib/portal-date';
 interface FormField {
     id: string;
     field_type: string;
@@ -57,7 +58,7 @@ function formatEventListDate(ev: { event_date?: string | null; date?: string | n
     const raw = ev.event_date || ev.date;
     if (!raw) return 'Date TBA';
     try {
-        return new Date(raw).toLocaleDateString('en-IN');
+        return formatPortalDate(raw) || 'Date TBA';
     } catch {
         return 'Date TBA';
     }

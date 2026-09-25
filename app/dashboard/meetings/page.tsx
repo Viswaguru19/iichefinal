@@ -11,6 +11,7 @@ import PageHeader from '@/components/PageHeader';
 import DashboardAtmosphere from '@/components/react-bits/DashboardAtmosphere';
 import toast from 'react-hot-toast';
 import BrandingBadge from '@/components/BrandingBadge';
+import { formatPortalDate } from '@/lib/portal-date';
 
 const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.06 } } };
 const item = { hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0, transition: { duration: 0.4, ease: 'easeOut' as const } } };
@@ -362,7 +363,7 @@ export default function MeetingsPage() {
                       <div className="space-y-1.5 mb-4">
                         <div className="flex items-center gap-2 text-sm text-gray-600">
                           <Calendar className="w-4 h-4 text-indigo-400" />
-                          <span>{date.toLocaleDateString('en-IN', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                          <span>{formatPortalDate(date)}</span>
                         </div>
                         <div className="flex items-center gap-2 text-sm text-gray-600">
                           <Clock className="w-4 h-4 text-indigo-400" />

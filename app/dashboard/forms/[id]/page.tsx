@@ -14,6 +14,8 @@ import toast from 'react-hot-toast';
 import { isEventOpenForRegistration } from '@/lib/event-registration';
 import { publicFormUrl } from '@/lib/form-public-access';
 import { withTimeout } from '@/lib/with-timeout';
+import { formatPortalDateTime } from '@/lib/portal-date';
+import DateTextInput from '@/components/DateTextInput';
 import {
   extractResponderEmail,
   extractResponderName,
@@ -698,7 +700,7 @@ export default function FormSubmitPage() {
                     <p className="font-bold">{eventDetails.title}</p>
                     <p>
                       {eventDetails.event_date || eventDetails.date
-                        ? new Date(eventDetails.event_date || eventDetails.date).toLocaleString('en-IN')
+                        ? formatPortalDateTime(eventDetails.event_date || eventDetails.date)
                         : 'Date TBA'}
                     </p>
                     <p>{eventDetails.location || 'Venue TBA'}</p>
@@ -764,8 +766,11 @@ export default function FormSubmitPage() {
                     className="w-full border-b-2 border-gray-200 focus:border-indigo-500 outline-none py-2 text-gray-800 bg-transparent transition-colors placeholder-gray-300" />
                 )}
                 {field.field_type === 'date' && (
-                  <input type="date" value={answers[field.id] || ''} onChange={e => updateAnswer(field.id, e.target.value)}
-                    className="w-full border-b-2 border-gray-200 focus:border-indigo-500 outline-none py-2 text-gray-800 bg-transparent transition-colors" />
+                  <DateTextInput
+                    value={answers[field.id] || ''}
+                    onIsoChange={(iso) => updateAnswer(field.id, iso)}
+                    className="w-full border-b-2 border-gray-200 focus:border-indigo-500 outline-none py-2 text-gray-800 bg-transparent transition-colors"
+                  />
                 )}
                 {field.field_type === 'radio' && (
                   <div className="space-y-2 mt-2">

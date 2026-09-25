@@ -1,6 +1,7 @@
 'use client';
 
 import { Clock, Edit, User } from 'lucide-react';
+import { formatPortalDateTime } from '@/lib/portal-date';
 
 interface EditHistoryViewProps {
     history: any[];
@@ -25,7 +26,7 @@ export default function EditHistoryView({ history, profiles }: EditHistoryViewPr
                             <User className="w-3 h-3" />
                             <span className="font-medium">{profiles[entry.edited_by]?.name || 'Unknown'}</span>
                             <span>•</span>
-                            <span>{new Date(entry.timestamp).toLocaleString('en-IN')}</span>
+                            <span>{formatPortalDateTime(entry.timestamp)}</span>
                         </div>
                         <p className="text-sm text-gray-700 mb-2">{entry.notes}</p>
                         {entry.changes && Object.keys(entry.changes).length > 0 && (

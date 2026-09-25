@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation';
 import { Mail, Phone, User, Award, Calendar, ArrowLeft } from 'lucide-react';
 import DashboardAtmosphere from '@/components/react-bits/DashboardAtmosphere';
 import GradientText from '@/components/react-bits/GradientText';
+import { formatPortalDate } from '@/lib/portal-date';
 
 export default async function PublicProfilePage({ params }: { params: { id: string } }) {
   const supabase = await createClient();
@@ -211,7 +212,7 @@ export default async function PublicProfilePage({ params }: { params: { id: stri
             <div className="mt-8 pt-6 border-t border-gray-200/80 text-center">
               <p className="text-sm text-gray-500 flex items-center justify-center gap-2">
                 <Calendar className="w-4 h-4" />
-                Member since {new Date(profile.created_at).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}
+                Member since {formatPortalDate(profile.created_at)}
               </p>
             </div>
           </div>

@@ -13,6 +13,7 @@ import {
 import { participantGroupLabel } from '@/lib/event-participant-groups';
 import { notifyCommittee } from '@/lib/portal-notify-helpers';
 import { upsertEditorialEventReportDocument } from '@/lib/editorial-event-document';
+import { formatPortalDate, formatPortalDateTime } from '@/lib/portal-date';
 
 interface EventReportProps {
     event: any;
@@ -151,7 +152,7 @@ export default function EventReport({ event, tasks, eventPhotos = [], canEdit }:
                     email: p.participant_email || '-',
                     group: participantGroupLabel(p.participant_group),
                     attendance: (p.attendance_status || 'registered').toUpperCase(),
-                    submitted_at: p.created_at ? new Date(p.created_at).toLocaleString('en-IN') : '-',
+                    submitted_at: p.created_at ? formatPortalDateTime(p.created_at) : '-',
                 })),
             );
         }
@@ -177,7 +178,7 @@ export default function EventReport({ event, tasks, eventPhotos = [], canEdit }:
             committee: event.committees?.name || 'N/A',
             description: event.description || '',
             venue: event.location || 'N/A',
-            event_date: event.event_date ? new Date(event.event_date).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : 'TBA',
+            event_date: event.event_date ? formatPortalDate(event.event_date) : 'TBA',
             duration: event.event_duration || 'N/A',
             proposed_by: event.created_by_profile?.name || 'N/A',
             guest_name: event.guest_name || null,
@@ -197,7 +198,7 @@ export default function EventReport({ event, tasks, eventPhotos = [], canEdit }:
                     email: p.participant_email || '-',
                     group: participantGroupLabel(p.participant_group),
                     attendance: (p.attendance_status || 'registered').toUpperCase(),
-                    submitted_at: p.created_at ? new Date(p.created_at).toLocaleString('en-IN') : '-',
+                    submitted_at: p.created_at ? formatPortalDateTime(p.created_at) : '-',
                 }))
                 : [],
             poster_url: posterUrl,
@@ -344,7 +345,7 @@ ${data.include_participants ? `\n4. PARTICIPANT REGISTER\n${'─'.repeat(56)}\n$
 ${report.additional_notes ? `\n5. ADDITIONAL REMARKS\n${'─'.repeat(56)}\n${report.additional_notes}\n` : ''}
 
 ${'═'.repeat(56)}
-Document prepared: ${new Date(report.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}
+Document prepared: ${formatPortalDate(report.created_at)}
 This document is generated from the IIChE AVVU Student Chapter portal.`;
 
         const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
@@ -419,7 +420,7 @@ ${participantTable}
 ${figures}
 ${report.additional_notes ? `<p class="section">Additional remarks</p><p class="body-text">${escapeHtml(report.additional_notes)}</p>` : ''}
 <div class="footer">
-<p>This document was generated from the chapter portal on ${escapeHtml(new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' }))}.</p>
+<p>This document was generated from the chapter portal on ${escapeHtml(formatPortalDate(new Date()))}.</p>
 <p>For archival use. Images require network access if opened offline.</p>
 </div>`;
 
@@ -677,7 +678,7 @@ ${report.additional_notes ? `<p class="section">Additional remarks</p><p class="
             y += 4;
             doc.setFontSize(8);
             doc.setTextColor(148, 163, 184);
-            const footNote = `Generated ${new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })} · ${FORMAL_ORG_LINE} · ${FORMAL_CHAPTER_LINE}`;
+            const footNote = `Generated ${formatPortalDate(new Date())} · ${FORMAL_ORG_LINE} · ${FORMAL_CHAPTER_LINE}`;
             for (const fl of doc.splitTextToSize(footNote, maxW)) {
                 need(11);
                 doc.text(fl, margin, y);
@@ -887,7 +888,7 @@ ${report.additional_notes ? `<p class="section">Additional remarks</p><p class="
                         </div>
                     )}
                     <p className="text-xs text-gray-400 pt-2 border-t border-gray-100">
-                        Report created on {new Date(report.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}
+                        Report created on {formatPortalDate(report.created_at)}
                     </p>
                 </div>
             )}

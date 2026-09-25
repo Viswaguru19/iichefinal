@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Link from 'next/link';
 import { CheckCircle2, Calendar, MapPin, ChevronDown, ChevronUp, FileText, Camera, ImageIcon } from 'lucide-react';
+import { formatPortalDate } from '@/lib/portal-date';
 
 interface PastEvent {
     id: string;
@@ -66,7 +67,7 @@ export default function PastEvents({ events }: { events: PastEvent[] }) {
                                     {event.event_date && (
                                         <span className="flex items-center gap-1">
                                             <Calendar className="w-3.5 h-3.5" />
-                                            {new Date(event.event_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                                            {formatPortalDate(event.event_date)}
                                         </span>
                                     )}
                                     {event.location && (

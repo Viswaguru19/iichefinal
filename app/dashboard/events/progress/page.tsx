@@ -8,6 +8,7 @@ import { Plus, CheckCircle, Clock, AlertCircle, Camera, FileText, Download, X, C
 import toast from 'react-hot-toast';
 import DashboardAtmosphere from '@/components/react-bits/DashboardAtmosphere';
 import PageHeader from '@/components/PageHeader';
+import { formatPortalDate } from '@/lib/portal-date';
 
 export const dynamic = 'force-dynamic';
 
@@ -193,7 +194,7 @@ export default function EventProgressPage() {
 ## Event Details
 - **Event Name:** ${selectedEvent.title}
 - **Description:** ${selectedEvent.description || 'N/A'}
-- **Date:** ${selectedEvent.event_date ? new Date(selectedEvent.event_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' }) : 'N/A'}
+- **Date:** ${selectedEvent.event_date ? formatPortalDate(selectedEvent.event_date) : 'N/A'}
 - **Committee:** ${selectedEvent.committee?.name || 'N/A'}
 - **Proposed By:** ${selectedEvent.proposer?.name || 'N/A'}
 - **Status:** ${selectedEvent.status?.replace(/_/g, ' ').toUpperCase()}
@@ -217,7 +218,7 @@ ${t.description ? `- **Description:** ${t.description}` : ''}
 ${reportAdditionalDetails ? `## Additional Details\n${reportAdditionalDetails}` : ''}
 
 ---
-*Report generated on ${new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })} by IIChE AVVU SC*`;
+*Report generated on ${formatPortalDate(new Date())} by IIChE AVVU SC*`;
 
       const { error } = await supabase.from('event_reports').insert({
         event_id: selectedEvent.id,
@@ -590,7 +591,7 @@ ${reportAdditionalDetails ? `## Additional Details\n${reportAdditionalDetails}` 
                             <Download className="w-4 h-4" /> Download as TXT
                           </button>
                         </div>
-                        <p className="text-xs text-gray-500 mt-2">Created on {new Date(existingReport.created_at).toLocaleDateString()}</p>
+                        <p className="text-xs text-gray-500 mt-2">Created on {formatPortalDate(existingReport.created_at)}</p>
                       </div>
                     ) : (
                       <p className="text-gray-500 text-sm">No report created yet. Click "Create Report" to generate an automated event report.</p>

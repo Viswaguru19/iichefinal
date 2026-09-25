@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
 import Link from 'next/link';
 import { Calendar, MapPin } from 'lucide-react';
-import { format } from 'date-fns';
+import { formatPortalDate } from '@/lib/portal-date';
 
 export default async function EventsPage() {
   const supabase = await createClient();
@@ -54,7 +54,7 @@ export default async function EventsPage() {
               <div className="space-y-2 text-sm text-gray-500">
                 <div className="flex items-center gap-2">
                   <Calendar className="w-4 h-4" />
-                  <span>{format(new Date(event.date), 'PPP')}</span>
+                  <span>{formatPortalDate(event.date)}</span>
                 </div>
                 {event.location && (
                   <div className="flex items-center gap-2">

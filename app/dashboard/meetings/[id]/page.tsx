@@ -13,6 +13,7 @@ import PageHeader from '@/components/PageHeader';
 import { isAttendanceManager } from '@/lib/attendance-helpers';
 import AttendanceSection from '@/components/attendance/AttendanceSection';
 import MeetingMinutes from '@/components/MeetingMinutes';
+import { formatPortalDate, formatPortalDateTime } from '@/lib/portal-date';
 
 function formatLiveSeconds(sec: number) {
     const s = Math.max(0, Math.floor(sec));
@@ -248,7 +249,7 @@ export default function MeetingDetailPage() {
                             <div>
                                 <p className="text-xs text-gray-400">Date</p>
                                 <p className="text-sm font-medium text-gray-700">
-                                    {date.toLocaleDateString('en-IN', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+                                    {formatPortalDate(date)}
                                 </p>
                             </div>
                         </div>
@@ -303,10 +304,7 @@ export default function MeetingDetailPage() {
                                         {meeting.live_session_finalized_at && (
                                             <p className="text-[11px] text-violet-700/70 mt-0.5">
                                                 Recorded{' '}
-                                                {new Date(meeting.live_session_finalized_at).toLocaleString('en-IN', {
-                                                    dateStyle: 'medium',
-                                                    timeStyle: 'short',
-                                                })}
+                                                {formatPortalDateTime(meeting.live_session_finalized_at)}
                                             </p>
                                         )}
                                     </div>

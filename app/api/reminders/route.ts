@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 import { sendEmail } from '@/lib/notifications';
 import { dispatchPushForNotificationRows } from '@/lib/push/dispatch-server';
+import { formatPortalDate } from '@/lib/portal-date';
 import {
   getApprovalReminderEligibility,
   getTaskReminderEligibility,
@@ -45,7 +46,7 @@ function buildTaskEmailHtml(
     <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
       <h2>Reminder: Task Pending</h2>
       <p>The task <strong>${taskName}</strong> for event <strong>${eventName}</strong> is still pending.</p>
-      ${deadline ? `<p>Deadline: <strong>${new Date(deadline).toLocaleDateString()}</strong></p>` : ''}
+      ${deadline ? `<p>Deadline: <strong>${formatPortalDate(deadline)}</strong></p>` : ''}
       <p style="margin-top:24px;">
         <a href="${taskUrl}"
            style="background:#f59e0b;color:#fff;padding:12px 24px;text-decoration:none;border-radius:6px;font-weight:bold;">

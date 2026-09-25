@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { Upload, Image as ImageIcon, Check, Trash2, RefreshCw, History } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { broadcastLogoUpdated, clearLogoCache, resolveLogoPublicUrl } from '@/lib/logo-utils';
+import { formatPortalDateTime } from '@/lib/portal-date';
 
 interface LogoRecord {
     id: string;
@@ -292,7 +293,7 @@ export default function LogoManagementPage() {
                                 <div className="text-sm text-gray-600">
                                     <p>
                                         Last updated:{' '}
-                                        {new Date(currentLogo.uploaded_at).toLocaleString()}
+                                        {formatPortalDateTime(currentLogo.uploaded_at)}
                                     </p>
                                 </div>
                             )}
@@ -393,7 +394,7 @@ export default function LogoManagementPage() {
                                                         )}
                                                     </div>
                                                     <p className="text-sm text-gray-600">
-                                                        Uploaded: {new Date(logo.uploaded_at).toLocaleString()}
+                                                        Uploaded: {formatPortalDateTime(logo.uploaded_at)}
                                                     </p>
                                                 </div>
 

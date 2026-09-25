@@ -3,6 +3,7 @@
 import { motion } from 'framer-motion';
 import { X, Mail, Phone, Building, Award, Calendar, Shield } from 'lucide-react';
 import type { UserProfile } from '@/components/chat/types';
+import { formatPortalDate } from '@/lib/portal-date';
 
 interface Props {
   user: UserProfile;
@@ -77,7 +78,7 @@ export default function ProfilePanel({ user, isOnline, onClose }: Props) {
           <InfoRow
             icon={<Calendar className="w-4 h-4" />}
             label="Joined"
-            value={new Date(user.created_at).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}
+            value={formatPortalDate(user.created_at)}
           />
         </div>
       </motion.aside>

@@ -12,6 +12,7 @@ import {
   participantGroupLabel,
   registrationSourceLabel,
 } from '@/lib/event-participant-groups';
+import { formatPortalDateTime } from '@/lib/portal-date';
 
 function normalizeParticipantName(name: string | null | undefined): string {
   return (name || '').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -167,7 +168,7 @@ export default function EventParticipantManager({
       email: p.participant_email || '',
       group: participantGroupLabel(p.participant_group),
       status: (p.attendance_status || 'registered').replace('_', ' '),
-      attended_at: p.attended_at ? new Date(p.attended_at).toLocaleString('en-IN') : '',
+      attended_at: p.attended_at ? formatPortalDateTime(p.attended_at) : '',
     }));
     const header = 'Serial,Name,Email,Group,Attendance,Marked At';
     const body = rows.map((r) =>
@@ -398,7 +399,7 @@ export default function EventParticipantManager({
             <p className="text-xs text-gray-500 truncate">{p.participant_email || 'No email'}</p>
             {isDuplicate && p.created_at && (
               <p className="text-[10px] text-orange-800 mt-0.5">
-                Registered {new Date(p.created_at).toLocaleString('en-IN')}
+                Registered {formatPortalDateTime(p.created_at)}
                 {p.attendance_status === 'present' ? ' · Present' : p.attendance_status === 'absent' ? ' · Absent' : ''}
               </p>
             )}

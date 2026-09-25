@@ -1,6 +1,7 @@
 'use client';
 
 import { CheckCircle, Clock, XCircle, AlertCircle } from 'lucide-react';
+import { formatPortalDate } from '@/lib/portal-date';
 import { motion } from 'framer-motion';
 
 interface Stage {
@@ -123,7 +124,7 @@ export default function PremiumProgressBar({ stages, currentStage }: PremiumProg
                                 {/* Approved Date */}
                                 {stage.approvedAt && (
                                     <p className="text-xs text-gray-400 mt-1">
-                                        {new Date(stage.approvedAt).toLocaleDateString()}
+                                        {formatPortalDate(stage.approvedAt)}
                                     </p>
                                 )}
 

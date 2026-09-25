@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
 import Link from 'next/link';
 import { Trophy, Users, Calendar, Award } from 'lucide-react';
+import { formatPortalDate } from '@/lib/portal-date';
 
 export default async function KickoffPage() {
   const supabase = await createClient();
@@ -99,7 +100,7 @@ export default async function KickoffPage() {
                       </div>
                     </div>
                     <p className="text-sm text-gray-500 text-center mt-2">
-                      {new Date(match.match_date).toLocaleDateString()}
+                      {formatPortalDate(match.match_date)}
                     </p>
                   </div>
                 ))}

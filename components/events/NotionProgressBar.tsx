@@ -2,6 +2,7 @@
 
 import { CheckCircle, Circle, Clock, Users, Calendar } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { formatPortalDate } from '@/lib/portal-date';
 
 interface CommitteeTask {
     committee_name: string;
@@ -53,11 +54,7 @@ export default function NotionProgressBar({ committeeTasks, eventDate, headAppro
                 <Calendar className="w-5 h-5 text-gray-400" />
                 <span className="text-sm font-medium text-gray-500">Event Date</span>
                 <span className="text-base font-semibold">
-                    {eventDate ? new Date(eventDate).toLocaleDateString('en-US', {
-                        month: 'short',
-                        day: 'numeric',
-                        year: 'numeric'
-                    }) : 'TBD'}
+                    {eventDate ? formatPortalDate(eventDate) : 'TBD'}
                 </span>
             </motion.div>
 

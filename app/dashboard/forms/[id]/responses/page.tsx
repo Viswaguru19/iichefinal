@@ -8,6 +8,8 @@ import { ArrowLeft, Download, BarChart3, Users, FileText, Search, ChevronDown, E
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import toast from 'react-hot-toast';
+import { formatPortalDate, formatPortalDateTime } from '@/lib/portal-date';
+import DateTextInput from '@/components/DateTextInput';
 import {
   getResponderDisplayEmail,
   getResponderDisplayMobile,
@@ -332,7 +334,7 @@ export default function FormResponsesPage() {
     const rows = responses.map(r => {
       const shown = visibleAnswers(r);
       return [
-        new Date(r.submitted_at || r.created_at).toLocaleString(),
+        formatPortalDateTime(r.submitted_at || r.created_at),
         r.is_test ? 'TEST' : 'Live',
         getResponderDisplayName(shown, fields, r.user),
         getResponderDisplayEmail(shown, fields, r.user) || '-',
@@ -632,7 +634,7 @@ export default function FormResponsesPage() {
                             )}
                           </p>
                           <p className="text-xs text-gray-400 truncate">
-                            {[displayEmail || null, displayMobile || null, new Date(response.submitted_at || response.created_at).toLocaleString()]
+                            {[displayEmail || null, displayMobile || null, formatPortalDateTime(response.submitted_at || response.created_at)]
                               .filter(Boolean)
                               .join(' · ')}
                           </p>
@@ -672,7 +674,7 @@ export default function FormResponsesPage() {
                                       <ExternalLink className="w-3.5 h-3.5" /> Download File
                                     </a>
                                   ) : (
-                                    <p className="text-sm text-gray-800 break-words">{Array.isArray(val) ? val.join(', ') : val || <span className="text-gray-300">—</span>}</p>
+                                    <p className="text-sm text-gray-800 break-words">{Array.isArray(val) ? val.join(', ') : field.field_type === 'date' && val ? formatPortalDate(val) || val : val || <span className="text-gray-300">—</span>}</p>
                                   )}
                                 </div>
                               );
@@ -799,11 +801,23 @@ export default function FormResponsesPage() {
                     </div>
                   );
                 }
+                if (field.field_type === 'date') {
+                  return (
+                    <div key={field.id}>
+                      <label className="text-xs font-semibold text-gray-500">{field.label}</label>
+                      <DateTextInput
+                        value={val ?? ''}
+                        onIsoChange={(iso) => setEditDraft((d) => ({ ...d, [field.label]: iso }))}
+                        className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2 text-sm"
+                      />
+                    </div>
+                  );
+                }
                 return (
                   <div key={field.id}>
                     <label className="text-xs font-semibold text-gray-500">{field.label}</label>
                     <input
-                      type={field.field_type === 'number' ? 'number' : field.field_type === 'date' ? 'date' : 'text'}
+                      type={field.field_type === 'number' ? 'number' : 'text'}
                       value={val ?? ''}
                       onChange={(e) => setEditDraft((d) => ({ ...d, [field.label]: e.target.value }))}
                       className="mt-1 w-full border border-gray-200 rounded-xl px-3 py-2 text-sm"

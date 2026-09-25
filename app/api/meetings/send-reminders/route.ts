@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { Resend } from 'resend';
 import { NextResponse } from 'next/server';
+import { formatPortalDateTime } from '@/lib/portal-date';
 
 let resend: Resend | null = null;
 function getResend() {
@@ -81,14 +82,7 @@ async function sendReminder(meeting: any, timeframe: string) {
           <h3 style="margin-top: 0;">${meeting.title}</h3>
           ${meeting.description ? `<p>${meeting.description}</p>` : ''}
           
-          <p><strong>Date & Time:</strong> ${meetingDate.toLocaleString('en-IN', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    })}</p>
+          <p><strong>Date & Time:</strong> ${formatPortalDateTime(meetingDate)}</p>
           
           <p><strong>Duration:</strong> ${meeting.duration} minutes</p>
           <p><strong>Type:</strong> ${meetingType}</p>

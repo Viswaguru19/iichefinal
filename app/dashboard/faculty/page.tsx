@@ -18,6 +18,7 @@ import toast from 'react-hot-toast';
 import DashboardAtmosphere from '@/components/react-bits/DashboardAtmosphere';
 import GradientText from '@/components/react-bits/GradientText';
 import GsapText from '@/components/react-bits/GsapText';
+import { formatPortalDate } from '@/lib/portal-date';
 
 export default function FacultyDashboard() {
     const [loading, setLoading] = useState(true);
@@ -360,12 +361,7 @@ export default function FacultyDashboard() {
                                             <Calendar className="w-4 h-4" />
                                             <span>
                                                 {event.event_date
-                                                    ? new Date(event.event_date).toLocaleDateString('en-IN', {
-                                                        weekday: 'short',
-                                                        month: 'short',
-                                                        day: 'numeric',
-                                                        year: 'numeric'
-                                                    })
+                                                    ? formatPortalDate(event.event_date)
                                                     : 'TBA'}
                                             </span>
                                         </div>
@@ -390,10 +386,7 @@ export default function FacultyDashboard() {
                                                             ({approval.profiles?.executive_role?.replace(/_/g, ' ')})
                                                         </span>
                                                         <span className="text-gray-400 ml-auto">
-                                                            {new Date(approval.approved_at).toLocaleDateString('en-IN', {
-                                                                month: 'short',
-                                                                day: 'numeric'
-                                                            })}
+                                                            {formatPortalDate(approval.approved_at)}
                                                         </span>
                                                     </div>
                                                 ))}
@@ -528,11 +521,7 @@ export default function FacultyDashboard() {
                                     <h3 className="font-semibold text-gray-900">{event.title}</h3>
                                     <p className="text-sm text-gray-500 mt-1">{event.committee?.name}</p>
                                     <p className="text-sm text-indigo-600 font-medium mt-2">
-                                        {new Date(event.event_date).toLocaleDateString('en-IN', {
-                                            weekday: 'short',
-                                            month: 'short',
-                                            day: 'numeric',
-                                        })}
+                                        {formatPortalDate(event.event_date)}
                                     </p>
                                 </div>
                             ))}

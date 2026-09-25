@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
 import { Trophy, Check, X, Power } from 'lucide-react';
+import { formatPortalDate } from '@/lib/portal-date';
 
 export default function KickoffControlPage() {
   const [teams, setTeams] = useState<any[]>([]);
@@ -271,7 +272,7 @@ export default function KickoffControlPage() {
                   <div className="flex-1">
                     <div className="flex items-center justify-between mb-2">
                       <span className="text-sm text-gray-500">
-                        {new Date(match.match_date).toLocaleDateString()}
+                        {formatPortalDate(match.match_date)}
                       </span>
                       {match.completed && (
                         <span className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full">

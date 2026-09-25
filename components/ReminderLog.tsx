@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { formatPortalDateTime } from '@/lib/portal-date';
 
 interface ReminderEntry {
     id: string;
@@ -35,7 +36,7 @@ export default function ReminderLog({ entityId }: ReminderLogProps) {
                 const mapped: ReminderEntry[] = (data ?? []).map((r: any) => ({
                     id: r.id,
                     senderName: r.profiles?.name ?? 'Unknown',
-                    createdAt: new Date(r.created_at).toLocaleString(),
+                    createdAt: formatPortalDateTime(r.created_at),
                 }));
 
                 setEntries(mapped);

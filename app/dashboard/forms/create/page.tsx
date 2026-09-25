@@ -15,6 +15,7 @@ import { publicFormUrl } from '@/lib/form-public-access';
 import { notifyEC } from '@/lib/portal-notify-helpers';
 import DashboardAtmosphere from '@/components/react-bits/DashboardAtmosphere';
 import GradientText from '@/components/react-bits/GradientText';
+import { formatPortalDate } from '@/lib/portal-date';
 
 interface FormField {
   id: string;
@@ -61,7 +62,7 @@ function formatEventListDate(ev: { event_date?: string | null; date?: string | n
   const raw = ev.event_date || ev.date;
   if (!raw) return 'Date TBA';
   try {
-    return new Date(raw).toLocaleDateString('en-IN');
+    return formatPortalDate(raw) || 'Date TBA';
   } catch {
     return 'Date TBA';
   }

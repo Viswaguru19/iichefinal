@@ -2,6 +2,7 @@
 
 import { CheckCircle, Clock, Circle, Users } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { formatPortalDate } from '@/lib/portal-date';
 
 interface CommitteeTask {
     committee_name: string;
@@ -56,12 +57,7 @@ export default function TaskProgressBar({ committeeTasks, eventDate }: TaskProgr
                 <div className="inline-block bg-gradient-to-r from-blue-500 to-purple-500 text-white px-6 py-3 rounded-full shadow-lg">
                     <p className="text-sm font-medium">Event Date</p>
                     <p className="text-2xl font-bold">
-                        {eventDate ? new Date(eventDate).toLocaleDateString('en-US', {
-                            weekday: 'long',
-                            year: 'numeric',
-                            month: 'long',
-                            day: 'numeric'
-                        }) : 'TBD'}
+                        {eventDate ? formatPortalDate(eventDate) : 'TBD'}
                     </p>
                 </div>
             </div>

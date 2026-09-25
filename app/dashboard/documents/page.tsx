@@ -14,6 +14,7 @@ import {
   isEventReportDocument,
   syncMissingEditorialEventReports,
 } from '@/lib/editorial-event-document';
+import { formatPortalDate } from '@/lib/portal-date';
 
 export default function DocumentsPage() {
   const [documents, setDocuments] = useState<any[]>([]);
@@ -232,7 +233,7 @@ export default function DocumentsPage() {
                         )}
                         <p className="text-xs text-gray-500 mt-2">
                           {isReport ? 'Submitted by Editorial · ' : ''}
-                          {new Date(doc.created_at).toLocaleDateString('en-IN')}
+                          {formatPortalDate(doc.created_at)}
                         </p>
                       </div>
                       <div className="flex gap-2 shrink-0">

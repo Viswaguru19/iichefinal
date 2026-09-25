@@ -11,6 +11,7 @@ import ReminderButton from '@/components/ReminderButton';
 import StatusIndicator from '@/components/StatusIndicator';
 import { CheckCircle, Clock, XCircle, AlertCircle, Crown, Send, Sparkles, Edit } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { formatPortalDate } from '@/lib/portal-date';
 import {
   normalizeProposalThresholds,
   executiveRoleCountsForProposalEc,
@@ -331,7 +332,7 @@ export default function EventWorkflowPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4 text-sm text-gray-500 relative z-10">
                   <div>
                     <span className="font-medium text-gray-600">Date:</span>{' '}
-                    {event.date ? new Date(event.date).toLocaleDateString() : 'TBA'}
+                    {event.date ? formatPortalDate(event.date) : 'TBA'}
                   </div>
                   <div className="min-w-0 break-words">
                     <span className="font-medium text-gray-600">Location:</span> {event.location || 'TBA'}

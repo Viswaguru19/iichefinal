@@ -11,6 +11,7 @@ import PageHeader from '@/components/PageHeader';
 import toast from 'react-hot-toast';
 import { EXECUTIVE_COMMITTEE_SYNTHETIC_ID } from '@/lib/user-approval';
 import DashboardAtmosphere from '@/components/react-bits/DashboardAtmosphere';
+import { formatPortalDate } from '@/lib/portal-date';
 
 export default function PastEventsPage() {
     const [events, setEvents] = useState<any[]>([]);
@@ -200,7 +201,7 @@ export default function PastEventsPage() {
                                             {event.event_date && (
                                                 <span className="flex items-center gap-1">
                                                     <Calendar className="w-3.5 h-3.5" />
-                                                    {new Date(event.event_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                                                    {formatPortalDate(event.event_date)}
                                                 </span>
                                             )}
                                             {event.location && (

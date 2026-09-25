@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import PortalLoadingScreen from '@/components/PortalLoadingScreen';
+import { formatPortalDateTime } from '@/lib/portal-date';
 
 type AppRow = {
   id: string;
@@ -115,7 +116,7 @@ export default function HiringPortalPage() {
               </ol>
             </div>
             <p className="text-xs text-gray-500 pt-2">
-              Submitted {new Date(app.created_at).toLocaleString()}. Committees may reach out for interviews when they
+              Submitted {formatPortalDateTime(app.created_at)}. Committees may reach out for interviews when they
               shortlist candidates.
             </p>
           </div>

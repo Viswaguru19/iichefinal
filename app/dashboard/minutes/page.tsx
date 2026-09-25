@@ -5,6 +5,8 @@ import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
 import { FileText, Upload, Download, Calendar } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { formatPortalDate } from '@/lib/portal-date';
+import DateTextInput from '@/components/DateTextInput';
 
 export default function MinutesPage() {
   const [minutes, setMinutes] = useState<any[]>([]);
@@ -123,13 +125,13 @@ export default function MinutesPage() {
               </div>
               <div>
                 <label className="block text-sm font-medium mb-2">Date *</label>
-                <input
-                  type="date"
+                <DateTextInput
                   value={meetingDate}
-                  onChange={(e) => setMeetingDate(e.target.value)}
+                  onIsoChange={setMeetingDate}
                   required
                   className="w-full px-4 py-2 border rounded-lg"
                 />
+                <p className="text-xs text-gray-400 mt-1">Type DD/MM/YYYY — slashes appear as you type</p>
               </div>
               <div>
                 <label className="block text-sm font-medium mb-2">Document URL *</label>
@@ -168,7 +170,7 @@ export default function MinutesPage() {
                     <div className="flex items-center gap-4 mt-2 text-xs text-gray-500">
                       <span className="flex items-center gap-1">
                         <Calendar className="w-4 h-4" />
-                        {new Date(minute.meeting_date).toLocaleDateString('en-IN')}
+                        {formatPortalDate(minute.meeting_date)}
                       </span>
                       <span>By: {minute.uploader?.name}</span>
                     </div>

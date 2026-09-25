@@ -10,6 +10,8 @@ import Link from 'next/link';
 import toast from 'react-hot-toast';
 import { notifyFaculty } from '@/lib/portal-notify-helpers';
 import { canManageStatementOfAccounts } from '@/lib/permissions';
+import { formatPortalDate } from '@/lib/portal-date';
+import DateTextInput from '@/components/DateTextInput';
 import DashboardAtmosphere from '@/components/react-bits/DashboardAtmosphere';
 import GradientText from '@/components/react-bits/GradientText';
 import GsapText from '@/components/react-bits/GsapText';
@@ -129,8 +131,12 @@ export default function StatementOfAccountsPage() {
       return;
     }
     const formData = new FormData(e.currentTarget);
-    const date = formData.get('date') as string;
-    const dateObj = new Date(date);
+    const date = String(formData.get('date') || '');
+    const dateObj = new Date(`${date}T00:00:00`);
+    if (!date || Number.isNaN(dateObj.getTime())) {
+      toast.error('Enter the date as DD/MM/YYYY');
+      return;
+    }
     const month = dateObj.toLocaleString('default', { month: 'long' });
     const year = dateObj.getFullYear();
     const debit = parseFloat(formData.get('debit') as string) || 0;
@@ -178,8 +184,12 @@ export default function StatementOfAccountsPage() {
     }
     if (!editingTxn) return;
     const formData = new FormData(e.currentTarget);
-    const date = formData.get('date') as string;
-    const dateObj = new Date(date);
+    const date = String(formData.get('date') || '');
+    const dateObj = new Date(`${date}T00:00:00`);
+    if (!date || Number.isNaN(dateObj.getTime())) {
+      toast.error('Enter the date as DD/MM/YYYY');
+      return;
+    }
     const month = dateObj.toLocaleString('default', { month: 'long' });
     const year = dateObj.getFullYear();
     const debit = parseFloat(formData.get('debit') as string) || 0;
@@ -333,7 +343,7 @@ export default function StatementOfAccountsPage() {
                 {transactions.map(txn => (
                   <tr key={txn.id} className="hover:bg-indigo-50/30 transition-colors">
                     <td className="px-4 py-3 text-sm text-gray-700">{txn.sr_no}</td>
-                    <td className="px-4 py-3 text-sm text-gray-700">{new Date(txn.date).toLocaleDateString()}</td>
+                    <td className="px-4 py-3 text-sm text-gray-700">{formatPortalDate(txn.date)}</td>
                     <td className="px-4 py-3 text-sm text-gray-700">{txn.event}</td>
                     <td className="px-4 py-3 text-sm text-gray-700">{txn.item}</td>
                     <td className="px-4 py-3 text-sm text-right text-red-500 font-medium">
@@ -401,7 +411,8 @@ export default function StatementOfAccountsPage() {
               <form onSubmit={handleAddTransaction} className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-600 mb-1">Date</label>
-                  <input type="date" name="date" required className="w-full border border-gray-200 rounded-xl px-3 py-2 bg-white/80 text-sm" />
+                  <DateTextInput name="date" required className="w-full border border-gray-200 rounded-xl px-3 py-2 bg-white/80 text-sm" />
+                  <p className="text-xs text-gray-400 mt-1">Type DD then MM then YYYY — slashes appear as you type</p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-600 mb-1">Event</label>
@@ -452,7 +463,7 @@ export default function StatementOfAccountsPage() {
               <form onSubmit={handleEditTransaction} className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-600 mb-1">Date</label>
-                  <input type="date" name="date" required defaultValue={editingTxn.date?.split('T')[0]} className="w-full border border-gray-200 rounded-xl px-3 py-2 bg-white/80 text-sm" />
+                  <DateTextInput name="date" required defaultValue={editingTxn.date?.split('T')[0]} className="w-full border border-gray-200 rounded-xl px-3 py-2 bg-white/80 text-sm" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-600 mb-1">Event</label>

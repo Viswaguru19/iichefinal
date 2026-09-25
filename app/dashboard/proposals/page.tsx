@@ -9,6 +9,7 @@ import DashboardAtmosphere from '@/components/react-bits/DashboardAtmosphere';
 import { motion, AnimatePresence } from 'framer-motion';
 import { CheckCircle, XCircle, Clock, Users, Crown, Edit, AlertTriangle, Ban, CalendarDays, Send, RotateCcw, Sparkles, ArrowLeft, Filter, Bell } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { formatPortalDateTime } from '@/lib/portal-date';
 import EditEventModal from '@/components/proposals/EditEventModal';
 import RevokeModal from '@/components/proposals/RevokeModal';
 import EditHistoryView from '@/components/proposals/EditHistoryView';
@@ -474,7 +475,7 @@ function ProposalsPageClient() {
                   )}
 
                   <div className="grid grid-cols-2 gap-3 text-sm text-gray-500 mb-4 relative z-10">
-                    <div><span className="font-medium text-gray-600">Date:</span> {proposal.date ? new Date(proposal.date).toLocaleString('en-IN') : 'TBA'}</div>
+                    <div><span className="font-medium text-gray-600">Date:</span> {proposal.date ? formatPortalDateTime(proposal.date) : 'TBA'}</div>
                     {proposal.location && <div><span className="font-medium text-gray-600">Location:</span> {proposal.location}</div>}
                     {proposal.budget && <div><span className="font-medium text-gray-600">Budget:</span> ₹{proposal.budget.toLocaleString('en-IN')}</div>}
                   </div>

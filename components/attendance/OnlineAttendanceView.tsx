@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react';
 import { Loader2, CheckCircle2, Send } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { formatPortalDateTime } from '@/lib/portal-date';
 
 function formatPortalDwell(sec: number) {
     const s = Math.max(0, Math.floor(sec));
@@ -132,10 +133,7 @@ export default function OnlineAttendanceView({
                                                 <span className="text-gray-400 font-normal">
                                                     {' '}
                                                     · last seen{' '}
-                                                    {new Date(p.live_last_seen_at).toLocaleString('en-IN', {
-                                                        dateStyle: 'short',
-                                                        timeStyle: 'short',
-                                                    })}
+                                                    {formatPortalDateTime(p.live_last_seen_at)}
                                                 </span>
                                             ) : null}
                                         </p>

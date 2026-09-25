@@ -1,20 +1,9 @@
-const IST = 'Asia/Kolkata';
+import { formatPortalDate, formatPortalDateTime } from '@/lib/portal-date';
 
 function formatMeetingDateParts(iso: string) {
-  const meetingDate = new Date(iso);
-  const date = meetingDate.toLocaleDateString('en-IN', {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    timeZone: IST,
-  });
-  const time = meetingDate.toLocaleTimeString('en-IN', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: true,
-    timeZone: IST,
-  });
+  const full = formatPortalDateTime(iso);
+  const date = formatPortalDate(iso);
+  const time = full.replace(date, '').trim();
   return { date, time };
 }
 

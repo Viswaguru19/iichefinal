@@ -8,6 +8,7 @@ import { Plus, CheckCircle, Clock, AlertCircle, Calendar, Upload, FileText, Tras
 import toast from 'react-hot-toast';
 import PageHeader from '@/components/PageHeader';
 import DashboardAtmosphere from '@/components/react-bits/DashboardAtmosphere';
+import { formatPortalDate, formatPortalDateTime } from '@/lib/portal-date';
 
 export default function TasksPage() {
   const EC_COMMITTEE_ID = '00000000-0000-0000-0000-000000000001';
@@ -676,17 +677,17 @@ export default function TasksPage() {
                         {/* Deadline */}
                         {task.deadline ? (
                           <p className={`text-xs mt-1 font-medium ${new Date(task.deadline) < new Date() ? 'text-red-600' : 'text-amber-600'}`}>
-                            📅 Deadline: {new Date(task.deadline).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                            📅 Deadline: {formatPortalDate(task.deadline)}
                             {new Date(task.deadline) < new Date() && ' (Overdue)'}
                           </p>
                         ) : task.ec_approved_at ? (
                           <p className={`text-xs mt-1 font-medium ${new Date(new Date(task.ec_approved_at).getTime() + 2 * 24 * 60 * 60 * 1000) < new Date() ? 'text-red-600' : 'text-amber-600'}`}>
-                            📅 Deadline: {new Date(new Date(task.ec_approved_at).getTime() + 2 * 24 * 60 * 60 * 1000).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })} (default)
+                            📅 Deadline: {formatPortalDate(new Date(new Date(task.ec_approved_at).getTime() + 2 * 24 * 60 * 60 * 1000))} (default)
                             {new Date(new Date(task.ec_approved_at).getTime() + 2 * 24 * 60 * 60 * 1000) < new Date() && ' (Overdue)'}
                           </p>
                         ) : task.created_at ? (
                           <p className={`text-xs mt-1 font-medium ${new Date(new Date(task.created_at).getTime() + 2 * 24 * 60 * 60 * 1000) < new Date() ? 'text-red-600' : 'text-amber-600'}`}>
-                            📅 Deadline: {new Date(new Date(task.created_at).getTime() + 2 * 24 * 60 * 60 * 1000).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })} (default)
+                            📅 Deadline: {formatPortalDate(new Date(new Date(task.created_at).getTime() + 2 * 24 * 60 * 60 * 1000))} (default)
                           </p>
                         ) : null}
                       </div>
@@ -724,7 +725,7 @@ export default function TasksPage() {
                             <div key={update.id} className="bg-gray-50 p-3 rounded-lg border">
                               <p className="text-sm text-gray-800">{update.update_text}</p>
                               <p className="text-xs text-gray-500 mt-1">
-                                By {update.user?.name} • {new Date(update.created_at).toLocaleString('en-IN')}
+                                By {update.user?.name} • {formatPortalDateTime(update.created_at)}
                               </p>
                             </div>
                           ))}
