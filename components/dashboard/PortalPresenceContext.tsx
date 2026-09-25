@@ -5,7 +5,7 @@ import { createContext, useContext } from 'react';
 export type PortalPresenceValue = {
   onlineUserIds: Set<string>;
   viewerIsAdmin: boolean;
-  /** Same as viewerIsAdmin — use for chat UI gating */
+  /** Signed-in members can see who is online in the portal and in chat */
   showOnlinePresence: boolean;
   currentUserId: string | null;
   ready: boolean;

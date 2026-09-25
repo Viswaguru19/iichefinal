@@ -37,11 +37,11 @@ export default function PortalPresenceProvider({ children }: { children: React.R
           .eq('id', user.id)
           .single();
         const p = profile as { is_admin?: boolean; is_faculty?: boolean; role?: string } | null;
-        const canSeePresence =
+        const isAdmin =
           !!p?.is_admin ||
           !!p?.is_faculty ||
           ['super_admin', 'secretary'].includes(String(p?.role || ''));
-        if (!cancelled) setViewerIsAdmin(canSeePresence);
+        if (!cancelled) setViewerIsAdmin(isAdmin);
 
         const ch = supabase.channel('online-users', { config: { presence: { key: user.id } } });
         channelRef.current = ch;
@@ -85,7 +85,7 @@ export default function PortalPresenceProvider({ children }: { children: React.R
     () => ({
       onlineUserIds,
       viewerIsAdmin,
-      showOnlinePresence: viewerIsAdmin,
+      showOnlinePresence: !!currentUserId,
       currentUserId,
       ready,
     }),

@@ -10,10 +10,10 @@ import { motionTokens } from '@/lib/ui/motion';
 type Row = { id: string; name: string };
 
 /**
- * Portal-wide “who is online” for admins — shown in DashboardNav and PageHeader.
+ * Portal-wide “who is online” for every signed-in member — shown in DashboardNav and PageHeader.
  */
 export default function AdminOnlinePresenceControls() {
-  const { onlineUserIds, viewerIsAdmin, currentUserId, ready } = usePortalPresence();
+  const { onlineUserIds, currentUserId, ready } = usePortalPresence();
   const [open, setOpen] = useState(false);
   const [rows, setRows] = useState<Row[]>([]);
   const [loadingNames, setLoadingNames] = useState(false);
@@ -47,7 +47,7 @@ export default function AdminOnlinePresenceControls() {
     if (next) void loadNames();
   };
 
-  if (!ready || !viewerIsAdmin) return null;
+  if (!ready || !currentUserId) return null;
 
   return (
     <div className="relative">
@@ -55,7 +55,7 @@ export default function AdminOnlinePresenceControls() {
         type="button"
         onClick={onToggle}
         className="portal-online-trigger flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-800 border border-emerald-200/60 text-[11px] sm:text-xs font-semibold transition-colors"
-        title="Members online in the portal (admin)"
+        title="Members online in the portal"
       >
         <Users className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
         <span className="whitespace-nowrap tabular-nums">
