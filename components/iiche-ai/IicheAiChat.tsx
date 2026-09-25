@@ -196,7 +196,7 @@ export default function IicheAiChat({ compact = false }: { compact?: boolean }) 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message,
-          history: nextTurns.slice(-8).map((t) => ({ role: t.role, content: t.content.slice(0, 800) })),
+          history: nextTurns.slice(-10).map((t) => ({ role: t.role, content: t.content.slice(0, 2000) })),
           posterDraft: posterDraft
             ? {
                 eventId: posterDraft.eventId,

@@ -187,6 +187,17 @@ export const IICHE_AI_TOOL_DECLARATIONS = [
       required: ['minutes'],
     },
   },
+  {
+    name: 'list_events',
+    description:
+      'List real chapter events (title, date, venue, status). Use when they ask what events exist, upcoming events, or details of a named event. Do not invent events.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Optional title fragment to search. Empty lists the latest events.' },
+      },
+    },
+  },
 ];
 
 function str(v: unknown): string {
@@ -284,6 +295,49 @@ function membershipLabel(position: string | null | undefined, fallbackRole?: str
   const n = String(position || fallbackRole || 'member').trim();
   if (!n || n.toLowerCase() === 'member') return 'Member';
   return titleCaseRole(n);
+}
+
+export async function listEvents(ctx: IicheAiToolCtx, query: string): Promise<string> {
+  const q = query.trim();
+  let req = ctx.directory
+    .from('events')
+    .select('id, title, event_date, location, status, committees(name)')
+    .order('created_at', { ascending: false })
+    .limit(10);
+  if (q) req = req.ilike('title', `%${q}%`);
+  const { data, error } = await req;
+  if (error) return `Could not load events: ${error.message}`;
+  const rows = (data || []) as {
+    title?: string;
+    event_date?: string;
+    location?: string;
+    status?: string;
+    committees?: { name?: string } | { name?: string }[];
+  }[];
+  if (!rows.length) {
+    return q
+      ? `No event matched "${q}". Open /dashboard/propose-event to submit one, or /dashboard/proposals to see pending items.`
+      : 'There are no events on record yet. Propose one at /dashboard/propose-event.';
+  }
+
+  const lines = [
+    q ? `Events matching **${q}**:` : 'Latest chapter events:',
+    '',
+    '| Event | Date | Venue | Status | Committee |',
+    '| --- | --- | --- | --- | --- |',
+  ];
+  for (const ev of rows) {
+    const committee = Array.isArray(ev.committees) ? ev.committees[0]?.name : ev.committees?.name;
+    const when = ev.event_date;
+    const dateLabel = when
+      ? new Date(when).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+      : 'TBA';
+    lines.push(
+      `| ${ev.title || 'Untitled'} | ${dateLabel} | ${ev.location || 'TBA'} | ${(ev.status || '—').replace(/_/g, ' ')} | ${committee || '—'} |`,
+    );
+  }
+  lines.push('', 'Open /dashboard/proposals for approvals or /dashboard to see the calendar.');
+  return lines.join('\n');
 }
 
 export async function getMyIdentity(ctx: IicheAiToolCtx): Promise<string> {
@@ -983,6 +1037,8 @@ export async function runIicheAiTool(ctx: IicheAiToolCtx, name: string, args: Re
       return createEventReport(ctx, args);
     case 'create_minutes':
       return createMinutes(ctx, args);
+    case 'list_events':
+      return listEvents(ctx, str(args.query));
     default:
       return `Unknown tool ${name}`;
   }
@@ -1002,7 +1058,11 @@ export function maybeHeuristicTool(message: string): { name: string; args: Recor
     return { name: 'get_my_identity', args: {} };
   }
   const wantsCreate = /\b(create|ceate|make|add|new|schedule|write|save)\b/.test(lower);
-  if (/\b(election|elections|voting)\b/.test(lower) && !wantsCreate) {
+  const askingHow =
+    /\b(how do i|how does|how can|how to|explain|tell me about|what is the|what are the|what's the)\b/.test(
+      lower,
+    ) && !/\b(open|go to|take me|start|begin|stop|end|finali[sz]e|launch|enable|close voting)\b/.test(lower);
+  if (/\b(election|elections|voting)\b/.test(lower) && !wantsCreate && !askingHow) {
     if (/\b(stop|end|close voting)\b/.test(lower)) return { name: 'manage_election', args: { action: 'stop' } };
     if (/\bfinali[sz]e\b/.test(lower)) return { name: 'manage_election', args: { action: 'finalize' } };
     if (/\b(start|begin)\b/.test(lower)) return { name: 'manage_election', args: { action: 'start' } };
@@ -1010,7 +1070,12 @@ export function maybeHeuristicTool(message: string): { name: string; args: Recor
       return { name: 'manage_election', args: { action: 'open' } };
     }
   }
-  if (/\b(propose|proposal)\b/.test(lower) && /\bevent\b/.test(lower) && !/\bapprov/.test(lower)) {
+  if (
+    /\b(propose|proposal)\b/.test(lower) &&
+    /\bevent\b/.test(lower) &&
+    !/\bapprov/.test(lower) &&
+    !askingHow
+  ) {
     const titled = m.match(/(?:event|proposal) (?:called|named|titled|:)\s*["']?(.+?)["']?$/i) || m.match(/["'](.+?)["']/);
     return { name: 'propose_event', args: { title: titled?.[1]?.trim() || 'Untitled event', description: m } };
   }
@@ -1021,7 +1086,7 @@ export function maybeHeuristicTool(message: string): { name: string; args: Recor
   if (/\bposter\b/.test(lower) && /\b(upload|attach|publish|save this|save the|use this)\b/.test(lower)) {
     return { name: 'upload_poster', args: {} };
   }
-  if (/\bposter\b/.test(lower) && /\b(design|make|create|generate)\b/.test(lower)) {
+  if (/\bposter\b/.test(lower) && /\b(design|make|create|generate)\b/.test(lower) && !askingHow) {
     const titled = m.match(/poster (?:for|of)\s+["']?(.+?)["']?$/i);
     let eventTitle = titled?.[1]?.trim() || '';
     if (!eventTitle || /^(it|this|that|me|us)$/i.test(eventTitle)) {
@@ -1032,24 +1097,30 @@ export function maybeHeuristicTool(message: string): { name: string; args: Recor
     }
     return { name: 'design_poster', args: { event_title: eventTitle } };
   }
-  const wantsOpen =
-    /\b(open|go to|take me|show me|where is|where are|find|access|navigate|section|tab)\b/.test(lower) ||
-    /\belections?\b/.test(lower) ||
-    /\bvoting\b/.test(lower);
-  if (wantsOpen && !wantsCreate) {
+  const wantsOpen = /\b(open|go to|take me|where is|where are|navigate)\b/.test(lower)
+    || /\bshow me (the )?(page|tab|section|election|voting|forms?|meetings?)\b/.test(lower);
+  if (wantsOpen && !wantsCreate && !askingHow) {
     if (/\b(election|elections|voting|vote|contest)\b/.test(lower)) {
       return { name: 'open_portal_page', args: { page: 'election' } };
     }
-    if (/\b(open|go to|take me|show me|where is|where are|navigate)\b/.test(lower)) {
-      const page = resolvePortalPage(lower);
-      if (page.path !== '/dashboard' || /\bdashboard\b/.test(lower)) {
-        return { name: 'open_portal_page', args: { page: page.path } };
-      }
+    const page = resolvePortalPage(lower);
+    if (page.path !== '/dashboard' || /\bdashboard\b/.test(lower)) {
+      return { name: 'open_portal_page', args: { page: page.path } };
     }
   }
   const officers =
     /\b(co[-\s]?heads?|heads?|officers?)\b/.test(lower) &&
     (/\bcommitte?e?s?\b/.test(lower) || /\b(who|which|list)\b/.test(lower) || /\b(of|for)\s+(the\s+)?/.test(lower));
+  if (
+    !wantsCreate &&
+    !askingHow &&
+    /\bevents?\b/.test(lower) &&
+    /\b(upcoming|list|which|show me|do we have|have we|scheduled|latest)\b/.test(lower) &&
+    !/\b(ideas?|propose|proposal|poster|report)\b/.test(lower)
+  ) {
+    const named = m.match(/(?:events?|named|called|titled)\s+["']?(.+?)["']?$/i);
+    return { name: 'list_events', args: { query: named?.[1]?.trim() || '' } };
+  }
   if (officers && !wantsCreate) {
     let name = 'this';
     if (/\bthis\s+committe?e?\b/.test(lower) || /\bmy\s+committe?e?\b/.test(lower) || /\bour\s+committe?e?\b/.test(lower)) {
@@ -1060,19 +1131,19 @@ export function maybeHeuristicTool(message: string): { name: string; args: Recor
     }
     return { name: 'get_committee_officers', args: { committee_name: name } };
   }
-  if (wantsCreate && /\bform\b/.test(lower)) {
+  if (wantsCreate && !askingHow && /\bform\b/.test(lower)) {
     const titled = m.match(/form (?:called|named|titled|:)\s*["']?(.+?)["']?$/i) || m.match(/["'](.+?)["']\s*form/i);
     return { name: 'create_form', args: { title: titled?.[1]?.trim() || 'Untitled form', description: m } };
   }
-  if (wantsCreate && /\bmeeting\b/.test(lower)) {
+  if (wantsCreate && !askingHow && /\bmeeting\b/.test(lower)) {
     const titled = m.match(/meeting (?:called|named|titled|:)\s*["']?(.+?)["']?/i);
     return { name: 'create_meeting', args: { title: titled?.[1]?.trim() || 'Committee meeting' } };
   }
-  if (wantsCreate && /\b(event report|report)\b/.test(lower) && !/\bform\b/.test(lower)) {
+  if (wantsCreate && !askingHow && /\b(event report|report)\b/.test(lower) && !/\bform\b/.test(lower)) {
     const titled = m.match(/report (?:for|on)\s+["']?(.+?)["']?$/i);
     return { name: 'create_event_report', args: { event_title: titled?.[1]?.trim() || m } };
   }
-  if (wantsCreate && /\b(mom|minutes|minutes of meeting)\b/.test(lower)) {
+  if (wantsCreate && !askingHow && /\b(mom|minutes|minutes of meeting)\b/.test(lower)) {
     return { name: 'create_minutes', args: { title: 'Minutes of meeting', minutes: m } };
   }
   return null;

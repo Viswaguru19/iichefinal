@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
 function trimHistory(raw: unknown): IicheAiMessage[] {
   if (!Array.isArray(raw)) return [];
   const out: IicheAiMessage[] = [];
-  for (const row of raw.slice(-8)) {
+  for (const row of raw.slice(-10)) {
     const role = row?.role === 'assistant' ? 'assistant' : row?.role === 'user' ? 'user' : null;
     const content = String(row?.content || '').trim();
     if (!role || !content) continue;

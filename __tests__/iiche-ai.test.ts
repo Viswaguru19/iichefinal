@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fallbackIicheAiReply, splitPortalNavigate } from '@/lib/iiche-ai';
+import { fallbackIicheAiReply, shouldRunHeuristicBeforeModel, splitPortalNavigate } from '@/lib/iiche-ai';
 import { maybeHeuristicTool } from '@/lib/iiche-ai-actions';
 import { iicheAiReplyPlain, parseIicheAiReply } from '@/lib/iiche-ai-format';
 import { buildIichePosterSvg, pickPosterHeroUrl, resolvePosterTheme, svgDataUrl } from '@/lib/iiche-ai-poster';
@@ -11,7 +11,8 @@ describe('IIChE AI guide', () => {
 
   it('explains election roles without inventing results', () => {
     const reply = fallbackIicheAiReply('Can I contest secretary?');
-    expect(reply.toLowerCase()).toContain('heads contest secretary');
+    expect(reply.toLowerCase()).toContain('heads contest');
+    expect(reply.toLowerCase()).toContain('secretary');
     expect(reply).toContain('/dashboard/election');
   });
 
@@ -22,6 +23,13 @@ describe('IIChE AI guide', () => {
   it('does not treat “this” as a hello, and answers how-are-you', () => {
     expect(fallbackIicheAiReply('heads of this committee')).not.toContain('Ask me anything');
     expect(fallbackIicheAiReply('how are you').toLowerCase()).toContain("i'm doing well");
+  });
+
+  it('does not steal academic questions with portal keywords', () => {
+    expect(fallbackIicheAiReply('electron configuration of iron')).not.toContain('/dashboard/election');
+    expect(fallbackIicheAiReply('help me formulate a research question')).not.toContain('/dashboard/forms');
+    expect(fallbackIicheAiReply('I have a calculation task on mass transfer')).not.toContain('/dashboard/tasks');
+    expect(fallbackIicheAiReply('Explain McCabe-Thiele step by step')).not.toContain('/dashboard');
   });
 });
 
@@ -61,9 +69,24 @@ describe('IIChE AI tool heuristics', () => {
   });
 
   it('does not treat research or idea questions as portal writes', () => {
+    expect(maybeHeuristicTool('list upcoming events')?.name).toBe('list_events');
+    expect(maybeHeuristicTool('what events do we have')?.name).toBe('list_events');
     expect(maybeHeuristicTool('Give me event ideas for Chemical Engineering week')).toBeNull();
     expect(maybeHeuristicTool('Explain McCabe-Thiele step by step')).toBeNull();
     expect(maybeHeuristicTool('Help me research membrane bioreactors')).toBeNull();
+    expect(maybeHeuristicTool('How does the election work?')).toBeNull();
+    expect(maybeHeuristicTool('What is the election process?')).toBeNull();
+    expect(maybeHeuristicTool('Who can vote?')).toBeNull();
+    expect(maybeHeuristicTool('How do I propose an event?')).toBeNull();
+    expect(maybeHeuristicTool('How do I create a form?')).toBeNull();
+  });
+
+  it('lets the model handle a mixed research-plus-portal question', () => {
+    const guessed = maybeHeuristicTool('Who is the head of Program and also explain McCabe-Thiele');
+    expect(guessed?.name).toBe('get_committee_officers');
+    expect(shouldRunHeuristicBeforeModel('Who is the head of Program and also explain McCabe-Thiele', guessed!)).toBe(
+      false,
+    );
   });
 
   it('answers who-am-I from the signed-in profile instead of opening Profile', () => {
