@@ -19,6 +19,7 @@ import {
 import SimplePieChart, { pieColors } from '@/components/forms/SimplePieChart';
 import { generateAvailableRollOptions, rollCountFromValidation, excludedRollsFromValidation, EXACT_TWO_HINT } from '@/lib/form-field-types';
 import { canViewFormResponses } from '@/lib/form-access';
+import { FORM_PAGES_META_KEY } from '@/lib/form-pages';
 import { withTimeout } from '@/lib/with-timeout';
 import { isSuperAdmin } from '@/lib/permissions';
 
@@ -37,10 +38,11 @@ function officialAnswers(r: any): Record<string, any> {
 }
 
 function visibleAnswers(r: any): Record<string, any> {
-  if (r?.amended_responses && typeof r.amended_responses === 'object') {
-    return r.amended_responses as Record<string, any>;
-  }
-  return officialAnswers(r);
+  const raw = r?.amended_responses && typeof r.amended_responses === 'object'
+    ? r.amended_responses as Record<string, any>
+    : officialAnswers(r);
+  const { [FORM_PAGES_META_KEY]: _pages, ...rest } = raw as Record<string, any>;
+  return rest;
 }
 
 export default function FormResponsesPage() {

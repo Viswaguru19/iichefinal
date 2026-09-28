@@ -6,7 +6,9 @@ import { createClient } from '@/lib/supabase/client';
 import { ArrowLeft, Plus, X, GripVertical, Copy, Eye, Settings, ChevronDown, ChevronUp, Upload, Type, AlignLeft, List, CheckSquare, ChevronRight, Calendar, Hash, Mail, FileUp, Image as ImageIcon, Phone } from 'lucide-react';
 import RollExcludeChecklist from '@/components/forms/RollExcludeChecklist';
 import ResponseViewerPicker from '@/components/forms/ResponseViewerPicker';
+import FormPagesEditor from '@/components/forms/FormPagesEditor';
 import { defaultOptionsForFieldType, defaultValidationForFieldType, isOptionFieldType, EXACT_TWO_HINT, clampRollCount, ROLL_NO_MAX_COUNT, ROLL_NO_MIN_COUNT, rollCountFromValidation, excludedRollsFromValidation } from '@/lib/form-field-types';
+import { blankFormPage, fieldsOnPage, pageIndex, pagesMissingQuestions, resolveFormPage, type FormPage } from '@/lib/form-pages';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
@@ -36,6 +38,7 @@ interface FormField {
     excludedRolls?: string[];
   };
   order_index: number;
+  page_id?: string;
 }
 
 const FIELD_TYPES = [
@@ -92,6 +95,9 @@ export default function CreateFormPage() {
   const [selectedEventId, setSelectedEventId] = useState('');
   /** Normal forms only: optional QR after submit. Event registration always shows QR. */
   const [showAttendanceQrAfterSubmit, setShowAttendanceQrAfterSubmit] = useState(false);
+  const initialPage = blankFormPage('Page 1');
+  const [pages, setPages] = useState<FormPage[]>([initialPage]);
+  const [activePageId, setActivePageId] = useState(initialPage.id);
   const prevFormTypeRef = useRef<string | null>(null);
 
   const router = useRouter();
@@ -163,6 +169,7 @@ export default function CreateFormPage() {
       required: false,
       validation: defaultValidationForFieldType(type),
       order_index: fields.length,
+      page_id: activePageId,
     };
     setFields([...fields, newField]);
     setActiveField(newField.id);
@@ -170,7 +177,7 @@ export default function CreateFormPage() {
 
   function duplicateField(index: number) {
     const original = fields[index];
-    const copy: FormField = { ...original, id: generateId(), label: original.label + ' (copy)', order_index: fields.length };
+    const copy: FormField = { ...original, id: generateId(), label: original.label + ' (copy)', order_index: fields.length, page_id: original.page_id || activePageId };
     const updated = [...fields];
     updated.splice(index + 1, 0, copy);
     setFields(updated.map((f, i) => ({ ...f, order_index: i })));
@@ -186,11 +193,31 @@ export default function CreateFormPage() {
   }
 
   function moveField(index: number, direction: 'up' | 'down') {
-    if ((direction === 'up' && index === 0) || (direction === 'down' && index === fields.length - 1)) return;
+    const page = resolveFormPage(pages, activePageId);
+    const visible = fieldsOnPage(fields, page, pages);
+    const current = fields[index];
+    const vi = visible.findIndex((f) => f.id === current?.id);
+    const swapVis = visible[direction === 'up' ? vi - 1 : vi + 1];
+    if (!current || vi < 0 || !swapVis) return;
+    const swapIndex = fields.findIndex((f) => f.id === swapVis.id);
+    if (swapIndex < 0) return;
     const newFields = [...fields];
-    const swapIndex = direction === 'up' ? index - 1 : index + 1;
     [newFields[index], newFields[swapIndex]] = [newFields[swapIndex], newFields[index]];
     setFields(newFields.map((f, i) => ({ ...f, order_index: i })));
+  }
+
+  function handlePagesChange(next: FormPage[]) {
+    if (pages.length === 1 && next.length > 1) {
+      setFields(fields.map((f) => ({ ...f, page_id: f.page_id || pages[0].id })));
+    }
+    if (next.length < pages.length) {
+      const removed = pages.find((p) => !next.some((n) => n.id === p.id));
+      if (removed) {
+        const fallback = next[0].id;
+        setFields(fields.map((f) => (f.page_id === removed.id ? { ...f, page_id: fallback } : f)));
+      }
+    }
+    setPages(next);
   }
 
   function addOption(fieldId: string) {
@@ -243,6 +270,11 @@ export default function CreateFormPage() {
     if (badExactTwo) { toast.error('"Select Exactly 2" questions need at least 2 options'); return; }
     const badRoll = fields.find(f => f.field_type === 'roll_no' && !rollCountFromValidation(f.validation));
     if (badRoll) { toast.error('Set how many roll numbers (1–99) for Roll No questions'); return; }
+    const emptyPages = pagesMissingQuestions(pages, fields);
+    if (emptyPages.length > 0) {
+      toast.error(`Add at least one question to: ${emptyPages.join(', ')}`);
+      return;
+    }
 
     setLoading(true);
     const { data: { user } } = await supabase.auth.getUser();
@@ -268,6 +300,7 @@ export default function CreateFormPage() {
           response_viewers_all: responseViewersAll,
           show_attendance_qr_after_submit:
             formType === 'event_registration' ? true : showAttendanceQrAfterSubmit,
+          pages,
         },
         form_type: formType,
         event_id: formType === 'event_registration' ? selectedEventId : null,
@@ -291,6 +324,9 @@ export default function CreateFormPage() {
     router.push(`/dashboard/forms/${form.id}`);
   }
 
+  const activePage = resolveFormPage(pages, activePageId);
+  const visibleFields = fieldsOnPage(fields, activePage, pages);
+
   if (showPreview) {
     return (
       <div className="min-h-screen bg-mesh py-8 px-4 relative overflow-hidden">
@@ -310,9 +346,19 @@ export default function CreateFormPage() {
               {bannerUrl && <img src={bannerUrl} alt="Banner" className="w-full h-40 object-cover rounded-xl mb-4" />}
               <h1 className="text-3xl font-extrabold text-gradient tracking-tight">{title || 'Untitled Form'}</h1>
               {description && <p className="text-gray-400 mt-2">{description}</p>}
+              {pages.length > 1 && (
+                <div className="mt-3">
+                  <p className="text-sm text-indigo-600 font-semibold">
+                    {activePage.title} · page {pageIndex(pages, activePage.id) + 1} of {pages.length}
+                  </p>
+                  {activePage.description && (
+                    <p className="text-sm text-gray-500 mt-1">{activePage.description}</p>
+                  )}
+                </div>
+              )}
             </div>
           </motion.div>
-          {fields.map((field, i) => (
+          {visibleFields.map((field, i) => (
             <motion.div key={field.id} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }} className="glass p-6 mb-1">
               <p className="text-lg font-semibold text-gray-800 mb-3">
                 {field.label || `Question ${i + 1}`}
@@ -543,8 +589,17 @@ export default function CreateFormPage() {
               </div>
             </motion.div>
 
+            <FormPagesEditor
+              pages={pages}
+              activePageId={activePage.id}
+              onChange={handlePagesChange}
+              onSelect={setActivePageId}
+            />
+
             {/* Questions */}
-            {fields.map((field, index) => {
+            {visibleFields.map((field) => {
+              const index = fields.findIndex((f) => f.id === field.id);
+              const visIndex = visibleFields.findIndex((f) => f.id === field.id);
               const isActive = activeField === field.id;
               const TypeIcon = FIELD_TYPES.find(ft => ft.value === field.field_type)?.icon || Type;
               return (
@@ -683,8 +738,8 @@ export default function CreateFormPage() {
                           <div className="flex items-center gap-3">
                             <button onClick={() => duplicateField(index)} className="text-gray-400 hover:text-indigo-600" title="Duplicate"><Copy className="w-4 h-4" /></button>
                             <button onClick={() => removeField(index)} className="text-gray-400 hover:text-red-500" title="Delete"><X className="w-4 h-4" /></button>
-                            <button onClick={() => moveField(index, 'up')} disabled={index === 0} className="text-gray-400 hover:text-indigo-600 disabled:opacity-30" title="Move up"><ChevronUp className="w-4 h-4" /></button>
-                            <button onClick={() => moveField(index, 'down')} disabled={index === fields.length - 1} className="text-gray-400 hover:text-indigo-600 disabled:opacity-30" title="Move down"><ChevronDown className="w-4 h-4" /></button>
+                            <button onClick={() => moveField(index, 'up')} disabled={visIndex === 0} className="text-gray-400 hover:text-indigo-600 disabled:opacity-30" title="Move up"><ChevronUp className="w-4 h-4" /></button>
+                            <button onClick={() => moveField(index, 'down')} disabled={visIndex === visibleFields.length - 1} className="text-gray-400 hover:text-indigo-600 disabled:opacity-30" title="Move down"><ChevronDown className="w-4 h-4" /></button>
                             <div className="border-l border-gray-200 pl-3 flex items-center gap-2">
                               <label className="flex items-center gap-1.5 text-sm text-gray-600">
                                 <input type="checkbox" checked={field.required} onChange={e => updateField(field.id, { required: e.target.checked })} className="rounded text-indigo-600" />
@@ -701,7 +756,7 @@ export default function CreateFormPage() {
             })}
 
             {/* Add question button */}
-            {fields.length === 0 ? (
+            {visibleFields.length === 0 ? (
               <motion.div
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
@@ -710,7 +765,7 @@ export default function CreateFormPage() {
                 <motion.div animate={{ y: [0, -6, 0] }} transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}>
                   <Plus className="w-12 h-12 text-gray-300 mx-auto mb-3" />
                 </motion.div>
-                <p className="text-gray-400 mb-4">No questions yet. Add your first question from the panel on the left.</p>
+                <p className="text-gray-400 mb-4">No questions on this page yet. Add a question from the panel on the left.</p>
                 <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.97 }} onClick={() => addField('text')} className="btn-gradient-blue px-6 py-2 rounded-2xl font-semibold shadow-lg shadow-blue-500/20">
                   <Plus className="w-4 h-4 inline mr-2" /> Add Question
                 </motion.button>

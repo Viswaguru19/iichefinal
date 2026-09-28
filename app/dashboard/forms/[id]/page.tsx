@@ -4,7 +4,7 @@ import PortalLoadingScreen from '@/components/PortalLoadingScreen';
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { createClient } from '@/lib/supabase/client';
-import { ArrowLeft, Share2, Check, Lock, AlertTriangle, Upload } from 'lucide-react';
+import { ArrowLeft, Share2, Check, Lock, AlertTriangle, Upload, ExternalLink } from 'lucide-react';
 import { EXACT_TWO_HINT, isValidRollNo, rollCountFromValidation, excludedRollsFromValidation } from '@/lib/form-field-types';
 import SearchableRollSelect from '@/components/forms/SearchableRollSelect';
 import { canViewFormResponses, shouldShowPersonalQrAfterSubmit, isFormCollecting, isFormTestMode, isFormBeforeStart, isFormPastDeadline, parseFormScheduleLocal } from '@/lib/form-access';
@@ -16,6 +16,17 @@ import { publicFormUrl } from '@/lib/form-public-access';
 import { withTimeout } from '@/lib/with-timeout';
 import { formatPortalDateTime } from '@/lib/portal-date';
 import DateTextInput from '@/components/DateTextInput';
+import {
+  FORM_PAGES_META_KEY,
+  fieldsOnPage,
+  firstIncompletePage,
+  formPageFillPath,
+  isFormFullyComplete,
+  nextFormPage,
+  normalizeFormPages,
+  pageIndex,
+  resolveFormPage,
+} from '@/lib/form-pages';
 import {
   extractResponderEmail,
   extractResponderName,
@@ -35,6 +46,7 @@ interface FormField {
   description?: string;
   options?: string[];
   required: boolean;
+  page_id?: string;
   validation?: {
     email?: boolean;
     minLength?: number;
@@ -79,6 +91,9 @@ export default function FormSubmitPage() {
   const [isTestMode, setIsTestMode] = useState(false);
   const [previewOnly, setPreviewOnly] = useState(false);
   const [submittedWasTest, setSubmittedWasTest] = useState(false);
+  const [currentPageId, setCurrentPageId] = useState<string | null>(null);
+  const [continueRid, setContinueRid] = useState<string | null>(null);
+  const [nextPageLink, setNextPageLink] = useState<{ href: string; label: string; title: string } | null>(null);
   const params = useParams();
   const pathname = usePathname();
   const isPublicFormRoute = pathname?.startsWith('/forms/');
@@ -160,6 +175,16 @@ export default function FormSubmitPage() {
       const formData = formResult.data;
       const settings = formData.settings || {};
       const formFields = (formData.fields || []) as FormField[];
+      const formPages = normalizeFormPages(settings, formFields);
+      const query = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
+      const requestedPage = query.get('page');
+      const requestedRid = query.get('rid');
+      let openingPage = resolveFormPage(formPages, requestedPage);
+      if (pageIndex(formPages, openingPage.id) > 0 && !requestedRid) {
+        openingPage = formPages[0];
+      }
+      setCurrentPageId(openingPage.id);
+      setContinueRid(requestedRid);
       const collecting = isFormCollecting(formData);
       const testMode = isFormTestMode(formData);
 
@@ -230,7 +255,7 @@ export default function FormSubmitPage() {
           Promise.resolve(
             supabase
               .from('form_responses')
-              .select('id')
+              .select('id, responses')
               .eq('form_id', formId)
               .eq('user_id', authUser.id)
               .eq('is_test', false)
@@ -238,10 +263,17 @@ export default function FormSubmitPage() {
           ),
           2500,
         );
-        const existing = existingResult?.data;
-        if (existing && existing.length > 0) {
-          if (isCreator) setPreviewOnly(true);
-          else {
+        const existing = existingResult?.data?.[0] as { id?: string; responses?: unknown } | undefined;
+        if (existing?.id) {
+          if (formPages.length > 1 && !isFormFullyComplete(formPages, existing.responses)) {
+            if (!requestedRid) {
+              setContinueRid(existing.id);
+              const nxt = firstIncompletePage(formPages, existing.responses);
+              if (nxt) setCurrentPageId(nxt.id);
+            }
+          } else if (isCreator) {
+            setPreviewOnly(true);
+          } else {
             setFormClosed(true);
             setClosedReason('You have already submitted a response.');
             closed = true;
@@ -341,7 +373,9 @@ export default function FormSubmitPage() {
 
   function validate(): boolean {
     const newErrors: Record<string, string> = {};
-    for (const field of fields) {
+    const pages = normalizeFormPages(form?.settings, fields);
+    const pageFields = fieldsOnPage(fields, resolveFormPage(pages, currentPageId), pages);
+    for (const field of pageFields) {
       const val = answers[field.id];
       if (field.field_type === 'checkbox_exact_2') {
         const selected = Array.isArray(val) ? val : [];
@@ -389,8 +423,11 @@ export default function FormSubmitPage() {
       }
     }
 
-    const responses: Record<string, any> = {};
-    for (const field of fields) {
+    const pages = normalizeFormPages(form?.settings, fields);
+    const currentPage = resolveFormPage(pages, currentPageId);
+    const pageFields = fieldsOnPage(fields, currentPage, pages);
+    const responses: Record<string, any> = { [FORM_PAGES_META_KEY]: [currentPage.id] };
+    for (const field of pageFields) {
       const val = answers[field.id];
       if (field.field_type === 'file' && val instanceof File) {
         const ext = val.name.split('.').pop();
@@ -408,6 +445,19 @@ export default function FormSubmitPage() {
     const registrationSource =
       srcParam === 'onsite' || srcParam === 'on_site' || srcParam === 'qr' ? 'on_site' : 'advance';
 
+    const nxt = nextFormPage(pages, currentPage.id);
+    const markContinue = (responseId?: string) => {
+      if (nxt && responseId) {
+        setNextPageLink({
+          href: formPageFillPath(String(formId), nxt.id, responseId),
+          label: currentPage.continueLabel || 'Continue to next page',
+          title: nxt.title,
+        });
+      } else {
+        setNextPageLink(null);
+      }
+    };
+
     const onSubmitConflict = async (message: string) => {
       toast.error(message);
       if (fields.some((f) => f.field_type === 'roll_no')) {
@@ -417,7 +467,7 @@ export default function FormSubmitPage() {
     };
 
     /** Live event registration only — tests go through public/test RPC (no participants). */
-    if (!submittingAsTest && form?.form_type === 'event_registration' && form?.event_id) {
+    if (!submittingAsTest && form?.form_type === 'event_registration' && form?.event_id && !continueRid) {
       const rpcPack = await withTimeout(
         Promise.resolve(
           supabase.rpc('submit_event_registration_response', {
@@ -456,7 +506,7 @@ export default function FormSubmitPage() {
         participant_email: emailVal,
         submitted_at: new Date().toISOString(),
       };
-      const showPersonalQr = shouldShowPersonalQrAfterSubmit(form?.settings, form?.form_type);
+      const showPersonalQr = !nxt && shouldShowPersonalQrAfterSubmit(form?.settings, form?.form_type);
       if (showPersonalQr) {
         setParticipantQrPayload(payload);
         try {
@@ -470,6 +520,7 @@ export default function FormSubmitPage() {
       }
       setSubmittedWasOnSite(registrationSource === 'on_site');
       setSubmittedWasTest(false);
+      markContinue(row.response_id);
       setSubmitted(true);
       setSubmitting(false);
       return;
@@ -478,9 +529,10 @@ export default function FormSubmitPage() {
     // All normal (and test) submits go through the public RPC — reliable under concurrent load
     const rpcPack = await withTimeout(
       Promise.resolve(
-        supabase.rpc('submit_public_form_response', {
+        supabase.rpc('submit_public_form_page_response', {
           p_form_id: formId,
           p_responses: responses,
+          p_continue_response_id: continueRid || null,
         }),
       ),
       20000,
@@ -498,7 +550,8 @@ export default function FormSubmitPage() {
     const row = rpcData as { response_id?: string; is_test?: boolean } | null;
     setSubmittedWasOnSite(false);
     setSubmittedWasTest(!!row?.is_test || submittingAsTest);
-    if (!submittingAsTest && shouldShowPersonalQrAfterSubmit(form?.settings, form?.form_type) && row?.response_id) {
+    markContinue(row?.response_id);
+    if (!nxt && !submittingAsTest && shouldShowPersonalQrAfterSubmit(form?.settings, form?.form_type) && row?.response_id) {
       const participantId = crypto.randomUUID();
       const payload = {
         participant_id: participantId,
@@ -540,6 +593,9 @@ export default function FormSubmitPage() {
   }
 
   const backHref = user ? '/dashboard/forms' : isPublicFormRoute ? '/' : '/dashboard/forms';
+  const formPages = normalizeFormPages(form?.settings, fields);
+  const currentPage = resolveFormPage(formPages, currentPageId);
+  const visibleFields = fieldsOnPage(fields, currentPage, formPages);
 
   if (loading) return <PortalLoadingScreen message="Loading forms…" variant="resources" />;
 
@@ -561,12 +617,25 @@ export default function FormSubmitPage() {
           >
             <Check className="w-10 h-10 text-white" />
           </motion.div>
-          <h2 className="text-2xl font-extrabold text-gray-800 mb-2">Response Submitted</h2>
+          <h2 className="text-2xl font-extrabold text-gray-800 mb-2">
+            {nextPageLink ? 'This page is submitted' : 'Response Submitted'}
+          </h2>
           <p className="text-gray-400 mb-4">
             {submittedWasTest
               ? 'Test response saved. It will disappear when the form starts collecting real responses — you can still submit a normal response then.'
-              : 'Thank you for filling out this form.'}
+              : nextPageLink
+                ? `Click the link below to fill ${nextPageLink.title}.`
+                : 'Thank you for filling out this form.'}
           </p>
+          {nextPageLink && (
+            <a
+              href={nextPageLink.href}
+              className="mb-6 inline-flex items-center justify-center gap-2 w-full btn-gradient-blue px-6 py-3 rounded-2xl font-semibold"
+            >
+              {nextPageLink.label}
+              <ExternalLink className="w-4 h-4" />
+            </a>
+          )}
           {submittedWasTest && (
             <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 text-left max-w-md mx-auto">
               <p className="font-semibold">TEST submission</p>
@@ -675,6 +744,16 @@ export default function FormSubmitPage() {
             </div>
             <h1 className="text-3xl font-extrabold text-gradient tracking-tight mb-2">{form?.title}</h1>
             {form?.description?.trim() && <p className="text-gray-400">{form.description}</p>}
+            {formPages.length > 1 && (
+              <div className="mt-3">
+                <p className="text-sm text-indigo-600 font-semibold">
+                  {currentPage.title} · page {pageIndex(formPages, currentPage.id) + 1} of {formPages.length}
+                </p>
+                {currentPage.description && (
+                  <p className="text-sm text-gray-500 mt-1">{currentPage.description}</p>
+                )}
+              </div>
+            )}
             {isTestMode && (
               <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
                 <p className="font-semibold">Test mode</p>
@@ -712,13 +791,15 @@ export default function FormSubmitPage() {
         </motion.div>
 
         {/* Fields */}
-        {fields.length === 0 ? (
+        {visibleFields.length === 0 ? (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="premium-panel rounded-3xl p-12 text-center">
-            <p className="text-gray-400">This form has no questions yet.</p>
+            <p className="text-gray-400">
+              {formPages.length > 1 ? 'This page has no questions yet.' : 'This form has no questions yet.'}
+            </p>
           </motion.div>
         ) : (
           <div className="space-y-1">
-            {fields.map((field, i) => (
+            {visibleFields.map((field, i) => (
               <motion.div
                 key={field.id}
                 custom={i}
@@ -868,7 +949,9 @@ export default function FormSubmitPage() {
                     ? 'Already submitted'
                     : isTestMode
                       ? 'Submit test response'
-                      : 'Submit'}
+                      : formPages.length > 1
+                        ? 'Submit this page'
+                        : 'Submit'}
               </motion.button>
               <button onClick={() => { setAnswers({}); setErrors({}); }} type="button" className="text-sm text-gray-400 hover:text-gray-600 transition-colors">
                 Clear form
