@@ -2,6 +2,7 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 import type { SupabaseClient, RealtimeChannel } from '@supabase/supabase-js';
 import { hasUsableRelay, normalizeIceServers, parseStaticTurn, STUN_SERVERS } from '@/lib/ice-servers';
+import { pickSendAudioTrack, pickSendVideoTrack } from '@/lib/meeting-send-tracks';
 
 function fallbackIceServers(): RTCIceServer[] {
     const servers: RTCIceServer[] = [...(STUN_SERVERS as RTCIceServer[])];
@@ -64,10 +65,14 @@ async function setKindTrack(pc: RTCPeerConnection, kind: 'audio' | 'video', trac
     }
 }
 
-async function attachLocalTracksToPeer(pc: RTCPeerConnection, local: MediaStream | null) {
-    if (!local) return;
-    const audio = local.getAudioTracks().find((t) => t.readyState === 'live') ?? null;
-    const video = local.getVideoTracks().find((t) => t.readyState === 'live') ?? null;
+async function attachLocalTracksToPeer(
+    pc: RTCPeerConnection,
+    local: MediaStream | null,
+    outboundVideo?: MediaStreamTrack | null,
+) {
+    const audio = pickSendAudioTrack(local);
+    const video = pickSendVideoTrack(local, outboundVideo);
+    if (!audio && !video) return;
     await setKindTrack(pc, 'audio', audio);
     await setKindTrack(pc, 'video', video);
 }
@@ -159,6 +164,7 @@ export function useWebRTC({
     const peersRef = useRef<Map<string, PeerState>>(new Map());
     const channelRef = useRef<RealtimeChannel | null>(null);
     const localStreamRef = useRef<MediaStream | null>(null);
+    const outboundVideoRef = useRef<MediaStreamTrack | null>(null);
     const iceServersRef = useRef<RTCIceServer[]>(fallbackIceServers());
     const iceReadyRef = useRef(false);
     const [relayAvailable, setRelayAvailable] = useState<boolean | null>(null);
@@ -262,7 +268,7 @@ export function useWebRTC({
                 if (!shouldInitiateOffer(selfPeerIdRef.current, peerId)) return;
                 makingOfferRef.current.add(peerId);
                 try {
-                    await attachLocalTracksToPeer(pc, localStreamRef.current);
+                    await attachLocalTracksToPeer(pc, localStreamRef.current, outboundVideoRef.current);
                     await pc.setLocalDescription(await pc.createOffer());
                     const sdp = sdpJson(pc.localDescription);
                     if (sdp) {
@@ -348,7 +354,7 @@ export function useWebRTC({
             const audioTr = pc.addTransceiver('audio', { direction: 'sendrecv' });
             const videoTr = pc.addTransceiver('video', { direction: 'sendrecv' });
             peerTransceivers.set(pc, { audio: audioTr, video: videoTr });
-            void attachLocalTracksToPeer(pc, localStreamRef.current);
+            void attachLocalTracksToPeer(pc, localStreamRef.current, outboundVideoRef.current);
 
             if (shouldInitiateOffer(selfPeerIdRef.current, peerId)) {
                 window.setTimeout(() => {
@@ -359,7 +365,7 @@ export function useWebRTC({
                     makingOfferRef.current.add(peerId);
                     void (async () => {
                         try {
-                            await attachLocalTracksToPeer(pc, localStreamRef.current);
+                            await attachLocalTracksToPeer(pc, localStreamRef.current, outboundVideoRef.current);
                             await pc.setLocalDescription(await pc.createOffer());
                             const sdp = sdpJson(pc.localDescription);
                             if (sdp) {
@@ -420,11 +426,11 @@ export function useWebRTC({
                     /* Safari may reject rollback */
                 }
             }
-            await attachLocalTracksToPeer(pc, localStreamRef.current);
+            await attachLocalTracksToPeer(pc, localStreamRef.current, outboundVideoRef.current);
             await pc.setRemoteDescription(new RTCSessionDescription(sdp));
             await flushIce(peerId, pc);
             if (pc.signalingState === 'have-remote-offer') {
-                await attachLocalTracksToPeer(pc, localStreamRef.current);
+                await attachLocalTracksToPeer(pc, localStreamRef.current, outboundVideoRef.current);
                 await pc.setLocalDescription(await pc.createAnswer());
                 const answer = sdpJson(pc.localDescription);
                 if (answer) {
@@ -632,11 +638,12 @@ export function useWebRTC({
 
     useEffect(() => {
         peersRef.current.forEach((peer) => {
-            void attachLocalTracksToPeer(peer.connection, localStream).catch(console.error);
+            void attachLocalTracksToPeer(peer.connection, localStream, outboundVideoRef.current).catch(console.error);
         });
     }, [localStream]);
 
     const replaceVideoTrack = useCallback(async (newTrack: MediaStreamTrack | null) => {
+        outboundVideoRef.current = newTrack;
         await Promise.all(
             Array.from(peersRef.current.values()).map((peer) =>
                 setKindTrack(peer.connection, 'video', newTrack),

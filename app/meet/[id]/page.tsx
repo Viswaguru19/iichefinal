@@ -35,6 +35,7 @@ import {
     Paperclip,
     FileText,
     UserMinus,
+    Ellipsis,
 } from 'lucide-react';
 import { useWebRTC, userIdFromPeerId, type PeerState } from '@/hooks/useWebRTC';
 import type { ChatMessage, RoomControlPayload, RoomParticipant, SendChatPayload } from '@/hooks/useWebRTC';
@@ -47,6 +48,7 @@ import {
     playSpeakerTestTone,
     resolvePreferredAudioOutput,
     disconnectRemoteStreamFromSpeaker,
+    routeRemoteStreamToSpeaker,
     setMeetingAudioSink,
     unlockRemoteMediaElements,
 } from '@/lib/meeting-audio-output';
@@ -276,6 +278,7 @@ export default function MeetingRoomPage() {
     const [isChatOpen, setIsChatOpen] = useState(false);
     const [isParticipantListOpen, setIsParticipantListOpen] = useState(false);
     const [isApprovalsOpen, setIsApprovalsOpen] = useState(false);
+    const [isMoreOpen, setIsMoreOpen] = useState(false);
     const [showBrandRail, setShowBrandRail] = useState(false);
     const [pendingRequests, setPendingRequests] = useState<PendingJoinRequest[]>([]);
     const [processingApprovalKey, setProcessingApprovalKey] = useState<string | null>(null);
@@ -1174,6 +1177,20 @@ export default function MeetingRoomPage() {
             const stream = await ensureLocalMedia();
             if (!stream) return;
 
+            // Do not replace the outbound video track while screen sharing — that would
+            // yank the screen off the wire. Only flip the saved camera track's enabled flag.
+            if (isScreenSharing) {
+                const cam = cameraTrackRef.current || stream.getVideoTracks().find((t) => t.readyState === 'live');
+                if (isCameraOff) {
+                    if (cam && cam.readyState === 'live') cam.enabled = true;
+                    setIsCameraOff(false);
+                } else if (cam) {
+                    cam.enabled = false;
+                    setIsCameraOff(true);
+                }
+                return;
+            }
+
             // The camera track is disabled rather than stopped. Stopping it forces a
             // second getUserMedia to turn the camera back on, and on iOS that call
             // ends the tracks already in use — including the microphone, which left
@@ -1204,75 +1221,94 @@ export default function MeetingRoomPage() {
             sendCameraState(false);
         };
         void run();
-    }, [ensureLocalMedia, isCameraOff, reacquireAndBindCameraTrack, sendCameraState]);
+    }, [ensureLocalMedia, isCameraOff, isScreenSharing, reacquireAndBindCameraTrack, sendCameraState]);
+
+    const stopScreenShare = useCallback(async () => {
+        const screenTrack = screenTrackRef.current;
+        if (screenTrack) {
+            screenTrack.onended = null;
+            try { screenTrack.stop(); } catch { /* ignore */ }
+        }
+        screenTrackRef.current = null;
+
+        let camTrack = cameraTrackRef.current;
+        if (!camTrack || camTrack.readyState !== 'live') {
+            camTrack = localStream?.getVideoTracks().find((t) => t.readyState === 'live') ?? null;
+        }
+        cameraTrackRef.current = null;
+        await replaceVideoTrack(camTrack);
+        setLocalPreviewStream(null);
+        setLocalVideoRenderKey((k) => k + 1);
+        setIsScreenSharing(false);
+        const camOn = Boolean(camTrack?.enabled && camTrack.readyState === 'live');
+        setIsCameraOff(!camOn);
+        sendCameraState(camOn);
+    }, [localStream, replaceVideoTrack, sendCameraState]);
 
     const toggleScreenShare = useCallback(async () => {
         const activeStream = localStream || await ensureLocalMedia();
         if (!activeStream) return;
 
-        if (!isScreenSharing) {
-            if (typeof navigator.mediaDevices?.getDisplayMedia !== 'function') {
-                toast.error(
-                    'Screen sharing is not available in this browser. Try Chrome or Edge on a desktop; many mobile browsers do not support it yet.',
-                );
+        if (isScreenSharing) {
+            await stopScreenShare();
+            return;
+        }
+
+        if (typeof navigator.mediaDevices?.getDisplayMedia !== 'function') {
+            toast.error(
+                'Screen sharing is not available in this browser. Try Chrome or Edge on a desktop; many mobile browsers do not support it yet.',
+            );
+            return;
+        }
+        try {
+            let screenStream: MediaStream;
+            try {
+                screenStream = await navigator.mediaDevices.getDisplayMedia({
+                    video: { frameRate: 15, width: { max: 1920 }, height: { max: 1080 } },
+                    audio: false,
+                });
+            } catch {
+                screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+            }
+            const screenTrack = screenStream.getVideoTracks()[0];
+            if (!screenTrack) {
+                toast.error('Could not capture the screen.');
                 return;
             }
             try {
-                const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
-                const screenTrack = screenStream.getVideoTracks()[0];
-
-                // Save the original camera track so we can restore it later
-                const originalCameraTrack = activeStream.getVideoTracks()[0];
-                cameraTrackRef.current = originalCameraTrack;
-                screenTrackRef.current = screenTrack;
-
-                // Replace the video track in all peer connections
-                await replaceVideoTrack(screenTrack);
-
-                setLocalPreviewStream(new MediaStream([screenTrack]));
-
-                // Auto-revert when user stops sharing via browser UI
-                screenTrack.onended = async () => {
-                    const camTrack = cameraTrackRef.current;
-                    if (camTrack) {
-                        await replaceVideoTrack(camTrack);
-                        setLocalPreviewStream(activeStream);
-                        setLocalVideoRenderKey((k) => k + 1);
-                        cameraTrackRef.current = null;
-                    }
-                    screenTrackRef.current = null;
-                    setIsScreenSharing(false);
-                    sendCameraState(Boolean(camTrack?.enabled));
-                };
-
-                setIsScreenSharing(true);
-                sendCameraState(true);
+                if ('contentHint' in screenTrack) screenTrack.contentHint = 'detail';
             } catch {
-                // User cancelled the screen share picker
-                console.warn('Screen sharing cancelled or failed');
+                /* ignore */
             }
-        } else {
-            // Stop screen sharing — restore camera track
-            const screenTrack = screenTrackRef.current;
-            const camTrack = cameraTrackRef.current;
+            // Drop any display-audio tracks so the microphone (your voice) stays on the wire.
+            screenStream.getAudioTracks().forEach((t) => {
+                try { t.stop(); } catch { /* ignore */ }
+            });
 
-            if (camTrack) {
-                await replaceVideoTrack(camTrack);
-                setLocalPreviewStream(activeStream);
-                setLocalVideoRenderKey((k) => k + 1);
-                cameraTrackRef.current = null;
-            }
-            screenTrack?.stop();
-            screenTrackRef.current = null;
-            setIsScreenSharing(false);
-            sendCameraState(Boolean(camTrack?.enabled));
+            const originalCameraTrack = activeStream.getVideoTracks()[0] ?? null;
+            cameraTrackRef.current = originalCameraTrack;
+            screenTrackRef.current = screenTrack;
+
+            await replaceVideoTrack(screenTrack);
+            setLocalPreviewStream(new MediaStream([screenTrack]));
+
+            screenTrack.onended = () => {
+                void stopScreenShare();
+            };
+
+            setIsScreenSharing(true);
+            sendCameraState(true);
+        } catch {
+            console.warn('Screen sharing cancelled or failed');
         }
-    }, [localStream, ensureLocalMedia, isScreenSharing, replaceVideoTrack, sendCameraState]);
+    }, [localStream, ensureLocalMedia, isScreenSharing, replaceVideoTrack, sendCameraState, stopScreenShare]);
 
     const leaveMeeting = useCallback(() => {
         localStream?.getTracks().forEach((track) => track.stop());
         cameraTrackRef.current?.stop();
         cameraTrackRef.current = null;
+        screenTrackRef.current?.stop();
+        screenTrackRef.current = null;
         setLocalStream(null);
         if (typeof window !== 'undefined') {
             sessionStorage.removeItem(guestSessionStorageKey(roomId));
@@ -1630,57 +1666,94 @@ export default function MeetingRoomPage() {
     const screenShareApiAvailable =
         typeof navigator !== 'undefined' && typeof navigator.mediaDevices?.getDisplayMedia === 'function';
 
-    // Control bar buttons config (screen share always listed; unsupported browsers get a toast on tap)
-    const controls = [
+    const openSidePanel = (which: 'chat' | 'people' | 'approvals') => {
+        setIsMoreOpen(false);
+        setIsChatOpen(which === 'chat');
+        setIsParticipantListOpen(which === 'people');
+        setIsApprovalsOpen(which === 'approvals');
+    };
+
+    const mainControls = [
         {
             icon: isMuted ? MicOff : Mic,
             label: isMuted ? 'Unmute' : 'Mute',
             onClick: toggleMute,
             active: !isMuted,
             danger: isMuted,
+            dimmed: false,
         },
         {
             icon: isCameraOff ? VideoOff : Video,
-            label: isCameraOff ? 'Start Camera' : 'Stop Camera',
+            label: isCameraOff ? 'Start camera' : 'Stop camera',
             onClick: toggleCamera,
             active: !isCameraOff,
             danger: isCameraOff,
+            dimmed: false,
         },
+        {
+            icon: MonitorUp,
+            label: isScreenSharing ? 'Stop sharing' : 'Share screen',
+            onClick: () => { void toggleScreenShare(); },
+            active: isScreenSharing,
+            danger: false,
+            dimmed: !screenShareApiAvailable && !isScreenSharing,
+        },
+    ];
+
+    const moreItems = [
         {
             icon: speakerOn ? Speaker : Volume2,
             label: speakerOn ? 'Speaker' : 'Earpiece',
             onClick: toggleSpeaker,
-            active: speakerOn,
-        },
-        {
-            icon: MonitorUp,
-            label: isScreenSharing ? 'Stop Sharing' : 'Share Screen',
-            onClick: toggleScreenShare,
-            active: isScreenSharing,
-            dimmed: !screenShareApiAvailable && !isScreenSharing,
+            danger: false,
         },
         {
             icon: MessageSquare,
-            label: 'Chat',
-            onClick: () => { setIsChatOpen((prev: boolean) => !prev); setIsApprovalsOpen(false); },
-            active: isChatOpen,
+            label: isChatOpen ? 'Close chat' : 'Chat',
+            onClick: () => {
+                if (isChatOpen) {
+                    setIsChatOpen(false);
+                    setIsMoreOpen(false);
+                    return;
+                }
+                openSidePanel('chat');
+            },
+            danger: false,
         },
         {
             icon: Users,
-            label: 'Participants',
-            onClick: () => { setIsParticipantListOpen((prev: boolean) => !prev); setIsChatOpen(false); setIsApprovalsOpen(false); },
-            active: isParticipantListOpen,
+            label: `Participants (${participants.length})`,
+            onClick: () => {
+                if (isParticipantListOpen) {
+                    setIsParticipantListOpen(false);
+                    setIsMoreOpen(false);
+                    return;
+                }
+                openSidePanel('people');
+            },
+            danger: false,
+        },
+        {
+            icon: Link2,
+            label: 'Copy meeting link',
+            onClick: () => {
+                const link = `${window.location.origin}/meet/${roomId}`;
+                void navigator.clipboard.writeText(link);
+                toast.success('Meeting link copied!');
+                setIsMoreOpen(false);
+            },
+            danger: false,
         },
         ...(canApproveRequests ? [{
             icon: Check,
-            label: 'Approvals',
-            onClick: () => { setIsApprovalsOpen((prev: boolean) => !prev); setIsChatOpen(false); setIsParticipantListOpen(false); },
-            active: isApprovalsOpen,
+            label: `Approvals (${pendingRequests.length})`,
+            onClick: () => openSidePanel('approvals'),
+            danger: false,
         }] : []),
         ...(canModerateMeetingRoom ? [
             {
                 icon: MicOff,
-                label: 'Mute All',
+                label: 'Mute everyone',
                 onClick: () => {
                     const policy = meeting?.created_by === currentUserId ? 'creator' : 'ec_faculty';
                     sendRoomControl('mute-all', undefined, { mutePolicy: policy });
@@ -1689,21 +1762,24 @@ export default function MeetingRoomPage() {
                             ? 'Sent: mute (EC & faculty exempt)'
                             : 'Sent: mute (meeting creator exempt)',
                     );
+                    setIsMoreOpen(false);
                 },
-                active: false,
                 danger: true,
             },
             {
                 icon: Volume2,
-                label: 'Unmute All',
+                label: 'Allow unmute',
                 onClick: () => {
                     sendRoomControl('allow-unmute');
                     toast.success('Sent: everyone can unmute');
+                    setIsMoreOpen(false);
                 },
-                active: false,
+                danger: false,
             },
         ] : []),
     ];
+
+    const moreHasAlert = canApproveRequests && pendingRequests.length > 0;
 
     return (
         <div
@@ -1766,19 +1842,6 @@ export default function MeetingRoomPage() {
                         </span>
                     )}
                 </div>
-                <button
-                    type="button"
-                    onClick={toggleSpeaker}
-                    className={`shrink-0 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold ${
-                        speakerOn
-                            ? 'border-emerald-400/40 bg-emerald-500/15 text-emerald-200'
-                            : 'border-amber-400/40 bg-amber-500/15 text-amber-100'
-                    }`}
-                    title={speakerOn ? 'Playing on main speaker' : 'Playing on earpiece'}
-                >
-                    <Speaker className="w-3 h-3" />
-                    {speakerOn ? 'Speaker' : 'Earpiece'}
-                </button>
             </motion.div>
             {/* Main content area */}
             <div className="flex-1 flex relative z-10 overflow-hidden">
@@ -1905,7 +1968,7 @@ export default function MeetingRoomPage() {
                             {/* Panel tabs */}
                             <div className="flex border-b border-white/5">
                                 <button
-                                    onClick={() => { setIsChatOpen(true); setIsParticipantListOpen(false); }}
+                                    onClick={() => { setIsChatOpen(true); setIsParticipantListOpen(false); setIsApprovalsOpen(false); }}
                                     className={`flex-1 py-3 text-xs font-semibold transition-colors ${isChatOpen
                                         ? 'text-indigo-400 border-b-2 border-indigo-400'
                                         : 'text-white/40 hover:text-white/60'
@@ -1914,7 +1977,7 @@ export default function MeetingRoomPage() {
                                     Chat
                                 </button>
                                 <button
-                                    onClick={() => { setIsParticipantListOpen(true); setIsChatOpen(false); }}
+                                    onClick={() => { setIsParticipantListOpen(true); setIsChatOpen(false); setIsApprovalsOpen(false); }}
                                     className={`flex-1 py-3 text-xs font-semibold transition-colors ${isParticipantListOpen
                                         ? 'text-indigo-400 border-b-2 border-indigo-400'
                                         : 'text-white/40 hover:text-white/60'
@@ -1930,6 +1993,15 @@ export default function MeetingRoomPage() {
                                         Approvals ({pendingRequests.length})
                                     </button>
                                 )}
+                                <button
+                                    type="button"
+                                    onClick={() => { setIsChatOpen(false); setIsParticipantListOpen(false); setIsApprovalsOpen(false); }}
+                                    className="px-3 text-white/40 hover:text-white/80"
+                                    title="Close panel"
+                                    aria-label="Close panel"
+                                >
+                                    <X className="w-4 h-4" />
+                                </button>
                             </div>
 
                             {/* Panel content */}
@@ -2076,55 +2148,94 @@ export default function MeetingRoomPage() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.2 }}
-                className="relative z-10 flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-2 sm:gap-3 px-2 sm:px-6 py-2.5 sm:py-4 glass-dark border-t border-white/5"
+                className="relative z-10 flex items-center justify-center gap-2 sm:gap-3 px-2 sm:px-6 py-2.5 sm:py-4 glass-dark border-t border-white/5"
             >
-                <div className="w-full flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 mobile-clean-scroll">
-                    {controls.map((ctrl) => {
-                        const dimmed = 'dimmed' in ctrl && ctrl.dimmed;
-                        return (
+                <div className="flex items-center justify-center gap-2">
+                    {mainControls.map((ctrl) => (
                         <motion.button
                             key={ctrl.label}
                             whileHover={{ scale: 1.08 }}
                             whileTap={{ scale: 0.95 }}
                             onClick={ctrl.onClick}
-                            title={dimmed ? `${ctrl.label} (not supported on this device)` : ctrl.label}
-                            className={`p-2.5 sm:p-3 rounded-xl transition-all shrink-0 ${dimmed
+                            title={ctrl.dimmed ? `${ctrl.label} (not supported on this device)` : ctrl.label}
+                            aria-label={ctrl.label}
+                            className={`p-2.5 sm:p-3 rounded-xl transition-all shrink-0 ${ctrl.dimmed
                                 ? 'bg-white/[0.04] text-white/40 hover:bg-white/[0.07] hover:text-white/50'
                                 : ctrl.danger
-                                ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
-                                : ctrl.active
-                                    ? 'bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30'
-                                    : 'bg-white/5 text-white/60 hover:bg-white/10 hover:text-white/80'
+                                    ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
+                                    : ctrl.active
+                                        ? 'bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30'
+                                        : 'bg-white/5 text-white/60 hover:bg-white/10 hover:text-white/80'
                                 }`}
                         >
                             <ctrl.icon className="w-5 h-5" />
                         </motion.button>
-                        );
-                    })}
+                    ))}
 
-                    <motion.button
-                        whileHover={{ scale: 1.08 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={() => {
-                            const link = `${window.location.origin}/meet/${roomId}`;
-                            navigator.clipboard.writeText(link);
-                            import('react-hot-toast').then(m => m.default.success('Meeting link copied!'));
-                        }}
-                        title="Copy Meeting Link"
-                        className="p-2.5 sm:p-3 rounded-xl bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30 transition-all shrink-0"
-                    >
-                        <Link2 className="w-5 h-5" />
-                    </motion.button>
+                    <div className="relative">
+                        <motion.button
+                            whileHover={{ scale: 1.08 }}
+                            whileTap={{ scale: 0.95 }}
+                            onClick={() => setIsMoreOpen((prev) => !prev)}
+                            title="More"
+                            aria-label="More meeting controls"
+                            aria-expanded={isMoreOpen}
+                            className={`relative p-2.5 sm:p-3 rounded-xl transition-all shrink-0 ${
+                                isMoreOpen
+                                    ? 'bg-indigo-500/20 text-indigo-400'
+                                    : 'bg-white/5 text-white/60 hover:bg-white/10 hover:text-white/80'
+                            }`}
+                        >
+                            <Ellipsis className="w-5 h-5" />
+                            {moreHasAlert && !isMoreOpen ? (
+                                <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-amber-400" />
+                            ) : null}
+                        </motion.button>
+                        <AnimatePresence>
+                            {isMoreOpen && (
+                                <>
+                                    <button
+                                        type="button"
+                                        className="fixed inset-0 z-[60]"
+                                        aria-label="Close more menu"
+                                        onClick={() => setIsMoreOpen(false)}
+                                    />
+                                    <motion.div
+                                        initial={{ opacity: 0, y: 8 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        exit={{ opacity: 0, y: 8 }}
+                                        className="absolute bottom-full mb-2 right-0 z-[70] w-[min(100vw-1.5rem,240px)] rounded-xl border border-white/10 bg-zinc-950/95 p-1.5 shadow-xl"
+                                    >
+                                        {moreItems.map((item) => (
+                                            <button
+                                                key={item.label}
+                                                type="button"
+                                                onClick={item.onClick}
+                                                className={`w-full flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm ${
+                                                    item.danger
+                                                        ? 'text-red-300 hover:bg-red-500/15'
+                                                        : 'text-white/85 hover:bg-white/10'
+                                                }`}
+                                            >
+                                                <item.icon className="w-4 h-4 shrink-0" />
+                                                <span className="truncate">{item.label}</span>
+                                            </button>
+                                        ))}
+                                    </motion.div>
+                                </>
+                            )}
+                        </AnimatePresence>
+                    </div>
                 </div>
                 <motion.button
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.97 }}
                     onClick={leaveMeeting}
                     title="Leave Meeting"
-                    className="w-full sm:w-auto px-4 sm:px-5 py-2.5 sm:py-3 rounded-xl bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-all flex items-center justify-center gap-2 text-xs sm:text-sm font-semibold"
+                    className="px-4 sm:px-5 py-2.5 sm:py-3 rounded-xl bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-all flex items-center justify-center gap-2 text-xs sm:text-sm font-semibold shrink-0"
                 >
                     <LogOut className="w-5 h-5" />
-                    <span>Leave Meeting</span>
+                    <span className="hidden sm:inline">Leave</span>
                 </motion.button>
             </motion.div>
         </div>
@@ -2407,7 +2518,16 @@ function AudioPlayer({ stream, outputDeviceId }: { stream: MediaStream; outputDe
             el.muted = false;
             el.volume = 1;
             await applyAudioOutputToElement(el, outputDeviceId);
-            await el.play().catch(() => undefined);
+            let played = false;
+            try {
+                await el.play();
+                played = !el.paused;
+            } catch {
+                played = false;
+            }
+            if (!played) {
+                await routeRemoteStreamToSpeaker(stream.id, audioOnly, outputDeviceId);
+            }
         };
         void tryPlay();
 

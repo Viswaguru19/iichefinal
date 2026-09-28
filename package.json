@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "vitest --run"
+    "test": "node ./node_modules/vitest/vitest.mjs --run --config ./vitest.config.ts"
   },
   "dependencies": {
     "@gsap/react": "^2.1.2",
