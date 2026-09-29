@@ -6,6 +6,7 @@ import {
     pickPreferredVideoInput,
     shouldReplaceAudioDevice,
     shouldReplaceVideoDevice,
+    videoOnlyStream,
 } from '@/lib/meeting-devices';
 
 describe('meeting devices', () => {
@@ -46,5 +47,21 @@ describe('meeting devices', () => {
         expect(picked?.deviceId).toBe('mac');
         expect(shouldReplaceAudioDevice('iPhone Microphone', picked)).toBe(true);
         expect(shouldReplaceAudioDevice('MacBook Air Microphone', picked)).toBe(false);
+    });
+
+    it('omits disabled camera tracks from the local preview stream', () => {
+        class FakeMediaStream {
+            constructor(public tracks: MediaStreamTrack[]) {}
+            getVideoTracks() { return this.tracks.filter((t) => t.kind === 'video'); }
+        }
+        (globalThis as unknown as { MediaStream: typeof FakeMediaStream }).MediaStream = FakeMediaStream;
+
+        const liveOn = { kind: 'video', readyState: 'live', enabled: true } as MediaStreamTrack;
+        const liveOff = { kind: 'video', readyState: 'live', enabled: false } as MediaStreamTrack;
+        const stream = {
+            getVideoTracks: () => [liveOff, liveOn],
+        } as unknown as MediaStream;
+        expect(videoOnlyStream(stream)?.getVideoTracks()).toHaveLength(2);
+        expect(videoOnlyStream(stream, null, { enabledOnly: true })?.getVideoTracks()).toEqual([liveOn]);
     });
 });

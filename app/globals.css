@@ -57,6 +57,54 @@
     linear-gradient(135deg, #0a0a0a 0%, #141414 52%, #202020 100%);
 }
 
+/* Live meeting studio */
+.meet-studio {
+  background:
+    radial-gradient(1100px 520px at 8% -8%, rgba(56, 189, 248, 0.22), transparent 58%),
+    radial-gradient(900px 480px at 100% 0%, rgba(79, 70, 229, 0.28), transparent 52%),
+    radial-gradient(700px 380px at 50% 115%, rgba(14, 165, 233, 0.14), transparent 55%),
+    #07111f;
+}
+.meet-tile {
+  border-radius: 1.5rem;
+  overflow: hidden;
+  background: #0f172a;
+  box-shadow: 0 18px 50px rgba(2, 8, 23, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.meet-dock {
+  background: rgba(8, 15, 30, 0.78);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+}
+.meet-pip {
+  border-radius: 0.95rem;
+  overflow: hidden;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: #0f172a;
+}
+.meet-nameplate {
+  background: rgba(8, 15, 30, 0.58);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.meet-panel {
+  background: rgba(7, 12, 24, 0.96);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
+}
+
+/* Portal dark theme remaps slate-900 to white; keep contrast on solid white meeting CTAs. */
+html[data-portal-theme='dark'] .meet-studio .bg-white.text-slate-900 {
+  color: #0f172a !important;
+}
+
 /* ========== GLASS MORPHISM ========== */
 .glass {
   background: rgba(255, 255, 255, 0.7);

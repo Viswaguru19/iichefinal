@@ -3,7 +3,6 @@ import { useEffect, useRef, useCallback, useState } from 'react';
 import type { SupabaseClient, RealtimeChannel } from '@supabase/supabase-js';
 import { hasUsableRelay, normalizeIceServers, parseStaticTurn, STUN_SERVERS } from '@/lib/ice-servers';
 import { pickSendAudioTrack, pickSendVideoTrack } from '@/lib/meeting-send-tracks';
-import { isAppleWebKitBrowser } from '@/lib/meeting-devices';
 
 function fallbackIceServers(): RTCIceServer[] {
     const servers: RTCIceServer[] = [...(STUN_SERVERS as RTCIceServer[])];
@@ -40,71 +39,57 @@ function iceConfig(iceServers: RTCIceServer[]): RTCConfiguration {
     };
 }
 
-const peerTransceivers = new WeakMap<
-    RTCPeerConnection,
-    { audio: RTCRtpTransceiver; video: RTCRtpTransceiver }
->();
-
-function transceiverForKind(pc: RTCPeerConnection, kind: 'audio' | 'video') {
-    const pinned = peerTransceivers.get(pc);
-    if (pinned) return kind === 'audio' ? pinned.audio : pinned.video;
-    return pc.getTransceivers().find((t) => t.receiver.track?.kind === kind || t.sender.track?.kind === kind);
+function sdpJson(desc: RTCSessionDescription | RTCSessionDescriptionInit | null | undefined) {
+    if (!desc?.type || !desc.sdp) return null;
+    return { type: desc.type, sdp: desc.sdp };
 }
 
-async function setKindTrack(pc: RTCPeerConnection, kind: 'audio' | 'video', track: MediaStreamTrack | null) {
-    const transceiver = transceiverForKind(pc, kind);
-    if (!transceiver) {
-        if (track) pc.addTrack(track, new MediaStream([track]));
-        return;
-    }
-    if (transceiver.direction !== 'sendrecv') {
-        try {
-            transceiver.direction = 'sendrecv';
-        } catch {
-            /* Safari throws if signaling is not stable */
-        }
-    }
-    if (transceiver.sender.track === track) return;
-    try {
-        await transceiver.sender.replaceTrack(track);
-    } catch (err) {
-        console.error(`replaceTrack(${kind}) failed`, err);
-        if (track) {
-            try {
-                pc.addTrack(track, new MediaStream([track]));
-            } catch {
-                /* already have a sender */
-            }
-        }
-    }
+function senderForKind(pc: RTCPeerConnection, kind: 'audio' | 'video') {
+    const live = pc.getSenders().find((s) => s.track?.kind === kind);
+    if (live) return live;
+    const tr = pc.getTransceivers().find((t) => {
+        const k = t.receiver.track?.kind || t.sender.track?.kind;
+        return k === kind;
+    });
+    return tr?.sender ?? null;
 }
 
-function addKindTransceiver(pc: RTCPeerConnection, kind: 'audio' | 'video', track: MediaStreamTrack | null) {
-    try {
-        if (track) {
-            return pc.addTransceiver(track, { direction: 'sendrecv', streams: [new MediaStream([track])] });
-        }
-    } catch {
-        /* Safari/old browsers: fall through to kind-only transceiver */
-    }
-    return pc.addTransceiver(kind, { direction: 'sendrecv' });
-}
-
-async function attachLocalTracksToPeer(
+async function syncLocalTracks(
     pc: RTCPeerConnection,
     local: MediaStream | null,
     outboundVideo?: MediaStreamTrack | null,
 ) {
     const audio = pickSendAudioTrack(local);
     const video = pickSendVideoTrack(local, outboundVideo);
-    if (!audio && !video) return;
-    await setKindTrack(pc, 'audio', audio);
-    await setKindTrack(pc, 'video', video);
+    for (const [kind, track] of [
+        ['audio', audio],
+        ['video', video],
+    ] as const) {
+        const sender = senderForKind(pc, kind);
+        if (!sender) {
+            if (track && local) pc.addTrack(track, local);
+            continue;
+        }
+        if (sender.track === track) continue;
+        try {
+            await sender.replaceTrack(track);
+        } catch (err) {
+            console.error(`replaceTrack(${kind}) failed`, err);
+        }
+    }
 }
 
-function sdpJson(desc: RTCSessionDescription | RTCSessionDescriptionInit | null | undefined) {
-    if (!desc?.type || !desc.sdp) return null;
-    return { type: desc.type, sdp: desc.sdp };
+function addInitialTracks(
+    pc: RTCPeerConnection,
+    local: MediaStream | null,
+    outboundVideo?: MediaStreamTrack | null,
+) {
+    const audio = pickSendAudioTrack(local);
+    const video = pickSendVideoTrack(local, outboundVideo);
+    if (audio && local) pc.addTrack(audio, local);
+    else pc.addTransceiver('audio', { direction: 'recvonly' });
+    if (video && local) pc.addTrack(video, local);
+    else pc.addTransceiver('video', { direction: 'recvonly' });
 }
 
 /** Peer ids are `<userId>#<session>` so one account on two devices still pairs. */
@@ -293,7 +278,7 @@ export function useWebRTC({
                 if (!shouldInitiateOffer(selfPeerIdRef.current, peerId)) return;
                 makingOfferRef.current.add(peerId);
                 try {
-                    await attachLocalTracksToPeer(pc, localStreamRef.current, outboundVideoRef.current);
+                    await syncLocalTracks(pc, localStreamRef.current, outboundVideoRef.current);
                     await pc.setLocalDescription(await pc.createOffer());
                     const sdp = sdpJson(pc.localDescription);
                     if (sdp) {
@@ -376,12 +361,7 @@ export function useWebRTC({
                 }
             };
 
-            const audio = pickSendAudioTrack(localStreamRef.current);
-            const video = pickSendVideoTrack(localStreamRef.current, outboundVideoRef.current);
-            const audioTr = addKindTransceiver(pc, 'audio', audio);
-            const videoTr = addKindTransceiver(pc, 'video', video);
-            peerTransceivers.set(pc, { audio: audioTr, video: videoTr });
-            void attachLocalTracksToPeer(pc, localStreamRef.current, outboundVideoRef.current);
+            addInitialTracks(pc, localStreamRef.current, outboundVideoRef.current);
 
             if (shouldInitiateOffer(selfPeerIdRef.current, peerId)) {
                 window.setTimeout(() => {
@@ -392,7 +372,7 @@ export function useWebRTC({
                     makingOfferRef.current.add(peerId);
                     void (async () => {
                         try {
-                            await attachLocalTracksToPeer(pc, localStreamRef.current, outboundVideoRef.current);
+                            await syncLocalTracks(pc, localStreamRef.current, outboundVideoRef.current);
                             await pc.setLocalDescription(await pc.createOffer());
                             const sdp = sdpJson(pc.localDescription);
                             if (sdp) {
@@ -409,7 +389,7 @@ export function useWebRTC({
                             makingOfferRef.current.delete(peerId);
                         }
                     })();
-                }, 1200);
+                }, 800);
             }
 
             peersRef.current.set(peerId, {
@@ -453,11 +433,11 @@ export function useWebRTC({
                     /* Safari may reject rollback */
                 }
             }
-            await attachLocalTracksToPeer(pc, localStreamRef.current, outboundVideoRef.current);
+            await syncLocalTracks(pc, localStreamRef.current, outboundVideoRef.current);
             await pc.setRemoteDescription(new RTCSessionDescription(sdp));
             await flushIce(peerId, pc);
             if (pc.signalingState === 'have-remote-offer') {
-                await attachLocalTracksToPeer(pc, localStreamRef.current, outboundVideoRef.current);
+                await syncLocalTracks(pc, localStreamRef.current, outboundVideoRef.current);
                 await pc.setLocalDescription(await pc.createAnswer());
                 const answer = sdpJson(pc.localDescription);
                 if (answer) {
@@ -613,7 +593,7 @@ export function useWebRTC({
             channel.subscribe(async (status) => {
                 if (stopped || status !== 'SUBSCRIBED') return;
                 let waited = 0;
-                while (!localStreamRef.current && waited < 2000) {
+                while (!localStreamRef.current && waited < 2500) {
                     await new Promise((r) => setTimeout(r, 100));
                     waited += 100;
                     if (stopped) return;
@@ -665,7 +645,7 @@ export function useWebRTC({
 
     useEffect(() => {
         peersRef.current.forEach((peer) => {
-            void attachLocalTracksToPeer(peer.connection, localStream, outboundVideoRef.current).catch(console.error);
+            void syncLocalTracks(peer.connection, localStream, outboundVideoRef.current).catch(console.error);
         });
     }, [localStream]);
 
@@ -673,65 +653,22 @@ export function useWebRTC({
         outboundVideoRef.current = newTrack;
         await Promise.all(
             Array.from(peersRef.current.values()).map((peer) =>
-                setKindTrack(peer.connection, 'video', newTrack),
+                syncLocalTracks(peer.connection, localStreamRef.current, newTrack),
             ),
         );
-        if (!isAppleWebKitBrowser()) return;
-        for (const [peerId, peer] of peersRef.current.entries()) {
-            const pc = peer.connection;
-            if (pc.signalingState !== 'stable') continue;
-            if (!shouldInitiateOffer(selfPeerIdRef.current, peerId)) continue;
-            makingOfferRef.current.add(peerId);
-            try {
-                await attachLocalTracksToPeer(pc, localStreamRef.current, outboundVideoRef.current);
-                await pc.setLocalDescription(await pc.createOffer());
-                const sdp = sdpJson(pc.localDescription);
-                if (sdp) {
-                    await sendSignal('sdp-offer', {
-                        senderId: selfPeerIdRef.current,
-                        senderName: userNameRef.current,
-                        targetId: peerId,
-                        sdp,
-                    });
-                }
-            } catch (e) {
-                console.error('webkit video renegotiate error:', e);
-            } finally {
-                makingOfferRef.current.delete(peerId);
-            }
-        }
     }, []);
 
     const replaceAudioTrack = useCallback(async (newTrack: MediaStreamTrack | null) => {
         await Promise.all(
-            Array.from(peersRef.current.values()).map((peer) =>
-                setKindTrack(peer.connection, 'audio', newTrack),
-            ),
-        );
-        if (!isAppleWebKitBrowser()) return;
-        for (const [peerId, peer] of peersRef.current.entries()) {
-            const pc = peer.connection;
-            if (pc.signalingState !== 'stable') continue;
-            if (!shouldInitiateOffer(selfPeerIdRef.current, peerId)) continue;
-            makingOfferRef.current.add(peerId);
-            try {
-                await attachLocalTracksToPeer(pc, localStreamRef.current, outboundVideoRef.current);
-                await pc.setLocalDescription(await pc.createOffer());
-                const sdp = sdpJson(pc.localDescription);
-                if (sdp) {
-                    await sendSignal('sdp-offer', {
-                        senderId: selfPeerIdRef.current,
-                        senderName: userNameRef.current,
-                        targetId: peerId,
-                        sdp,
-                    });
+            Array.from(peersRef.current.values()).map((peer) => {
+                const sender = senderForKind(peer.connection, 'audio');
+                if (!sender) {
+                    if (newTrack && localStreamRef.current) peer.connection.addTrack(newTrack, localStreamRef.current);
+                    return Promise.resolve();
                 }
-            } catch (e) {
-                console.error('webkit audio renegotiate error:', e);
-            } finally {
-                makingOfferRef.current.delete(peerId);
-            }
-        }
+                return sender.replaceTrack(newTrack);
+            }),
+        );
     }, []);
 
     const sendChatMessage = useCallback((payload: SendChatPayload) => {

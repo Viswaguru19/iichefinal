@@ -106,11 +106,40 @@ export function shouldReplaceAudioDevice(currentLabel: string, preferred: MediaD
     return false;
 }
 
-export function videoOnlyStream(stream: MediaStream | null | undefined, extra?: MediaStreamTrack | null) {
-    const tracks = extra && extra.kind === 'video' && extra.readyState === 'live'
+export function videoOnlyStream(
+    stream: MediaStream | null | undefined,
+    extra?: MediaStreamTrack | null,
+    opts?: { enabledOnly?: boolean },
+) {
+    const enabledOnly = opts?.enabledOnly === true;
+    const usable = (t: MediaStreamTrack) =>
+        t.kind === 'video' && t.readyState === 'live' && (!enabledOnly || t.enabled);
+    const tracks = extra && usable(extra)
         ? [extra]
-        : (stream?.getVideoTracks().filter((t) => t.readyState === 'live') ?? []);
+        : (stream?.getVideoTracks().filter(usable) ?? []);
     return tracks.length ? new MediaStream(tracks) : null;
+}
+
+/** Detach then attach so Mac Chrome/Safari paint frames again after camera off/on. */
+export function bindLocalPreviewVideo(
+    el: HTMLVideoElement | null,
+    stream: MediaStream | null | undefined,
+    extra?: MediaStreamTrack | null,
+) {
+    if (!el) return false;
+    el.muted = true;
+    el.playsInline = true;
+    el.autoplay = true;
+    el.setAttribute('playsinline', 'true');
+    el.setAttribute('webkit-playsinline', 'true');
+    el.srcObject = null;
+    const videoOnly = videoOnlyStream(stream, extra, { enabledOnly: true });
+    if (!videoOnly) return false;
+    el.srcObject = videoOnly;
+    const play = () => void el.play().catch(() => undefined);
+    el.onloadedmetadata = play;
+    play();
+    return true;
 }
 
 function markMeetingTracks(stream: MediaStream) {
