@@ -108,6 +108,8 @@ function mediaEnabledFlags(stream: MediaStream) {
         cameraOff: !stream.getVideoTracks().some((t) => t.enabled && t.readyState === 'live'),
     };
 }
+
+function guestSessionStorageKey(roomId: string) {
     return `avvu_meet_guest_${roomId}`;
 }
 
