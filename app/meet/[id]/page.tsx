@@ -52,6 +52,13 @@ import {
     setMeetingAudioSink,
     unlockRemoteMediaElements,
 } from '@/lib/meeting-audio-output';
+import {
+    acquireCameraTrack,
+    acquireMeetingMedia,
+    macMediaPermissionHint,
+    videoOnlyStream,
+    isAppleWebKitBrowser,
+} from '@/lib/meeting-devices';
 
 function markMeetingTracks(stream: MediaStream) {
     stream.getAudioTracks().forEach((track) => {
@@ -69,29 +76,6 @@ function markMeetingTracks(stream: MediaStream) {
         }
     });
     return stream;
-}
-
-async function acquireMeetingMedia(): Promise<MediaStream | null> {
-    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) return null;
-    const attempts: MediaStreamConstraints[] = [
-        {
-            audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-            video: { facingMode: 'user' },
-        },
-        { audio: true, video: true },
-        { audio: true, video: false },
-        { audio: false, video: true },
-    ];
-    for (const constraints of attempts) {
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia(constraints);
-            applyMeetingAudioSession(true);
-            return markMeetingTracks(stream);
-        } catch {
-            /* try a simpler constraint set */
-        }
-    }
-    return null;
 }
 
 async function unlockMeetingAudioPlayback() {
@@ -118,7 +102,12 @@ type PendingJoinRequest =
     | { requestKind: 'member'; key: string; user_id: string; profiles?: { name?: string | null; email?: string | null } }
     | { requestKind: 'guest'; key: string; rowId: string; guest_id: string; display_name: string };
 
-function guestSessionStorageKey(roomId: string) {
+function mediaEnabledFlags(stream: MediaStream) {
+    return {
+        muted: !stream.getAudioTracks().some((t) => t.enabled && t.readyState === 'live'),
+        cameraOff: !stream.getVideoTracks().some((t) => t.enabled && t.readyState === 'live'),
+    };
+}
     return `avvu_meet_guest_${roomId}`;
 }
 
@@ -296,7 +285,10 @@ export default function MeetingRoomPage() {
     const ensureLocalMedia = useCallback(async () => {
         if (localStream) return localStream;
         const stream = await acquireMeetingMedia();
-        if (!stream) return null;
+        if (!stream) {
+            toast.error(`Could not start camera or microphone. ${macMediaPermissionHint()}`);
+            return null;
+        }
         setLocalStream(stream);
         setIsMuted(!stream.getAudioTracks().some((t) => t.enabled && t.readyState === 'live'));
         setIsCameraOff(!stream.getVideoTracks().some((t) => t.enabled && t.readyState === 'live'));
@@ -580,7 +572,12 @@ export default function MeetingRoomPage() {
                                     setGuestWaitingForApproval(false);
                                     sessionStorage.setItem(gkey, JSON.stringify({ ...parsed, waiting: false }));
                                     const stream = await acquireMeetingMedia();
-                                    if (!cancelled && stream) setLocalStream(stream);
+                                    if (!cancelled && stream) {
+                                        setLocalStream(stream);
+                                        const flags = mediaEnabledFlags(stream);
+                                        setIsMuted(flags.muted);
+                                        setIsCameraOff(flags.cameraOff);
+                                    }
                                     setLoading(false);
                                     return;
                                 }
@@ -636,7 +633,12 @@ export default function MeetingRoomPage() {
                 }
 
                 const stream = await acquireMeetingMedia();
-                if (!cancelled && stream) setLocalStream(stream);
+                if (!cancelled && stream) {
+                    setLocalStream(stream);
+                    const flags = mediaEnabledFlags(stream);
+                    setIsMuted(flags.muted);
+                    setIsCameraOff(flags.cameraOff);
+                }
 
                 setLoading(false);
             } catch {
@@ -658,10 +660,14 @@ export default function MeetingRoomPage() {
         el.muted = true;
         el.playsInline = true;
         el.setAttribute('playsinline', 'true');
-        el.srcObject = localStream;
+        // Video-only: putting the mic track on a <video> element stops Safari/Mac from sending it.
+        el.srcObject = videoOnlyStream(localStream);
         const play = () => void el.play().catch(() => undefined);
         el.onloadedmetadata = play;
         play();
+        return () => {
+            el.srcObject = null;
+        };
     }, [localStream]);
 
     useEffect(() => {
@@ -669,22 +675,12 @@ export default function MeetingRoomPage() {
             setLocalPreviewStream(null);
             return;
         }
-        const sourceTracks = isScreenSharing && screenTrackRef.current
-            ? [screenTrackRef.current]
-            : (localStream?.getVideoTracks().filter((t) => t.readyState === 'live') ?? []);
-        if (!sourceTracks.length) {
-            setLocalPreviewStream(null);
-            return;
-        }
-        const clones = sourceTracks.map((t) => {
-            const clone = t.clone();
-            clone.enabled = true;
-            return clone;
-        });
-        setLocalPreviewStream(new MediaStream(clones));
-        return () => {
-            clones.forEach((t) => t.stop());
-        };
+        // Same camera track, video-only — do not clone. Safari clone() blacks out the track we send.
+        const preview = videoOnlyStream(
+            localStream,
+            isScreenSharing ? screenTrackRef.current : null,
+        );
+        setLocalPreviewStream(preview);
     }, [localStream, isScreenSharing, isCameraOff]);
 
     // Persist joined participants for attendance screens (skip guest IDs).
@@ -979,7 +975,12 @@ export default function MeetingRoomPage() {
                     setLocalProfileAvatarUrl(resolveProfileAvatarPublicUrl(supabase, profile?.avatar_url));
                 }
                 const stream = await acquireMeetingMedia();
-                if (!cancelled && stream) setLocalStream(stream);
+                if (!cancelled && stream) {
+                    setLocalStream(stream);
+                    const flags = mediaEnabledFlags(stream);
+                    setIsMuted(flags.muted);
+                    setIsCameraOff(flags.cameraOff);
+                }
             } else {
                 setApprovalStatusMessage('Waiting for organizer/EC/faculty approval...');
             }
@@ -1013,7 +1014,12 @@ export default function MeetingRoomPage() {
                 );
                 setGuestWaitingForApproval(false);
                 const stream = await acquireMeetingMedia();
-                if (!cancelled && stream) setLocalStream(stream);
+                if (!cancelled && stream) {
+                    setLocalStream(stream);
+                    const flags = mediaEnabledFlags(stream);
+                    setIsMuted(flags.muted);
+                    setIsCameraOff(flags.cameraOff);
+                }
             } else if (st === 'rejected') {
                 sessionStorage.removeItem(guestSessionStorageKey(roomId));
                 setGuestWaitingForApproval(false);
@@ -1110,7 +1116,7 @@ export default function MeetingRoomPage() {
                         audioTrack = fresh;
                     }
                 } catch {
-                    toast.error('Could not access microphone. Check browser microphone permissions.');
+                    toast.error(`Could not access microphone. ${macMediaPermissionHint()}`);
                     return;
                 }
             }
@@ -1123,18 +1129,9 @@ export default function MeetingRoomPage() {
 
     const reacquireAndBindCameraTrack = useCallback(
         async (stream: MediaStream) => {
-            let camOnly: MediaStream;
-            try {
-                camOnly = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
-                });
-            } catch {
-                camOnly = await navigator.mediaDevices.getUserMedia({ video: true });
-            }
-            const freshTrack = camOnly.getVideoTracks()[0];
+            const freshTrack = await acquireCameraTrack();
             if (!freshTrack) return null;
             freshTrack.enabled = true;
-            markMeetingTracks(new MediaStream([freshTrack]));
 
             const oldTrack = stream.getVideoTracks()[0];
             if (oldTrack) {
@@ -1201,7 +1198,7 @@ export default function MeetingRoomPage() {
                     if (existing) {
                         existing.enabled = true;
                     } else if (!(await reacquireAndBindCameraTrack(stream))) {
-                        toast.error('Could not turn on camera. Check browser camera permissions.');
+                        toast.error(`Could not turn on camera. ${macMediaPermissionHint()}`);
                         return;
                     }
                     setLocalStream(new MediaStream(stream.getTracks()));
@@ -1209,7 +1206,7 @@ export default function MeetingRoomPage() {
                     setIsCameraOff(false);
                     sendCameraState(true);
                 } catch {
-                    toast.error('Could not turn on camera. Check browser camera permissions.');
+                    toast.error(`Could not turn on camera. ${macMediaPermissionHint()}`);
                 }
                 return;
             }
@@ -1511,7 +1508,12 @@ export default function MeetingRoomPage() {
             setCurrentUserName(guestName.trim());
             setCurrentUserRole('Guest');
             const stream = await acquireMeetingMedia();
-            if (stream) setLocalStream(stream);
+            if (stream) {
+                setLocalStream(stream);
+                const flags = mediaEnabledFlags(stream);
+                setIsMuted(flags.muted);
+                setIsCameraOff(flags.cameraOff);
+            }
             setLoading(false);
         };
 
@@ -1645,7 +1647,7 @@ export default function MeetingRoomPage() {
                                         await unlockMeetingAudioPlayback();
                                         const stream = await ensureLocalMedia();
                                         if (!stream) {
-                                            toast.error('Allow camera and microphone so others can see and hear you.');
+                                            toast.error(`Allow camera and microphone so others can see and hear you. ${macMediaPermissionHint()}`);
                                         }
                                         setSpeakerOn(true);
                                         await applySpeakerOutput(true);
@@ -2511,10 +2513,26 @@ function AudioPlayer({ stream, outputDeviceId }: { stream: MediaStream; outputDe
         const audioOnly = new MediaStream(stream.getAudioTracks());
         el.setAttribute('playsinline', 'true');
         el.setAttribute('webkit-playsinline', 'true');
-        el.muted = false;
-        el.volume = 1;
+        const webkit = isAppleWebKitBrowser();
+        el.muted = webkit;
+        el.volume = webkit ? 0 : 1;
         el.srcObject = audioOnly;
         const tryPlay = async () => {
+            const webkit = isAppleWebKitBrowser();
+            if (webkit) {
+                // Safari reports play() success while staying silent. Route through AudioContext instead.
+                el.muted = true;
+                el.volume = 0;
+                await getMeetingAudioContext();
+                const routed = await routeRemoteStreamToSpeaker(stream.id, audioOnly, outputDeviceId);
+                if (!routed) {
+                    el.muted = false;
+                    el.volume = 1;
+                    await applyAudioOutputToElement(el, outputDeviceId);
+                    await el.play().catch(() => undefined);
+                }
+                return;
+            }
             el.muted = false;
             el.volume = 1;
             await applyAudioOutputToElement(el, outputDeviceId);
@@ -2606,7 +2624,8 @@ function LocalVideoTile({
             el.setAttribute('webkit-playsinline', 'true');
             el.muted = true;
             el.autoplay = true;
-            el.srcObject = stream;
+            const videoOnly = videoOnlyStream(stream);
+            el.srcObject = videoOnly;
             const kick = () => void el.play().catch(() => undefined);
             el.onloadedmetadata = kick;
             kick();

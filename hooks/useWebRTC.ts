@@ -3,6 +3,7 @@ import { useEffect, useRef, useCallback, useState } from 'react';
 import type { SupabaseClient, RealtimeChannel } from '@supabase/supabase-js';
 import { hasUsableRelay, normalizeIceServers, parseStaticTurn, STUN_SERVERS } from '@/lib/ice-servers';
 import { pickSendAudioTrack, pickSendVideoTrack } from '@/lib/meeting-send-tracks';
+import { isAppleWebKitBrowser } from '@/lib/meeting-devices';
 
 function fallbackIceServers(): RTCIceServer[] {
     const servers: RTCIceServer[] = [...(STUN_SERVERS as RTCIceServer[])];
@@ -56,13 +57,37 @@ async function setKindTrack(pc: RTCPeerConnection, kind: 'audio' | 'video', trac
         if (track) pc.addTrack(track, new MediaStream([track]));
         return;
     }
-    if (transceiver.direction !== 'sendrecv') transceiver.direction = 'sendrecv';
+    if (transceiver.direction !== 'sendrecv') {
+        try {
+            transceiver.direction = 'sendrecv';
+        } catch {
+            /* Safari throws if signaling is not stable */
+        }
+    }
     if (transceiver.sender.track === track) return;
     try {
         await transceiver.sender.replaceTrack(track);
     } catch (err) {
         console.error(`replaceTrack(${kind}) failed`, err);
+        if (track) {
+            try {
+                pc.addTrack(track, new MediaStream([track]));
+            } catch {
+                /* already have a sender */
+            }
+        }
     }
+}
+
+function addKindTransceiver(pc: RTCPeerConnection, kind: 'audio' | 'video', track: MediaStreamTrack | null) {
+    try {
+        if (track) {
+            return pc.addTransceiver(track, { direction: 'sendrecv', streams: [new MediaStream([track])] });
+        }
+    } catch {
+        /* Safari/old browsers: fall through to kind-only transceiver */
+    }
+    return pc.addTransceiver(kind, { direction: 'sendrecv' });
 }
 
 async function attachLocalTracksToPeer(
@@ -351,8 +376,10 @@ export function useWebRTC({
                 }
             };
 
-            const audioTr = pc.addTransceiver('audio', { direction: 'sendrecv' });
-            const videoTr = pc.addTransceiver('video', { direction: 'sendrecv' });
+            const audio = pickSendAudioTrack(localStreamRef.current);
+            const video = pickSendVideoTrack(localStreamRef.current, outboundVideoRef.current);
+            const audioTr = addKindTransceiver(pc, 'audio', audio);
+            const videoTr = addKindTransceiver(pc, 'video', video);
             peerTransceivers.set(pc, { audio: audioTr, video: videoTr });
             void attachLocalTracksToPeer(pc, localStreamRef.current, outboundVideoRef.current);
 
@@ -649,6 +676,30 @@ export function useWebRTC({
                 setKindTrack(peer.connection, 'video', newTrack),
             ),
         );
+        if (!isAppleWebKitBrowser()) return;
+        for (const [peerId, peer] of peersRef.current.entries()) {
+            const pc = peer.connection;
+            if (pc.signalingState !== 'stable') continue;
+            if (!shouldInitiateOffer(selfPeerIdRef.current, peerId)) continue;
+            makingOfferRef.current.add(peerId);
+            try {
+                await attachLocalTracksToPeer(pc, localStreamRef.current, outboundVideoRef.current);
+                await pc.setLocalDescription(await pc.createOffer());
+                const sdp = sdpJson(pc.localDescription);
+                if (sdp) {
+                    await sendSignal('sdp-offer', {
+                        senderId: selfPeerIdRef.current,
+                        senderName: userNameRef.current,
+                        targetId: peerId,
+                        sdp,
+                    });
+                }
+            } catch (e) {
+                console.error('webkit video renegotiate error:', e);
+            } finally {
+                makingOfferRef.current.delete(peerId);
+            }
+        }
     }, []);
 
     const replaceAudioTrack = useCallback(async (newTrack: MediaStreamTrack | null) => {
@@ -657,6 +708,30 @@ export function useWebRTC({
                 setKindTrack(peer.connection, 'audio', newTrack),
             ),
         );
+        if (!isAppleWebKitBrowser()) return;
+        for (const [peerId, peer] of peersRef.current.entries()) {
+            const pc = peer.connection;
+            if (pc.signalingState !== 'stable') continue;
+            if (!shouldInitiateOffer(selfPeerIdRef.current, peerId)) continue;
+            makingOfferRef.current.add(peerId);
+            try {
+                await attachLocalTracksToPeer(pc, localStreamRef.current, outboundVideoRef.current);
+                await pc.setLocalDescription(await pc.createOffer());
+                const sdp = sdpJson(pc.localDescription);
+                if (sdp) {
+                    await sendSignal('sdp-offer', {
+                        senderId: selfPeerIdRef.current,
+                        senderName: userNameRef.current,
+                        targetId: peerId,
+                        sdp,
+                    });
+                }
+            } catch (e) {
+                console.error('webkit audio renegotiate error:', e);
+            } finally {
+                makingOfferRef.current.delete(peerId);
+            }
+        }
     }, []);
 
     const sendChatMessage = useCallback((payload: SendChatPayload) => {
