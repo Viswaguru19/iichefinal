@@ -7,6 +7,7 @@ import {
     shouldReplaceAudioDevice,
     shouldReplaceVideoDevice,
     videoOnlyStream,
+    videoPreviewTrackKey,
 } from '@/lib/meeting-devices';
 
 describe('meeting devices', () => {
@@ -63,5 +64,16 @@ describe('meeting devices', () => {
         } as unknown as MediaStream;
         expect(videoOnlyStream(stream)?.getVideoTracks()).toHaveLength(2);
         expect(videoOnlyStream(stream, null, { enabledOnly: true })?.getVideoTracks()).toEqual([liveOn]);
+    });
+
+    it('keeps the same preview key when the enabled camera track does not change', () => {
+        class FakeMediaStream {
+            constructor(public tracks: MediaStreamTrack[]) {}
+            getVideoTracks() { return this.tracks.filter((t) => t.kind === 'video'); }
+        }
+        (globalThis as unknown as { MediaStream: typeof FakeMediaStream }).MediaStream = FakeMediaStream;
+        const liveOn = { id: 'cam-1', kind: 'video', readyState: 'live', enabled: true } as MediaStreamTrack;
+        const stream = { getVideoTracks: () => [liveOn] } as unknown as MediaStream;
+        expect(videoPreviewTrackKey(stream, null, { enabledOnly: true })).toBe('cam-1');
     });
 });

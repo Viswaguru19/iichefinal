@@ -43,7 +43,6 @@ import { formatPortalDate } from '@/lib/portal-date';
 import {
     applyAudioOutputToElement,
     applyMeetingAudioSession,
-    getMeetingAudioContext,
     playSpeakerTestTone,
     resolvePreferredAudioOutput,
     disconnectRemoteStreamFromSpeaker,
@@ -78,7 +77,6 @@ function markMeetingTracks(stream: MediaStream) {
 }
 
 async function unlockMeetingAudioPlayback() {
-    await getMeetingAudioContext();
     unlockRemoteMediaElements();
 }
 
@@ -370,13 +368,13 @@ export default function MeetingRoomPage() {
         await unlockMeetingAudioPlayback();
         const picked = await resolvePreferredAudioOutput(nextSpeakerOn);
         setSpeakerOutputId(picked?.deviceId ?? null);
-        await setMeetingAudioSink(picked?.deviceId ?? null);
         if (picked?.deviceId) {
             document.querySelectorAll('audio[data-meeting-remote="1"]').forEach((node) => {
                 void applyAudioOutputToElement(node as HTMLMediaElement, picked.deviceId);
             });
         }
         if (playChime) {
+            await setMeetingAudioSink(picked?.deviceId ?? null);
             const heard = await playSpeakerTestTone(picked?.deviceId ?? null);
             if (heard) {
                 toast.success(nextSpeakerOn
@@ -739,7 +737,7 @@ export default function MeetingRoomPage() {
                 return;
             }
             attemptsLeft -= 1;
-            bindLocalPreviewVideo(el, localStream);
+            void el.play().catch(() => undefined);
         }, 400);
         return () => {
             window.clearInterval(retry);
@@ -1126,16 +1124,18 @@ export default function MeetingRoomPage() {
         let ctx: AudioContext | null = null;
         let source: MediaStreamAudioSourceNode | null = null;
         let analyser: AnalyserNode | null = null;
-        let probe: MediaStreamTrack | null = null;
         let raf = 0;
         try {
             const Ctx = window.AudioContext || (window as any).webkitAudioContext;
             if (!Ctx) return;
-            ctx = new Ctx();
+            try {
+                ctx = new Ctx({ latencyHint: 'interactive' });
+            } catch {
+                ctx = new Ctx();
+            }
             analyser = ctx.createAnalyser();
             analyser.fftSize = 256;
-            probe = audioTrack.clone();
-            source = ctx.createMediaStreamSource(new MediaStream([probe]));
+            source = ctx.createMediaStreamSource(new MediaStream([audioTrack]));
             source.connect(analyser);
             const arr = new Uint8Array(analyser.frequencyBinCount);
             const tick = () => {
@@ -1157,7 +1157,6 @@ export default function MeetingRoomPage() {
             try {
                 source?.disconnect();
                 analyser?.disconnect();
-                probe?.stop();
             } catch {
                 /* ignore */
             }
@@ -1206,15 +1205,19 @@ export default function MeetingRoomPage() {
 
     const reacquireAndBindCameraTrack = useCallback(
         async (stream: MediaStream) => {
-            const freshTrack = await acquireCameraTrack();
-            if (!freshTrack) return null;
-            freshTrack.enabled = true;
-
             const oldTrack = stream.getVideoTracks()[0];
             if (oldTrack) {
                 stream.removeTrack(oldTrack);
-                oldTrack.stop();
+                try { oldTrack.stop(); } catch { /* ignore */ }
             }
+            // Mac FaceTime will often return a black second stream if the first is still open.
+            await new Promise((resolve) => window.setTimeout(resolve, 200));
+            const freshTrack = await acquireCameraTrack();
+            if (!freshTrack) {
+                await replaceVideoTrack(null);
+                return null;
+            }
+            freshTrack.enabled = true;
             stream.addTrack(freshTrack);
 
             await replaceVideoTrack(freshTrack);
@@ -1293,14 +1296,24 @@ export default function MeetingRoomPage() {
                 return;
             }
 
-            for (const track of stream.getVideoTracks()) track.enabled = false;
+            for (const track of stream.getVideoTracks()) {
+                if (!isMobileMeetingClient()) {
+                    stream.removeTrack(track);
+                    try { track.stop(); } catch { /* ignore */ }
+                } else {
+                    track.enabled = false;
+                }
+            }
+            if (!isMobileMeetingClient()) {
+                await replaceVideoTrack(null);
+            }
             setLocalStream(new MediaStream(stream.getTracks()));
             setLocalVideoRenderKey((k) => k + 1);
             setIsCameraOff(true);
             sendCameraState(false);
         };
         void run();
-    }, [ensureLocalMedia, isCameraOff, isScreenSharing, reacquireAndBindCameraTrack, sendCameraState]);
+    }, [ensureLocalMedia, isCameraOff, isScreenSharing, reacquireAndBindCameraTrack, replaceVideoTrack, sendCameraState]);
 
     const stopScreenShare = useCallback(async () => {
         const screenTrack = screenTrackRef.current;
@@ -2585,26 +2598,28 @@ function RemoteVideo({
 // Do not use `hidden`/`display:none` — Chrome and Safari often refuse to play those.
 function AudioPlayer({ stream, outputDeviceId }: { stream: MediaStream; outputDeviceId?: string | null }) {
     const audioRef = useRef<HTMLAudioElement>(null);
-    const audioTrackKey = stream.getAudioTracks().map((t) => `${t.id}:${t.readyState}:${t.muted}`).join('|');
+    const audioTrackKey = stream.getAudioTracks().map((t) => t.id).join('|');
 
     useEffect(() => {
         const el = audioRef.current;
         if (!el) return;
         // Never attach the same MediaStream to both <video> and <audio> — Safari drops playback.
-        const audioOnly = new MediaStream(stream.getAudioTracks());
+        const current = el.srcObject instanceof MediaStream ? el.srcObject : null;
+        const currentIds = current?.getAudioTracks().map((t) => t.id).join('|') ?? '';
+        const audioOnly = currentIds === audioTrackKey && current
+            ? current
+            : new MediaStream(stream.getAudioTracks());
         el.setAttribute('playsinline', 'true');
         el.setAttribute('webkit-playsinline', 'true');
         el.muted = false;
         el.volume = 1;
-        el.srcObject = audioOnly;
+        if (el.srcObject !== audioOnly) el.srcObject = audioOnly;
         const tryPlay = async () => {
             el.muted = false;
             el.volume = 1;
-            await applyAudioOutputToElement(el, outputDeviceId);
             try {
                 await el.play();
             } catch {
-                /* Join click should have unlocked autoplay; retry once. */
                 window.setTimeout(() => void el.play().catch(() => undefined), 250);
             }
         };
@@ -2613,13 +2628,13 @@ function AudioPlayer({ stream, outputDeviceId }: { stream: MediaStream; outputDe
         const onAdd = (e: MediaStreamTrackEvent) => {
             if (e.track?.kind !== 'audio') return;
             if (!audioOnly.getTracks().some((t) => t.id === e.track.id)) audioOnly.addTrack(e.track);
-            tryPlay();
+            void tryPlay();
         };
         stream.addEventListener('addtrack', onAdd);
 
         const trackCleanups: (() => void)[] = [];
         for (const t of stream.getAudioTracks()) {
-            const onUnmute = () => tryPlay();
+            const onUnmute = () => { void tryPlay(); };
             t.addEventListener('unmute', onUnmute);
             trackCleanups.push(() => t.removeEventListener('unmute', onUnmute));
         }
@@ -2628,9 +2643,14 @@ function AudioPlayer({ stream, outputDeviceId }: { stream: MediaStream; outputDe
             stream.removeEventListener('addtrack', onAdd);
             trackCleanups.forEach((fn) => fn());
             disconnectRemoteStreamFromSpeaker(stream.id);
-            el.srcObject = null;
         };
-    }, [stream, audioTrackKey, outputDeviceId]);
+    }, [stream, audioTrackKey]);
+
+    useEffect(() => {
+        const el = audioRef.current;
+        if (!el) return;
+        void applyAudioOutputToElement(el, outputDeviceId);
+    }, [outputDeviceId]);
 
     return (
         <audio
@@ -2693,12 +2713,15 @@ function LocalVideoTile({
                 return;
             }
             attemptsLeft -= 1;
-            bind();
+            void el.play().catch(() => undefined);
         }, 400);
 
         const cleanups: (() => void)[] = [];
         for (const t of stream.getVideoTracks()) {
-            const refresh = () => bind();
+            const refresh = () => {
+                bindLocalPreviewVideo(el, stream);
+                void el.play().catch(() => undefined);
+            };
             t.addEventListener('unmute', refresh);
             t.addEventListener('ended', refresh);
             cleanups.push(() => {
@@ -3361,16 +3384,18 @@ function ParticipantMicSphere({
         let ctx: AudioContext | null = null;
         let src: MediaStreamAudioSourceNode | null = null;
         let analyser: AnalyserNode | null = null;
-        let probe: MediaStreamTrack | null = null;
         let raf = 0;
         try {
             const Ctx = window.AudioContext || (window as any).webkitAudioContext;
             if (!Ctx) return;
-            ctx = new Ctx();
+            try {
+                ctx = new Ctx({ latencyHint: 'interactive' });
+            } catch {
+                ctx = new Ctx();
+            }
             analyser = ctx.createAnalyser();
             analyser.fftSize = 256;
-            probe = audioTrack.clone();
-            src = ctx.createMediaStreamSource(new MediaStream([probe]));
+            src = ctx.createMediaStreamSource(new MediaStream([audioTrack]));
             src.connect(analyser);
             const arr = new Uint8Array(analyser.frequencyBinCount);
             const loop = () => {
@@ -3390,7 +3415,6 @@ function ParticipantMicSphere({
             try {
                 src?.disconnect();
                 analyser?.disconnect();
-                probe?.stop();
             } catch {
                 /* ignore */
             }

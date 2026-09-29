@@ -311,6 +311,15 @@ export function useWebRTC({
                         syncPeers();
                     };
                 }
+                for (const receiver of pc.getReceivers()) {
+                    if (receiver.track?.kind !== 'audio') continue;
+                    try {
+                        const jittered = receiver as RTCRtpReceiver & { jitterBufferTarget?: number };
+                        if ('jitterBufferTarget' in jittered) jittered.jitterBufferTarget = 40;
+                    } catch {
+                        /* older browsers */
+                    }
+                }
                 const ex = peersRef.current.get(peerId);
                 if (ex) {
                     ex.remoteStream = remoteStream;

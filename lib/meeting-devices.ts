@@ -120,7 +120,21 @@ export function videoOnlyStream(
     return tracks.length ? new MediaStream(tracks) : null;
 }
 
-/** Detach then attach so Mac Chrome/Safari paint frames again after camera off/on. */
+export function videoPreviewTrackKey(
+    stream: MediaStream | null | undefined,
+    extra?: MediaStreamTrack | null,
+    opts?: { enabledOnly?: boolean },
+) {
+    return videoOnlyStream(stream, extra, opts)?.getVideoTracks().map((t) => t.id).join('|') ?? '';
+}
+
+function attachedPreviewTrackKey(el: HTMLVideoElement) {
+    const src = el.srcObject;
+    if (!(src instanceof MediaStream)) return '';
+    return src.getVideoTracks().map((t) => t.id).join('|');
+}
+
+/** Attach camera tracks to the local preview without tearing down a stream that is already showing them. */
 export function bindLocalPreviewVideo(
     el: HTMLVideoElement | null,
     stream: MediaStream | null | undefined,
@@ -132,9 +146,16 @@ export function bindLocalPreviewVideo(
     el.autoplay = true;
     el.setAttribute('playsinline', 'true');
     el.setAttribute('webkit-playsinline', 'true');
-    el.srcObject = null;
     const videoOnly = videoOnlyStream(stream, extra, { enabledOnly: true });
-    if (!videoOnly) return false;
+    if (!videoOnly) {
+        if (el.srcObject) el.srcObject = null;
+        return false;
+    }
+    const nextKey = videoPreviewTrackKey(stream, extra, { enabledOnly: true });
+    if (attachedPreviewTrackKey(el) === nextKey) {
+        void el.play().catch(() => undefined);
+        return true;
+    }
     el.srcObject = videoOnly;
     const play = () => void el.play().catch(() => undefined);
     el.onloadedmetadata = play;
@@ -190,11 +211,17 @@ export function macMediaPermissionHint() {
 export async function acquireMeetingMedia(): Promise<MediaStream | null> {
     if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) return null;
 
+    const speechAudio: MediaTrackConstraints = {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+        channelCount: 1,
+    };
     const mobile = isMobileMeetingClient();
     const attempts: MediaStreamConstraints[] = mobile
         ? [
             {
-                audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+                audio: speechAudio,
                 video: { facingMode: 'user' },
             },
             { audio: true, video: true },
@@ -202,11 +229,11 @@ export async function acquireMeetingMedia(): Promise<MediaStream | null> {
             { audio: false, video: true },
         ]
         : [
-            { audio: true, video: true },
             {
-                audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-                video: true,
+                audio: speechAudio,
+                video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 24, max: 30 } },
             },
+            { audio: true, video: true },
             { audio: true, video: false },
             { audio: false, video: true },
         ];
@@ -229,6 +256,7 @@ export async function acquireMeetingMedia(): Promise<MediaStream | null> {
             echoCancellation: true,
             noiseSuppression: true,
             autoGainControl: true,
+            channelCount: 1,
         }).catch(() => undefined);
     }
 

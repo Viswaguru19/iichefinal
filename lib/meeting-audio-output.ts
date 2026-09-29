@@ -81,7 +81,11 @@ export async function getMeetingAudioContext() {
     const AC = audioContextCtor();
     if (!AC) return null;
     if (!meetingAudioCtx || meetingAudioCtx.state === 'closed') {
-        meetingAudioCtx = new AC();
+        try {
+            meetingAudioCtx = new AC({ latencyHint: 'interactive' });
+        } catch {
+            meetingAudioCtx = new AC();
+        }
     }
     if (meetingAudioCtx.state === 'suspended') {
         await meetingAudioCtx.resume().catch(() => undefined);
