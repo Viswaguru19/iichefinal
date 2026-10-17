@@ -373,7 +373,8 @@ function ProposalsPageClient() {
     // Same as new proposals: head review first, not EC.
     return 'pending_head_approval';
   };
-  const canCancelEvent = (p: any) => p.status !== 'cancelled' && p.status !== 'completed' && (isFaculty || isAdmin || isEC);
+  const canCancelEvent = (p: any) =>
+    ['active', 'faculty_approved', 'in_progress'].includes(p.status) && (isFaculty || isAdmin || isEC);
   const canChangeDate = (p: any) => p.status !== 'cancelled' && p.status !== 'completed' && (isFaculty || isAdmin || isEC || userCommittees.includes(p.committee_id));
   const canSendForReview = (p: any) => {
     if (p.status === 'cancelled' || p.status === 'completed') return false;
