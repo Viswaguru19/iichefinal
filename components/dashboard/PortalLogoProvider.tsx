@@ -2,19 +2,18 @@
 
 import { createContext, useContext, useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { DEFAULT_PORTAL_LOGO } from '@/lib/logo-utils';
+import { DEFAULT_PORTAL_LOGO, LOGO_CACHE_KEY } from '@/lib/logo-utils';
 import { resolveActiveLogoUrl } from '@/lib/logo-resolve';
 
 const PortalLogoContext = createContext<string>(DEFAULT_PORTAL_LOGO);
-const LOGO_CACHE_KEY = 'portal-logo-url-v3';
 
 export function usePortalLogo() {
   return useContext(PortalLogoContext);
 }
 
 /**
- * Loads logo on the client (cached) so the dashboard layout stays sync and does not
- * block every navigation on a server Supabase round-trip.
+ * First paint uses the bundled /public/logo.png. A later fetch only swaps
+ * if an admin has uploaded a different logo.
  */
 export default function PortalLogoProvider({
   logoUrl,
@@ -27,41 +26,27 @@ export default function PortalLogoProvider({
 
   useEffect(() => {
     let cancelled = false;
-    try {
-      const cached = sessionStorage.getItem(LOGO_CACHE_KEY);
-      if (cached) setUrl(cached);
-    } catch {
-      /* ignore */
-    }
 
     const load = async () => {
       try {
         const supabase = createClient();
         const next = await resolveActiveLogoUrl(supabase);
-        if (cancelled || !next) return;
+        if (cancelled || !next || next === DEFAULT_PORTAL_LOGO) return;
         setUrl(next);
         try {
           sessionStorage.setItem(LOGO_CACHE_KEY, next);
+          localStorage.setItem(LOGO_CACHE_KEY, next);
         } catch {
           /* ignore */
         }
       } catch {
-        /* keep default / cached */
+        // Keep the bundled default.
       }
     };
 
-    if (typeof window.requestIdleCallback === 'function') {
-      const id = window.requestIdleCallback(() => void load(), { timeout: 2000 });
-      return () => {
-        cancelled = true;
-        window.cancelIdleCallback?.(id);
-      };
-    }
-
-    const t = setTimeout(() => void load(), 400);
+    void load();
     return () => {
       cancelled = true;
-      clearTimeout(t);
     };
   }, []);
 

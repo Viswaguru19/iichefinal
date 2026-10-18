@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { Sparkles, Send } from 'lucide-react';
+import { Sparkles, Send, Paperclip, X } from 'lucide-react';
 import { parseIicheAiReply, type AiInline } from '@/lib/iiche-ai-format';
 
 type ChatTurn = { role: 'user' | 'assistant'; content: string; posterUrl?: string; animate?: boolean };
@@ -177,6 +177,13 @@ export default function IicheAiChat({ compact = false }: { compact?: boolean }) 
     title?: string;
     dataUrl?: string;
   } | null>(null);
+  const [participantDraft, setParticipantDraft] = useState<{
+    eventId: string;
+    eventTitle?: string;
+    rows: Array<{ name: string; email: string }>;
+  } | null>(null);
+  const [attachment, setAttachment] = useState<{ filename: string; mime: string; data: string } | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -185,18 +192,23 @@ export default function IicheAiChat({ compact = false }: { compact?: boolean }) 
 
   async function ask(text: string) {
     const message = text.trim();
-    if (!message || busy) return;
-    const nextTurns: ChatTurn[] = [...turns, { role: 'user', content: message }];
+    if ((!message && !attachment) || busy) return;
+    const shown = attachment ? `${message}${message ? '\n' : ''}Attached ${attachment.filename}` : message;
+    const nextTurns: ChatTurn[] = [...turns, { role: 'user', content: shown }];
     setTurns(nextTurns);
     setDraft('');
+    const file = attachment;
+    setAttachment(null);
     setBusy(true);
     try {
       const res = await fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message,
-          history: nextTurns.slice(-10).map((t) => ({ role: t.role, content: t.content.slice(0, 2000) })),
+          message: message || `Add these students as participants of this event from ${file?.filename || 'the file'}`,
+          history: nextTurns.slice(-10).map((t) => ({ role: t.role, content: t.content.slice(0, 4000) })),
+          attachment: file,
+          participantDraft,
           posterDraft: posterDraft
             ? {
                 eventId: posterDraft.eventId,
@@ -215,6 +227,11 @@ export default function IicheAiChat({ compact = false }: { compact?: boolean }) 
         navigate?: string;
         posterDraft?: { path?: string; eventId: string; title?: string; dataUrl?: string };
         posterUrl?: string;
+        participantDraft?: {
+          eventId: string;
+          eventTitle?: string;
+          rows: Array<{ name: string; email: string }>;
+        } | null;
       };
       if (!res.ok) throw new Error(data.error || 'Could not reach IIChE AI');
       setTurns((prev) => [
@@ -227,6 +244,8 @@ export default function IicheAiChat({ compact = false }: { compact?: boolean }) 
         },
       ]);
       if (data.posterDraft?.eventId) setPosterDraft(data.posterDraft);
+      if (data.participantDraft === null) setParticipantDraft(null);
+      else if (data.participantDraft?.eventId) setParticipantDraft(data.participantDraft);
       const dest = String(data.navigate || '').trim();
       if (dest.startsWith('/dashboard') && dest !== pathname) {
         router.push(dest);
@@ -291,6 +310,15 @@ export default function IicheAiChat({ compact = false }: { compact?: boolean }) 
         </div>
       )}
 
+      {attachment && (
+        <div className="mt-2 flex items-center justify-between gap-2 rounded-xl border border-white/10 px-3 py-2 text-xs">
+          <span className="truncate">{attachment.filename}</span>
+          <button type="button" className="iiche-ai-icon-btn p-1 rounded-lg" onClick={() => setAttachment(null)} aria-label="Remove file">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
       <form
         className="mt-2 flex gap-2"
         onSubmit={(e) => {
@@ -299,15 +327,41 @@ export default function IicheAiChat({ compact = false }: { compact?: boolean }) 
         }}
       >
         <input
+          ref={fileRef}
+          type="file"
+          accept=".csv,.txt,.tsv,.xlsx,.xls"
+          className="hidden"
+          onChange={async (e) => {
+            const f = e.target.files?.[0];
+            e.target.value = '';
+            if (!f) return;
+            const buf = await f.arrayBuffer();
+            const bytes = new Uint8Array(buf);
+            let binary = '';
+            bytes.forEach((b) => {
+              binary += String.fromCharCode(b);
+            });
+            setAttachment({ filename: f.name, mime: f.type || 'application/octet-stream', data: btoa(binary) });
+          }}
+        />
+        <button
+          type="button"
+          className="iiche-ai-icon-btn rounded-xl px-3 py-2"
+          aria-label="Attach student list"
+          onClick={() => fileRef.current?.click()}
+        >
+          <Paperclip className="w-4 h-4" />
+        </button>
+        <input
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          placeholder="Ask anything — research, ideas, or the portal…"
+          placeholder="Ask anything — or attach a list and add participants…"
           className="iiche-ai-input flex-1 rounded-xl px-3 py-2.5 text-sm"
-          maxLength={2000}
+          maxLength={8000}
         />
         <button
           type="submit"
-          disabled={busy || !draft.trim()}
+          disabled={busy || (!draft.trim() && !attachment)}
           className="btn-gradient-blue rounded-xl px-3 py-2 disabled:opacity-50"
           aria-label="Send"
         >

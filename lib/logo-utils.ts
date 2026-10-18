@@ -1,7 +1,10 @@
-/** Default IIChE logo used when DB/storage logo is unavailable. */
-export const DEFAULT_PORTAL_LOGO = '/logo.svg';
+/** Bundled chapter logo in /public — used on first paint, no remote fetch. */
+export const DEFAULT_PORTAL_LOGO = '/logo.png';
 
-export const LOGO_CACHE_KEY = 'portal-logo-url-v3';
+/** Storage filename of the logo that was copied into /public/logo.png. */
+const BUNDLED_STORAGE_LOGO = 'logo-1772647593546.png';
+
+export const LOGO_CACHE_KEY = 'portal-logo-url-v4';
 
 export type ActiveLogoRecord = {
   id: string;
@@ -19,6 +22,16 @@ export function resolveLogoPublicUrl(
 ): string {
   if (!logoUrl) return DEFAULT_PORTAL_LOGO;
 
+  if (
+    logoUrl === 'logo.svg' ||
+    logoUrl === '/logo.svg' ||
+    logoUrl === 'logo.png' ||
+    logoUrl.endsWith('/logo.png') ||
+    logoUrl.includes(BUNDLED_STORAGE_LOGO)
+  ) {
+    return DEFAULT_PORTAL_LOGO;
+  }
+
   if (logoUrl.startsWith('http://') || logoUrl.startsWith('https://')) {
     return logoUrl;
   }
@@ -30,9 +43,22 @@ export function resolveLogoPublicUrl(
     return DEFAULT_PORTAL_LOGO;
   }
 
-  if (logoUrl === 'logo.svg') return '/logo.svg';
-
   return logoUrl.startsWith('/') ? logoUrl : `/${logoUrl}`;
+}
+
+export function readCachedPortalLogo(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const fromWindow = window.__PORTAL_LOGO__;
+    if (fromWindow) return fromWindow;
+    const local = localStorage.getItem(LOGO_CACHE_KEY);
+    if (local) return local;
+    const session = sessionStorage.getItem(LOGO_CACHE_KEY);
+    if (session) return session;
+  } catch {
+    // ignore
+  }
+  return null;
 }
 
 export function clearLogoCache() {

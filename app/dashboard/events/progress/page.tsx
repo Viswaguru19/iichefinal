@@ -4,11 +4,12 @@ import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
 import NotionProgressBar from '@/components/events/NotionProgressBar';
-import { Plus, CheckCircle, Clock, AlertCircle, Camera, FileText, Download, X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Clock, AlertCircle, Camera, FileText, Download, X, ChevronLeft, ChevronRight, Paperclip, MessageSquare } from 'lucide-react';
 import toast from 'react-hot-toast';
 import DashboardAtmosphere from '@/components/react-bits/DashboardAtmosphere';
 import PageHeader from '@/components/PageHeader';
-import { formatPortalDate } from '@/lib/portal-date';
+import { formatPortalDate, formatPortalDateTime } from '@/lib/portal-date';
+import { LinkedText } from '@/components/LinkedText';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,6 +27,8 @@ export default function EventProgressPage() {
   const [selectedCommittee, setSelectedCommittee] = useState('');
   const [updateText, setUpdateText] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showTaskDetail, setShowTaskDetail] = useState(false);
+  const [focusCommittee, setFocusCommittee] = useState<string | null>(null);
   const [showPendingTasks, setShowPendingTasks] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [eventToDelete, setEventToDelete] = useState<any>(null);
@@ -116,9 +119,11 @@ export default function EventProgressPage() {
       .select(`
         *,
         assigned_committee:assigned_to_committee(name),
+        assigned_to:assigned_to_committee(name),
         creator:assigned_by_user(name),
         approver:ec_approved_by(name),
-        updates:task_updates(*, user:updated_by(name))
+        updates:task_updates(*, user:updated_by(name)),
+        task_documents(id, file_name, file_url, file_type, created_at)
       `)
       .eq('event_id', eventId)
       .order('created_at');
@@ -127,9 +132,27 @@ export default function EventProgressPage() {
 
   async function selectEvent(event: any) {
     setSelectedEvent(event);
+    setFocusCommittee(null);
+    setShowTaskDetail(false);
+    setSelectedTask(null);
     await loadTasks(event.id);
     await loadPhotos(event.id);
     await loadReport(event.id);
+  }
+
+  function committeeNameOf(task: any) {
+    return task.assigned_committee?.name || task.assigned_to?.name || 'Unassigned';
+  }
+
+  function openTask(task: any) {
+    setSelectedTask(task);
+    setShowTaskDetail(true);
+    setFocusCommittee(committeeNameOf(task));
+  }
+
+  function documentHref(fileUrl: string) {
+    const base = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+    return `${base}/storage/v1/object/public/event-documents/${fileUrl}`;
   }
 
   async function loadPhotos(eventId: string) {
@@ -407,7 +430,7 @@ ${reportAdditionalDetails ? `## Additional Details\n${reportAdditionalDetails}` 
         return;
       }
 
-      const committeeName = task.assigned_to?.name || 'Unassigned';
+      const committeeName = committeeNameOf(task);
       if (!committeeMap.has(committeeName)) {
         committeeMap.set(committeeName, {
           committee_name: committeeName,
@@ -513,9 +536,11 @@ ${reportAdditionalDetails ? `## Additional Details\n${reportAdditionalDetails}` 
                   <NotionProgressBar
                     committeeTasks={getCommitteeTaskSummary()}
                     eventDate={selectedEvent.event_date}
-                    headApproved={true}
-                    ecApproved={true}
-                    facultyApproved={true}
+                    selectedCommittee={focusCommittee}
+                    onSelectCommittee={(name) => {
+                      setFocusCommittee(name);
+                      document.getElementById(`committee-tasks-${name}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }}
                   />
 
                   {/* Event Photos Gallery */}
@@ -548,22 +573,75 @@ ${reportAdditionalDetails ? `## Additional Details\n${reportAdditionalDetails}` 
                   )}
                 </div>
 
-                {/* View Event Details Button */}
-                <div className="bg-white/80 backdrop-blur-sm rounded-xl shadow-lg p-6 mb-6">
-                  <div className="flex items-center justify-between">
+                <div className="premium-panel rounded-2xl p-5 sm:p-6 mb-6">
+                  <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
                     <div>
-                      <h3 className="text-xl font-bold text-gray-900">Tasks</h3>
-                      <p className="text-sm text-gray-600 mt-1">
-                        {tasks.filter(t => t.status === 'completed' || t.completed_at).length} of {tasks.filter(t => t.status !== 'pending' && t.ec_approved_by).length} completed
+                      <h3 className="text-lg font-bold text-gray-900">Tasks</h3>
+                      <p className="text-sm text-gray-500 mt-0.5">
+                        Click a task to see committee updates and documents.
                       </p>
                     </div>
                     <button
                       onClick={() => router.push(`/dashboard/event-detail/${selectedEvent.id}`)}
-                      className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition text-sm font-medium"
+                      className="btn-gradient-blue px-4 py-2 rounded-xl text-sm font-semibold"
                     >
-                      View Event Details →
+                      Event details
                     </button>
                   </div>
+                  {(() => {
+                    const visible = tasks.filter((t) => t.status !== 'pending_ec_approval' && t.status !== 'rejected');
+                    const groups = new Map<string, any[]>();
+                    visible.forEach((t) => {
+                      const name = committeeNameOf(t);
+                      if (!groups.has(name)) groups.set(name, []);
+                      groups.get(name)!.push(t);
+                    });
+                    const names = focusCommittee && groups.has(focusCommittee)
+                      ? [focusCommittee, ...Array.from(groups.keys()).filter((n) => n !== focusCommittee)]
+                      : Array.from(groups.keys());
+                    if (visible.length === 0) {
+                      return <p className="text-sm text-gray-500 py-6 text-center">No approved tasks on this event yet.</p>;
+                    }
+                    return (
+                      <div className="space-y-5">
+                        {names.map((name) => (
+                          <section key={name} id={`committee-tasks-${name}`}>
+                            <h4 className="text-xs font-semibold uppercase tracking-wider text-indigo-500 mb-2">{name}</h4>
+                            <div className="space-y-2">
+                              {(groups.get(name) || []).map((task) => {
+                                const updateCount = task.updates?.length || 0;
+                                const docCount = task.task_documents?.length || 0;
+                                const pct = task.progress ?? (task.status === 'completed' || task.completed_at ? 100 : 0);
+                                return (
+                                  <button
+                                    key={task.id}
+                                    type="button"
+                                    onClick={() => openTask(task)}
+                                    className="w-full rounded-xl border border-slate-200/80 bg-white/70 hover:border-indigo-300 hover:shadow-sm p-3.5 text-left transition"
+                                  >
+                                    <div className="flex items-start justify-between gap-3">
+                                      <div className="min-w-0">
+                                        <p className="font-semibold text-gray-900 truncate">{task.title}</p>
+                                        <p className="text-xs text-gray-500 mt-1 capitalize">{String(task.status || 'pending').replace(/_/g, ' ')}</p>
+                                      </div>
+                                      <span className="shrink-0 text-sm font-bold text-indigo-600">{pct}%</span>
+                                    </div>
+                                    <div className="mt-2 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                                      <div className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-teal-400" style={{ width: `${pct}%` }} />
+                                    </div>
+                                    <div className="mt-2 flex gap-3 text-[11px] text-gray-500">
+                                      <span className="inline-flex items-center gap-1"><MessageSquare className="w-3.5 h-3.5" />{updateCount} update{updateCount === 1 ? '' : 's'}</span>
+                                      <span className="inline-flex items-center gap-1"><Paperclip className="w-3.5 h-3.5" />{docCount} file{docCount === 1 ? '' : 's'}</span>
+                                    </div>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </section>
+                        ))}
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {/* Event Report Section - Editorial Committee Only */}
@@ -665,6 +743,74 @@ ${reportAdditionalDetails ? `## Additional Details\n${reportAdditionalDetails}` 
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {showTaskDetail && selectedTask && (
+        <div className="fixed inset-0 bg-black/45 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto shadow-2xl">
+            <div className="flex items-start justify-between gap-3 mb-3">
+              <div className="min-w-0">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-indigo-500">{committeeNameOf(selectedTask)}</p>
+                <h2 className="text-xl font-bold text-gray-900 mt-1">{selectedTask.title}</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setShowTaskDetail(false); setSelectedTask(null); }}
+                className="text-gray-400 hover:text-gray-700"
+                aria-label="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            {selectedTask.description && <p className="text-sm text-gray-600 mb-4">{selectedTask.description}</p>}
+            <p className="text-xs text-gray-500 mb-5">
+              Visible to the assigned committee, the event’s proposing committee, faculty, EC, and admins.
+            </p>
+
+            <h3 className="text-sm font-semibold text-gray-900 mb-2 flex items-center gap-2">
+              <MessageSquare className="w-4 h-4 text-indigo-500" /> Updates
+            </h3>
+            {(selectedTask.updates || []).length === 0 ? (
+              <p className="text-sm text-gray-500 mb-5">No updates posted yet.</p>
+            ) : (
+              <div className="space-y-2 mb-5">
+                {[...(selectedTask.updates || [])]
+                  .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+                  .map((update: any) => (
+                    <div key={update.id} className="rounded-xl bg-slate-50 border border-slate-100 p-3">
+                      <LinkedText text={update.update_text || ''} className="text-sm text-gray-800" />
+                      <p className="text-xs text-gray-500 mt-1">
+                        {update.user?.name || 'Member'} · {formatPortalDateTime(update.created_at)}
+                      </p>
+                    </div>
+                  ))}
+              </div>
+            )}
+
+            <h3 className="text-sm font-semibold text-gray-900 mb-2 flex items-center gap-2">
+              <Paperclip className="w-4 h-4 text-indigo-500" /> Documents
+            </h3>
+            {(selectedTask.task_documents || []).length === 0 ? (
+              <p className="text-sm text-gray-500">No files attached.</p>
+            ) : (
+              <ul className="space-y-1.5">
+                {selectedTask.task_documents.map((doc: any) => (
+                  <li key={doc.id}>
+                    <a
+                      href={documentHref(doc.file_url)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 text-sm text-indigo-600 hover:underline"
+                    >
+                      <FileText className="w-4 h-4 shrink-0" />
+                      {doc.file_name || 'Document'}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         </div>
       )}

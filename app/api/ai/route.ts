@@ -6,6 +6,24 @@ import { runIicheAiTool, type IicheAiToolCtx } from '@/lib/iiche-ai-actions';
 
 export const dynamic = 'force-dynamic';
 
+async function textFromAttachment(att: { filename?: string; mime?: string; data?: string }): Promise<string> {
+  const data = String(att.data || '');
+  if (!data) return '';
+  const buf = Buffer.from(data, 'base64');
+  const name = `${att.filename || ''} ${att.mime || ''}`.toLowerCase();
+  if (/\.xlsx|\.xls|spreadsheet|excel/.test(name)) {
+    try {
+      const XLSX = await import('xlsx');
+      const wb = XLSX.read(buf, { type: 'buffer' });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      return XLSX.utils.sheet_to_csv(sheet || {});
+    } catch {
+      return buf.toString('utf8');
+    }
+  }
+  return buf.toString('utf8');
+}
+
 function trimHistory(raw: unknown): IicheAiMessage[] {
   if (!Array.isArray(raw)) return [];
   const out: IicheAiMessage[] = [];
@@ -13,7 +31,7 @@ function trimHistory(raw: unknown): IicheAiMessage[] {
     const role = row?.role === 'assistant' ? 'assistant' : row?.role === 'user' ? 'user' : null;
     const content = String(row?.content || '').trim();
     if (!role || !content) continue;
-    out.push({ role, content: content.slice(0, 4000) });
+    out.push({ role, content: content.slice(0, 8000) });
   }
   return out;
 }
@@ -27,7 +45,14 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json().catch(() => ({}));
-    const message = String(body?.message || '').trim().slice(0, 4000);
+    let message = String(body?.message || '').trim().slice(0, 20000);
+    const attachment = body?.attachment as { filename?: string; mime?: string; data?: string } | undefined;
+    if (attachment?.data) {
+      const extracted = await textFromAttachment(attachment);
+      if (extracted.trim()) {
+        message = `${message}\n\nAttached ${attachment.filename || 'file'}:\n${extracted.trim()}`.slice(0, 20000);
+      }
+    }
     if (!message) {
       return NextResponse.json({ error: 'Ask a question' }, { status: 400 });
     }
@@ -43,6 +68,11 @@ export async function POST(request: NextRequest) {
       eventId?: string;
       title?: string;
       dataUrl?: string;
+    } | undefined;
+    const peopleDraft = body?.participantDraft as {
+      eventId?: string;
+      eventTitle?: string;
+      rows?: Array<{ name: string; email: string }>;
     } | undefined;
     const ctx: IicheAiToolCtx = {
       supabase,
@@ -60,10 +90,19 @@ export async function POST(request: NextRequest) {
             dataUrl: posterDraft.dataUrl ? String(posterDraft.dataUrl) : undefined,
           }
         : null,
+      participantDraft:
+        peopleDraft?.eventId && Array.isArray(peopleDraft.rows)
+          ? {
+              eventId: String(peopleDraft.eventId),
+              eventTitle: String(peopleDraft.eventTitle || ''),
+              rows: peopleDraft.rows.map((r) => ({ name: String(r.name || ''), email: String(r.email || '') })),
+            }
+          : null,
     };
 
-    const { reply, provider, navigate, posterDraft: nextDraft, posterUrl } = await answerIicheAi(history, (name, args) =>
-      runIicheAiTool(ctx, name, args),
+    const { reply, provider, navigate, posterDraft: nextDraft, posterUrl, participantDraft } = await answerIicheAi(
+      history,
+      (name, args) => runIicheAiTool(ctx, name, args),
     );
     return NextResponse.json({
       reply,
@@ -71,6 +110,7 @@ export async function POST(request: NextRequest) {
       navigate,
       posterDraft: nextDraft || ctx.posterDraft,
       posterUrl: posterUrl || nextDraft?.dataUrl,
+      participantDraft: participantDraft === undefined ? ctx.participantDraft : participantDraft,
     });
   } catch (error: unknown) {
     const err = error as { message?: string };

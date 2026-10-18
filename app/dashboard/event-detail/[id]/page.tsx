@@ -2,8 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { useRouter, useParams } from 'next/navigation';
-import { Calendar, MapPin, CheckCircle, Clock, Edit, Check, X, Palette, ImageIcon, AlertCircle, Camera, ChevronLeft, ChevronRight, Users, QrCode, FileText } from 'lucide-react';
+import { useRouter, useParams, useSearchParams } from 'next/navigation';
+import { Calendar, MapPin, CheckCircle, Clock, Edit, Check, X, Palette, ImageIcon, AlertCircle, Camera, ChevronLeft, ChevronRight, Users, QrCode, FileText, MessageSquare, Paperclip, ChevronDown } from 'lucide-react';
+import { LinkedText } from '@/components/LinkedText';
+import EventApprovalTrail from '@/components/events/EventApprovalTrail';
 import toast from 'react-hot-toast';
 import PageHeader from '@/components/PageHeader';
 import DashboardAtmosphere from '@/components/react-bits/DashboardAtmosphere';
@@ -207,7 +209,11 @@ export default function EventDetailPage() {
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [viewingPhotos, setViewingPhotos] = useState(false);
   const [photoIndex, setPhotoIndex] = useState(0);
-  const [activeTab, setActiveTab] = useState<'info' | 'participants' | 'attendance'>('info');
+  const searchParams = useSearchParams();
+  const tabFromUrl = searchParams.get('tab');
+  const [activeTab, setActiveTab] = useState<'info' | 'participants' | 'attendance'>(
+    tabFromUrl === 'participants' || tabFromUrl === 'attendance' ? tabFromUrl : 'info',
+  );
   const [participants, setParticipants] = useState<any[]>([]);
   const [participantsLoading, setParticipantsLoading] = useState(false);
   const [markingAttendanceId, setMarkingAttendanceId] = useState<string | null>(null);
@@ -230,6 +236,7 @@ export default function EventDetailPage() {
   const [editEventDate, setEditEventDate] = useState('');
   const [editEventLocation, setEditEventLocation] = useState('');
   const [savingEventMeta, setSavingEventMeta] = useState(false);
+  const [openTaskId, setOpenTaskId] = useState<string | null>(null);
   const supabase = createClient();
   const router = useRouter();
   const params = useParams();
@@ -237,6 +244,13 @@ export default function EventDetailPage() {
   useEffect(() => {
     participantsRef.current = participants;
   }, [participants]);
+
+  useEffect(() => {
+    const tab = searchParams.get('tab');
+    if (tab === 'participants' || tab === 'attendance' || tab === 'info') {
+      setActiveTab(tab);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     loadEventDetails();
@@ -651,26 +665,95 @@ export default function EventDetailPage() {
         }
       }
 
+      if (eventData) {
+        const approverIds = [
+          eventData.head_approved_by,
+          eventData.second_head_approved_by,
+          eventData.faculty_approved_by,
+        ].filter(Boolean);
+        if (approverIds.length > 0) {
+          const { data: approvers } = await supabase
+            .from('profiles')
+            .select('id, name')
+            .in('id', approverIds);
+          const byId = Object.fromEntries((approvers || []).map((p: any) => [p.id, p]));
+          eventData.head_approver = byId[eventData.head_approved_by] || null;
+          eventData.second_head_approver = byId[eventData.second_head_approved_by] || null;
+          eventData.faculty_approver = byId[eventData.faculty_approved_by] || null;
+        }
+        const { data: ecApprovals } = await supabase
+          .from('ec_approvals')
+          .select('user_id, approved, approved_at, profiles(name, executive_role)')
+          .eq('event_id', eventData.id)
+          .eq('approved', true)
+          .order('approved_at', { ascending: true });
+        eventData.ec_approvals = ecApprovals || [];
+      }
+
       setEvent(eventData);
 
       if (eventData) {
-        // Load tasks from task_assignments table
-        const { data: tasksData, error: tasksError } = await supabase
+        const eventId = eventData.id;
+        let { data: tasksData, error: tasksError } = await supabase
           .from('task_assignments')
           .select(`
             *,
-            assigned_to:assigned_to_committee(name),
-            assigned_by:assigned_by_committee(name),
-            assigner:assigned_by_user(name),
-            approver:ec_approved_by(name),
+            assigned_committee:assigned_to_committee(name),
             task_documents(id, file_name, file_url, file_type, created_at)
           `)
-          .eq('event_id', params.id)
+          .eq('event_id', eventId)
           .order('created_at', { ascending: true });
 
-        console.log('Tasks query result:', { tasksData, tasksError });
+        if (tasksError) {
+          const fallback = await supabase
+            .from('task_assignments')
+            .select('*')
+            .eq('event_id', eventId)
+            .order('created_at', { ascending: true });
+          tasksData = fallback.data;
+          tasksError = fallback.error;
+        }
 
-        setTasks(tasksData || []);
+        const rows = tasksData || [];
+        if (rows.length > 0) {
+          const ids = rows.map((t: any) => t.id);
+          let { data: updatesData } = await supabase
+            .from('task_updates')
+            .select('*, user:updated_by(name)')
+            .in('task_id', ids)
+            .order('created_at', { ascending: true });
+          if (!updatesData) {
+            const plain = await supabase
+              .from('task_updates')
+              .select('*')
+              .in('task_id', ids)
+              .order('created_at', { ascending: true });
+            updatesData = plain.data;
+          }
+          const byTask = new Map<string, any[]>();
+          (updatesData || []).forEach((u: any) => {
+            const list = byTask.get(u.task_id) || [];
+            list.push(u);
+            byTask.set(u.task_id, list);
+          });
+          const taskApproverIds = [...new Set(rows.map((t: any) => t.ec_approved_by).filter(Boolean))];
+          let taskApprovers: Record<string, { name: string }> = {};
+          if (taskApproverIds.length > 0) {
+            const { data: people } = await supabase
+              .from('profiles')
+              .select('id, name')
+              .in('id', taskApproverIds);
+            taskApprovers = Object.fromEntries((people || []).map((p: any) => [p.id, p]));
+          }
+          rows.forEach((t: any) => {
+            t.updates = byTask.get(t.id) || [];
+            t.assigned_to = t.assigned_to || t.assigned_committee || null;
+            t.approver = t.approver || taskApprovers[t.ec_approved_by] || null;
+          });
+        }
+
+        if (tasksError) console.error('Tasks query error:', tasksError);
+        setTasks(rows);
 
         // Load event photos
         const { data: photos } = await supabase
@@ -998,7 +1081,7 @@ export default function EventDetailPage() {
 
   // Calculate progress: 30% from approvals + 70% from tasks
   const approvedTasks = tasks.filter(t => t.status !== 'pending_ec_approval' && t.status !== 'rejected');
-  const completedTasks = approvedTasks.filter(t => t.status === 'completed').length;
+  const completedTasks = approvedTasks.filter(t => t.status === 'completed' || t.completed_at).length;
   const totalTasks = approvedTasks.length;
 
   // Approval progress (30% total)
@@ -1488,58 +1571,20 @@ export default function EventDetailPage() {
             )}
           </div>
 
-          {/* Approval Pipeline */}
-          <div className="mt-6 mb-4">
-            <h4 className="text-sm font-semibold text-gray-700 mb-3">Approval Pipeline</h4>
-            <div className="flex items-center gap-2">
-              <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold ${headApproved ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
-                {headApproved ? <CheckCircle className="w-3.5 h-3.5" /> : <Clock className="w-3.5 h-3.5" />}
-                Head
-              </div>
-              <div className={`w-6 h-0.5 ${headApproved ? 'bg-green-400' : 'bg-gray-300'}`} />
-              <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold ${ecApproved ? 'bg-green-100 text-green-700' : headApproved ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-500'}`}>
-                {ecApproved ? <CheckCircle className="w-3.5 h-3.5" /> : <Clock className="w-3.5 h-3.5" />}
-                EC
-              </div>
-              <div className={`w-6 h-0.5 ${ecApproved ? 'bg-green-400' : 'bg-gray-300'}`} />
-              <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold ${facultyApproved ? 'bg-green-100 text-green-700' : ecApproved ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-500'}`}>
-                {facultyApproved ? <CheckCircle className="w-3.5 h-3.5" /> : <Clock className="w-3.5 h-3.5" />}
-                Faculty
-              </div>
-              <div className={`w-6 h-0.5 ${facultyApproved ? 'bg-green-400' : 'bg-gray-300'}`} />
-              <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold ${facultyApproved ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-500'}`}>
-                Tasks
-              </div>
-            </div>
-          </div>
+          <EventApprovalTrail event={event} className="mt-6 mb-2" />
 
-          {/* Overall Progress Bar */}
-          <div className="mt-4">
+          <div className="mt-5">
             <div className="flex justify-between items-center mb-2">
-              <span className="text-sm font-medium text-gray-700">Overall Progress</span>
+              <span className="text-sm font-medium text-gray-700">Overall progress</span>
               <span className="text-sm font-bold text-gray-900">{overallProgress}%</span>
             </div>
-            <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
-              <div className="h-3 rounded-full transition-all duration-500 flex">
-                {approvalProgress > 0 && (
-                  <div className="bg-green-500 h-full" style={{ width: `${approvalProgress}%` }} />
-                )}
-                {taskProgress > 0 && (
-                  <div className="bg-blue-500 h-full" style={{ width: `${taskProgress}%` }} />
-                )}
-              </div>
+            <div className="h-2.5 overflow-hidden rounded-full bg-slate-100">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-indigo-500 via-violet-500 to-teal-400 transition-all duration-500"
+                style={{ width: `${overallProgress}%` }}
+              />
             </div>
-            <div className="flex justify-between mt-1">
-              <p className="text-xs text-gray-500">
-                <span className="inline-block w-2 h-2 rounded-full bg-green-500 mr-1" />
-                Approvals: {approvalProgress}%
-                <span className="inline-block w-2 h-2 rounded-full bg-blue-500 ml-3 mr-1" />
-                Tasks: {taskProgress}%
-              </p>
-              <p className="text-xs text-gray-500">
-                {completedTasks}/{totalTasks} tasks done
-              </p>
-            </div>
+            <p className="text-xs text-gray-500 mt-1.5">{completedTasks}/{totalTasks} tasks done</p>
           </div>
         </div>
 
@@ -1692,72 +1737,123 @@ export default function EventDetailPage() {
             <div className="space-y-4">
               <h4 className="text-lg font-bold text-gray-900 mb-4">Active Tasks</h4>
               {approvedTasks.map((task) => {
+                const isOpen = openTaskId === task.id;
+                const updates = [...(task.updates || [])].sort(
+                  (a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+                );
+                const docs = task.task_documents || [];
                 return (
-                  <div key={task.id} className="border-2 border-gray-200 rounded-lg p-4 hover:border-blue-300 transition">
-                    <div className="flex justify-between items-start mb-2">
-                      <div className="flex-1">
-                        <h4 className="font-bold text-gray-900">{task.title}</h4>
-                        <p className="text-sm text-gray-600">{task.assigned_to?.name}</p>
-                        {task.ec_approved_by && task.ec_approved_at && (
-                          <p className="text-xs text-green-600 mt-1">
-                            ✓ Approved by {task.approver?.name} on {formatPortalDate(task.ec_approved_at)}
-                          </p>
-                        )}
-                        {task.deadline && (
-                          <p className={`text-xs mt-1 font-medium ${new Date(task.deadline) < new Date() ? 'text-red-600' : 'text-amber-600'}`}>
-                            📅 Deadline: {formatPortalDate(task.deadline)}
-                            {new Date(task.deadline) < new Date() && ' (Overdue)'}
-                          </p>
-                        )}
-                        {!task.deadline && task.ec_approved_at && (
-                          <p className={`text-xs mt-1 font-medium ${new Date(new Date(task.ec_approved_at).getTime() + 2 * 24 * 60 * 60 * 1000) < new Date() ? 'text-red-600' : 'text-amber-600'}`}>
-                            📅 Deadline: {formatPortalDate(new Date(new Date(task.ec_approved_at).getTime() + 2 * 24 * 60 * 60 * 1000))} (default)
-                            {new Date(new Date(task.ec_approved_at).getTime() + 2 * 24 * 60 * 60 * 1000) < new Date() && ' (Overdue)'}
-                          </p>
-                        )}
-                        {!task.deadline && !task.ec_approved_at && task.created_at && (
-                          <p className={`text-xs mt-1 font-medium ${new Date(new Date(task.created_at).getTime() + 2 * 24 * 60 * 60 * 1000) < new Date() ? 'text-red-600' : 'text-amber-600'}`}>
-                            📅 Deadline: {formatPortalDate(new Date(new Date(task.created_at).getTime() + 2 * 24 * 60 * 60 * 1000))} (default)
-                            {new Date(new Date(task.created_at).getTime() + 2 * 24 * 60 * 60 * 1000) < new Date() && ' (Overdue)'}
-                          </p>
-                        )}
+                  <div
+                    key={task.id}
+                    className={`rounded-2xl border p-4 transition ${isOpen ? 'border-indigo-400 bg-indigo-50/40 shadow-sm' : 'border-slate-200 hover:border-indigo-300'}`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setOpenTaskId(isOpen ? null : task.id)}
+                      className="w-full text-left"
+                    >
+                      <div className="flex justify-between items-start mb-2 gap-3">
+                        <div className="flex-1 min-w-0">
+                          <h4 className="font-bold text-gray-900">{task.title}</h4>
+                          <p className="text-sm text-gray-600">{task.assigned_to?.name || task.assigned_committee?.name}</p>
+                          {task.ec_approved_by && task.ec_approved_at && (
+                            <p className="text-xs text-green-600 mt-1">
+                              ✓ Approved by {task.approver?.name} on {formatPortalDate(task.ec_approved_at)}
+                            </p>
+                          )}
+                          {task.deadline && (
+                            <p className={`text-xs mt-1 font-medium ${new Date(task.deadline) < new Date() ? 'text-red-600' : 'text-amber-600'}`}>
+                              📅 Deadline: {formatPortalDate(task.deadline)}
+                              {new Date(task.deadline) < new Date() && ' (Overdue)'}
+                            </p>
+                          )}
+                          {!task.deadline && task.ec_approved_at && (
+                            <p className={`text-xs mt-1 font-medium ${new Date(new Date(task.ec_approved_at).getTime() + 2 * 24 * 60 * 60 * 1000) < new Date() ? 'text-red-600' : 'text-amber-600'}`}>
+                              📅 Deadline: {formatPortalDate(new Date(new Date(task.ec_approved_at).getTime() + 2 * 24 * 60 * 60 * 1000))} (default)
+                              {new Date(new Date(task.ec_approved_at).getTime() + 2 * 24 * 60 * 60 * 1000) < new Date() && ' (Overdue)'}
+                            </p>
+                          )}
+                          {!task.deadline && !task.ec_approved_at && task.created_at && (
+                            <p className={`text-xs mt-1 font-medium ${new Date(new Date(task.created_at).getTime() + 2 * 24 * 60 * 60 * 1000) < new Date() ? 'text-red-600' : 'text-amber-600'}`}>
+                              📅 Deadline: {formatPortalDate(new Date(new Date(task.created_at).getTime() + 2 * 24 * 60 * 60 * 1000))} (default)
+                              {new Date(new Date(task.created_at).getTime() + 2 * 24 * 60 * 60 * 1000) < new Date() && ' (Overdue)'}
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1 ${task.status === 'completed' ? 'bg-green-100 text-green-800' :
+                            task.status === 'in_progress' ? 'bg-blue-100 text-blue-800' :
+                              'bg-gray-100 text-gray-800'
+                            }`}>
+                            {task.status === 'completed' ? <CheckCircle className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
+                            {task.status.replace(/_/g, ' ').toUpperCase()}
+                          </span>
+                          <ChevronDown className={`w-5 h-5 text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <span className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1 ${task.status === 'completed' ? 'bg-green-100 text-green-800' :
-                          task.status === 'in_progress' ? 'bg-blue-100 text-blue-800' :
-                            'bg-gray-100 text-gray-800'
-                          }`}>
-                          {task.status === 'completed' ? <CheckCircle className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
-                          {task.status.replace(/_/g, ' ').toUpperCase()}
-                        </span>
+                      <div className="flex gap-3 text-[11px] text-gray-500">
+                        <span className="inline-flex items-center gap-1"><MessageSquare className="w-3.5 h-3.5" />{updates.length} update{updates.length === 1 ? '' : 's'}</span>
+                        <span className="inline-flex items-center gap-1"><Paperclip className="w-3.5 h-3.5" />{docs.length} file{docs.length === 1 ? '' : 's'}</span>
+                        <span className="ml-auto text-indigo-600 font-semibold">{isOpen ? 'Hide' : 'View updates'}</span>
                       </div>
-                    </div>
+                    </button>
 
                     {task.description && (
-                      <p className="text-gray-700 text-sm mb-3">{task.description}</p>
+                      <p className="text-gray-700 text-sm mt-3">{task.description}</p>
                     )}
 
-                    <TaskSupportingDocuments docs={task.task_documents} />
-
-                    {/* Progress Bar */}
                     {task.progress !== undefined && task.progress !== null && (
                       <div className="mt-3">
                         <div className="flex items-center justify-between text-xs text-gray-600 mb-1">
                           <span>Progress</span>
                           <span className="font-bold">{task.progress}%</span>
                         </div>
-                        <div className="w-full bg-gray-200 rounded-full h-2">
+                        <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
                           <div
-                            className="progress-animated h-2 rounded-full transition-all"
+                            className="h-2 rounded-full bg-gradient-to-r from-indigo-500 to-teal-400 transition-all"
                             style={{ width: `${task.progress}%` }}
                           />
                         </div>
                       </div>
                     )}
 
-                    {/* Task Reminder */}
+                    {isOpen && (
+                      <div className="mt-4 pt-4 border-t border-slate-200 space-y-4">
+                        <div>
+                          <h5 className="text-sm font-semibold text-gray-900 mb-2">Step-by-step updates</h5>
+                          {updates.length === 0 ? (
+                            <p className="text-sm text-gray-500">No updates posted yet.</p>
+                          ) : (
+                            <ol className="space-y-3">
+                              {updates.map((update: any, step: number) => (
+                                <li key={update.id} className="flex gap-3">
+                                  <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-[11px] font-bold text-white">
+                                    {step + 1}
+                                  </span>
+                                  <div className="min-w-0 flex-1 rounded-xl bg-white border border-slate-100 p-3">
+                                    <LinkedText text={update.update_text || ''} className="text-sm text-gray-800" />
+                                    <p className="text-xs text-gray-500 mt-1">
+                                      {update.user?.name || 'Member'} · {formatPortalDateTime(update.created_at)}
+                                    </p>
+                                  </div>
+                                </li>
+                              ))}
+                            </ol>
+                          )}
+                        </div>
+                        <div>
+                          <h5 className="text-sm font-semibold text-gray-900 mb-2">Documents</h5>
+                          {docs.length === 0 ? (
+                            <p className="text-sm text-gray-500">No files attached.</p>
+                          ) : (
+                            <TaskSupportingDocuments docs={docs} />
+                          )}
+                        </div>
+                      </div>
+                    )}
+
                     {task.status !== 'completed' && (
-                      <div className="mt-3 flex items-center gap-2">
+                      <div className="mt-3 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
                         <StatusIndicator entityType="task" timestamp={task.deadline} currentStatus={task.status} />
                         <ReminderButton entityId={task.id} entityType="task" />
                       </div>

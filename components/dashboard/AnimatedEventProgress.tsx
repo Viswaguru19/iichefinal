@@ -2,7 +2,8 @@
 
 import { motion } from 'framer-motion';
 import Link from 'next/link';
-import { Sparkles, CheckCircle2, Circle, Clock, ArrowRight } from 'lucide-react';
+import { Sparkles, CheckCircle2, Clock, ArrowRight } from 'lucide-react';
+import EventApprovalTrail, { eventApprovalFlags, type EventApprovalSource } from '@/components/events/EventApprovalTrail';
 
 interface Task {
     id: string;
@@ -12,36 +13,15 @@ interface Task {
     completed_at?: string | null;
 }
 
-interface Event {
+interface Event extends EventApprovalSource {
     id: string;
     title: string;
-    status: string;
     committees?: { name: string };
-    head_approved_by?: string | null;
-    faculty_approved_by?: string | null;
     tasks?: Task[];
 }
 
 interface AnimatedEventProgressProps {
     events: Event[];
-}
-
-const APPROVAL_STEPS = [
-    { key: 'head', label: 'Head Approved', gradient: 'from-amber-400 to-orange-500' },
-    { key: 'ec', label: 'EC Approved', gradient: 'from-blue-400 to-indigo-500' },
-    { key: 'faculty', label: 'Faculty Approved', gradient: 'from-emerald-400 to-green-500' },
-];
-
-function getStepStatus(event: Event) {
-    const s = event.status;
-    const headDone =
-        s !== 'pending_head_approval' &&
-        s !== 'draft' &&
-        s !== 'review_by_cohead' &&
-        s !== 'pending_second_head_approval';
-    const ecDone = headDone && s !== 'pending_ec_approval' && s !== 'rejected_by_head';
-    const facultyDone = ecDone && (s === 'active' || s === 'completed' || s === 'in_progress' || s === 'faculty_approved');
-    return { headDone, ecDone, facultyDone };
 }
 
 export default function AnimatedEventProgress({ events }: AnimatedEventProgressProps) {
@@ -61,7 +41,7 @@ export default function AnimatedEventProgress({ events }: AnimatedEventProgressP
     return (
         <div className="space-y-5">
             {events.map((event, index) => {
-                const steps = getStepStatus(event);
+                const steps = eventApprovalFlags(event.status);
                 const tasks = event.tasks || [];
                 const completedTasks = tasks.filter(t => t.status === 'completed' || t.completed_at);
                 const allTasksDone = tasks.length > 0 && completedTasks.length === tasks.length;
@@ -104,41 +84,7 @@ export default function AnimatedEventProgress({ events }: AnimatedEventProgressP
                                 )}
                             </div>
 
-                            {/* Approval Steps */}
-                            <div className="flex items-center gap-0 mb-5 relative z-10 overflow-x-auto mobile-clean-scroll">
-                                {APPROVAL_STEPS.map((step, i) => {
-                                    const done = step.key === 'head' ? steps.headDone : step.key === 'ec' ? steps.ecDone : steps.facultyDone;
-                                    return (
-                                        <div key={step.key} className="flex items-center flex-1 min-w-[4.5rem]">
-                                            <div className="flex flex-col items-center flex-1">
-                                                <motion.div
-                                                    initial={{ scale: 0 }}
-                                                    animate={{ scale: 1 }}
-                                                    transition={{ delay: index * 0.08 + i * 0.15, type: 'spring', stiffness: 200 }}
-                                                >
-                                                    {done ? (
-                                                        <div className={`w-8 h-8 rounded-full bg-gradient-to-br ${step.gradient} flex items-center justify-center shadow-md`}>
-                                                            <CheckCircle2 className="w-5 h-5 text-white" />
-                                                        </div>
-                                                    ) : (
-                                                        <div className="w-8 h-8 rounded-full bg-gray-100 border-2 border-gray-200 flex items-center justify-center">
-                                                            <Circle className="w-4 h-4 text-gray-300" />
-                                                        </div>
-                                                    )}
-                                                </motion.div>
-                                                <span className={`text-[9px] sm:text-[10px] mt-1.5 font-semibold text-center leading-tight px-0.5 ${done ? 'text-gray-700' : 'text-gray-300'}`}>
-                                                    {step.label}
-                                                </span>
-                                            </div>
-                                            {i < APPROVAL_STEPS.length - 1 && (
-                                                <div className="flex-shrink-0 w-4 sm:w-8 -mt-4 mx-0.5 sm:mx-1">
-                                                    <div className={`h-0.5 rounded-full ${done ? `bg-gradient-to-r ${step.gradient}` : 'bg-gray-200'}`} />
-                                                </div>
-                                            )}
-                                        </div>
-                                    );
-                                })}
-                            </div>
+                            <EventApprovalTrail event={event} className="mb-5 relative z-10" />
 
                             {/* Tasks Section */}
                             {steps.facultyDone && tasks.length > 0 && (
@@ -150,33 +96,81 @@ export default function AnimatedEventProgress({ events }: AnimatedEventProgressP
                                         <ArrowRight className="w-4 h-4 text-gray-300 group-hover:text-indigo-400 transition-colors" />
                                     </div>
 
-                                    {/* Progress bar */}
-                                    <div className="relative w-full bg-gray-100 rounded-full h-2 mb-4 overflow-hidden">
-                                        <motion.div
-                                            initial={{ width: 0 }}
-                                            animate={{ width: `${progress}%` }}
-                                            transition={{ duration: 1.2, delay: index * 0.08 + 0.5, ease: 'easeOut' }}
-                                            className="h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500 rounded-full"
-                                        />
+                                    <div className="mb-4 flex items-center gap-3">
+                                        <div className="relative h-12 w-12 shrink-0">
+                                            <svg viewBox="0 0 36 36" className="h-full w-full -rotate-90">
+                                                <circle cx="18" cy="18" r="14" fill="none" stroke="#e2e8f0" strokeWidth="4" />
+                                                <motion.circle
+                                                    cx="18"
+                                                    cy="18"
+                                                    r="14"
+                                                    fill="none"
+                                                    stroke={`url(#dash-task-ring-${event.id})`}
+                                                    strokeWidth="4"
+                                                    strokeLinecap="round"
+                                                    strokeDasharray={2 * Math.PI * 14}
+                                                    initial={{ strokeDashoffset: 2 * Math.PI * 14 }}
+                                                    animate={{ strokeDashoffset: 2 * Math.PI * 14 * (1 - progress / 100) }}
+                                                    transition={{ duration: 1, delay: index * 0.08 + 0.35, ease: [0.22, 1, 0.36, 1] }}
+                                                />
+                                                <defs>
+                                                    <linearGradient id={`dash-task-ring-${event.id}`} x1="0%" y1="0%" x2="100%" y2="100%">
+                                                        <stop offset="0%" stopColor="#6366f1" />
+                                                        <stop offset="100%" stopColor="#14b8a6" />
+                                                    </linearGradient>
+                                                </defs>
+                                            </svg>
+                                            <span className="absolute inset-0 flex items-center justify-center text-[10px] font-bold text-gray-800">
+                                                {Math.round(progress)}%
+                                            </span>
+                                        </div>
+                                        <div className="min-w-0 flex-1">
+                                            <div className="h-2.5 overflow-hidden rounded-full bg-slate-100">
+                                                <motion.div
+                                                    initial={{ width: 0 }}
+                                                    animate={{ width: `${progress}%` }}
+                                                    transition={{ duration: 1, delay: index * 0.08 + 0.35, ease: [0.22, 1, 0.36, 1] }}
+                                                    className="h-full rounded-full bg-gradient-to-r from-indigo-500 via-violet-500 to-teal-400"
+                                                />
+                                            </div>
+                                            <p className="mt-1 text-[11px] text-gray-500">
+                                                {completedTasks.length} of {tasks.length} complete
+                                            </p>
+                                        </div>
                                     </div>
 
                                     <div className="space-y-2">
                                         {tasks.map((task) => {
                                             const isDone = task.status === 'completed' || !!task.completed_at;
                                             return (
-                                                <div key={task.id} className="flex items-center gap-3">
+                                                <div
+                                                    key={task.id}
+                                                    className={`flex items-center gap-3 rounded-xl px-2 py-1.5 ${
+                                                        isDone
+                                                            ? 'bg-gradient-to-r from-indigo-50 via-violet-50 to-teal-50 ring-1 ring-indigo-100/70'
+                                                            : ''
+                                                    }`}
+                                                >
                                                     {isDone ? (
-                                                        <div className="w-5 h-5 rounded-full bg-gradient-to-br from-emerald-400 to-green-500 flex items-center justify-center flex-shrink-0">
+                                                        <span className="w-1 self-stretch min-h-[1.5rem] rounded-full bg-gradient-to-b from-indigo-500 to-teal-400 shrink-0" />
+                                                    ) : null}
+                                                    {isDone ? (
+                                                        <div className="w-5 h-5 rounded-full bg-gradient-to-br from-indigo-500 to-teal-400 flex items-center justify-center flex-shrink-0">
                                                             <CheckCircle2 className="w-3 h-3 text-white" />
                                                         </div>
                                                     ) : (
                                                         <Clock className="w-5 h-5 text-gray-300 flex-shrink-0" />
                                                     )}
-                                                    <span className={`text-sm flex-1 ${isDone ? 'line-through text-gray-300' : 'text-gray-600'}`}>
+                                                    <span className={`text-sm flex-1 ${isDone ? 'text-gray-900 font-medium' : 'text-gray-600'}`}>
                                                         {task.title}
                                                     </span>
+                                                    {isDone && (
+                                                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/80 text-indigo-700 font-semibold shrink-0 ring-1 ring-indigo-100">
+                                                            Done
+                                                        </span>
+                                                    )}
                                                     {task.assigned_committee?.name && (
-                                                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-500 font-medium">
+                                                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/80 text-indigo-500 font-medium">
                                                             {task.assigned_committee.name}
                                                         </span>
                                                     )}

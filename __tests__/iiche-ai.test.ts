@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { fallbackIicheAiReply, shouldRunHeuristicBeforeModel, splitPortalNavigate } from '@/lib/iiche-ai';
-import { maybeHeuristicTool } from '@/lib/iiche-ai-actions';
+import { maybeHeuristicTool, extractStandaloneGroupName } from '@/lib/iiche-ai-actions';
 import { iicheAiReplyPlain, parseIicheAiReply } from '@/lib/iiche-ai-format';
 import { buildIichePosterSvg, pickPosterHeroUrl, resolvePosterTheme, svgDataUrl } from '@/lib/iiche-ai-poster';
 
@@ -68,10 +68,32 @@ describe('IIChE AI tool heuristics', () => {
     expect(maybeHeuristicTool('Write MOM for today')?.name).toBe('create_minutes');
   });
 
+  it('imports event participants after asking for a group', () => {
+    const hit = maybeHeuristicTool(
+      'add these students as participants of ACE orientation event\nRahul\nPriya',
+    );
+    expect(hit?.name).toBe('add_event_participants');
+    expect(String(hit?.args.event_title).toLowerCase()).toContain('ace');
+    expect(hit?.args.group_name).toBe('');
+    expect(extractStandaloneGroupName('1st years')).toBe('1st years');
+    expect(maybeHeuristicTool('group is Volunteers')?.name).toBe('add_event_participants');
+  });
+
+  it('loads the event archive for committee tasks and recaps', () => {
+    const taskQ = maybeHeuristicTool('what task was given to alumni committee in ACE orientation event');
+    expect(taskQ?.name).toBe('get_event_archive');
+    expect(String(taskQ?.args.committee_name).toLowerCase()).toContain('alumni');
+    expect(String(taskQ?.args.event_query).toLowerCase()).toContain('ace');
+    expect(maybeHeuristicTool('summarise events from last year')?.name).toBe('get_event_archive');
+    expect(maybeHeuristicTool('what work did this committee do')?.name).toBe('get_event_archive');
+    expect(maybeHeuristicTool('show photos from ACE orientation')?.name).toBe('get_event_archive');
+  });
+
   it('does not treat research or idea questions as portal writes', () => {
     expect(maybeHeuristicTool('list upcoming events')?.name).toBe('list_events');
     expect(maybeHeuristicTool('what events do we have')?.name).toBe('list_events');
     expect(maybeHeuristicTool('Give me event ideas for Chemical Engineering week')).toBeNull();
+    expect(maybeHeuristicTool('I have a calculation task on mass transfer')).toBeNull();
     expect(maybeHeuristicTool('Explain McCabe-Thiele step by step')).toBeNull();
     expect(maybeHeuristicTool('Help me research membrane bioreactors')).toBeNull();
     expect(maybeHeuristicTool('How does the election work?')).toBeNull();

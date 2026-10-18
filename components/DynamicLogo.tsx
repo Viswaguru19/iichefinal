@@ -2,12 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { usePortalLogo } from '@/components/dashboard/PortalLogoProvider';
-import { getCurrentLogoClient } from '@/lib/logo-utils-client';
-import { broadcastLogoUpdated, DEFAULT_PORTAL_LOGO, LOGO_CACHE_KEY } from '@/lib/logo-utils';
-
-function isFallbackLogo(url: string) {
-  return url.includes('/icons/iiche-app-icon') || url.endsWith('/logo.svg');
-}
+import { DEFAULT_PORTAL_LOGO } from '@/lib/logo-utils';
 
 interface DynamicLogoProps {
   width?: number;
@@ -23,64 +18,32 @@ export default function DynamicLogo({
   alt = 'IIChE AVVU SC Logo',
 }: DynamicLogoProps) {
   const serverLogo = usePortalLogo();
-  const [logoUrl, setLogoUrl] = useState(() => {
-    if (serverLogo && !isFallbackLogo(serverLogo)) return serverLogo;
-    if (typeof window !== 'undefined' && window.__PORTAL_LOGO__ && !isFallbackLogo(window.__PORTAL_LOGO__)) {
-      return window.__PORTAL_LOGO__;
-    }
-    return serverLogo || DEFAULT_PORTAL_LOGO;
-  });
+  const [logoUrl, setLogoUrl] = useState(serverLogo || DEFAULT_PORTAL_LOGO);
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function refresh() {
-      const url = await getCurrentLogoClient();
-      if (cancelled) return;
-      setLogoUrl(url);
-      if (!isFallbackLogo(url)) {
-        broadcastLogoUpdated(url);
-      }
-    }
-
-    if (serverLogo && !isFallbackLogo(serverLogo)) {
-      setLogoUrl(serverLogo);
-    }
-
-    void refresh();
+    if (serverLogo) setLogoUrl(serverLogo);
 
     const onUpdated = (e: Event) => {
       const detail = (e as CustomEvent<{ url: string }>).detail;
       if (detail?.url) setLogoUrl(detail.url);
     };
     window.addEventListener('portal-logo-updated', onUpdated);
-
-    return () => {
-      cancelled = true;
-      window.removeEventListener('portal-logo-updated', onUpdated);
-    };
+    return () => window.removeEventListener('portal-logo-updated', onUpdated);
   }, [serverLogo]);
 
   return (
     <img
-      src={logoUrl}
+      src={logoUrl || DEFAULT_PORTAL_LOGO}
       alt={alt}
       width={width}
       height={height}
       className={`object-contain ${className}`}
       decoding="async"
-      fetchPriority="high"
-      onError={() => {
-        void (async () => {
-          // Stale cache may point at a deleted file — refetch from DB once
-          try {
-            localStorage.removeItem(LOGO_CACHE_KEY);
-          } catch {
-            // ignore
-          }
-          const fresh = await getCurrentLogoClient();
-          setLogoUrl((prev) => (fresh !== prev ? fresh : DEFAULT_PORTAL_LOGO));
-        })();
+      onError={(e) => {
+        const img = e.currentTarget;
+        if (img.src.includes(DEFAULT_PORTAL_LOGO)) return;
+        img.src = DEFAULT_PORTAL_LOGO;
+        setLogoUrl(DEFAULT_PORTAL_LOGO);
       }}
     />
   );

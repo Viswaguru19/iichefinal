@@ -10,6 +10,7 @@ import {
 } from '@/lib/proposal-workflow-rules';
 import { composeIichePoster, resolvePosterTheme } from '@/lib/iiche-ai-poster';
 import { formatPortalDate, formatPortalDateTime } from '@/lib/portal-date';
+import { parseBulkParticipantLines } from '@/lib/event-participant-groups';
 
 export type IicheAiToolCtx = {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -22,6 +23,11 @@ export type IicheAiToolCtx = {
   origin: string;
   cookie?: string;
   posterDraft?: { path?: string; eventId: string; title?: string; dataUrl?: string } | null;
+  participantDraft?: {
+    eventId: string;
+    eventTitle?: string;
+    rows: Array<{ name: string; email: string; group?: string }>;
+  } | null;
 };
 
 export const IICHE_AI_TOOL_DECLARATIONS = [
@@ -191,12 +197,47 @@ export const IICHE_AI_TOOL_DECLARATIONS = [
   {
     name: 'list_events',
     description:
-      'List real chapter events (title, date, venue, status). Use when they ask what events exist, upcoming events, or details of a named event. Do not invent events.',
+      'List real chapter events (title, date, venue, status). Use only for a short calendar. For tasks, reports, photos, committee work, or a recap of a named event, use get_event_archive instead.',
     parameters: {
       type: 'object',
       properties: {
         query: { type: 'string', description: 'Optional title fragment to search. Empty lists the latest events.' },
       },
+    },
+  },
+  {
+    name: 'get_event_archive',
+    description:
+      'Load the full portal record for events: description, assigned tasks (committee, status, description, updates, files), photos, and the event report. Use for “what task was given to Alumni in ACE Orientation”, “what work did this committee do”, “summarise events”, photos, or reports — including past/completed events.',
+    parameters: {
+      type: 'object',
+      properties: {
+        event_query: {
+          type: 'string',
+          description: 'Event title fragment, e.g. ACE Orientation. Empty loads recent events for a recap.',
+        },
+        committee_name: {
+          type: 'string',
+          description: 'Optional committee filter, e.g. Alumni, Program, PR. Use "this" for the signed-in member’s committee.',
+        },
+      },
+    },
+  },
+  {
+    name: 'add_event_participants',
+    description:
+      'Add students as event participants from pasted names, CSV, or Excel text. If group_name is missing, ask for it and do not insert. After they give a group (e.g. 1st years), insert everyone under that group. They then appear on the event Participants tab.',
+    parameters: {
+      type: 'object',
+      properties: {
+        event_title: { type: 'string', description: 'Event title fragment, e.g. ACE Orientation' },
+        group_name: { type: 'string', description: 'Participant group label. Required before insert.' },
+        participants_text: {
+          type: 'string',
+          description: 'Roster: one name per line, or Name,Email, or Excel/CSV paste including a header row.',
+        },
+      },
+      required: ['event_title'],
     },
   },
 ];
@@ -339,6 +380,413 @@ export async function listEvents(ctx: IicheAiToolCtx, query: string): Promise<st
   }
   lines.push('', 'Open /dashboard/proposals for approvals or /dashboard to see the calendar.');
   return lines.join('\n');
+}
+
+function committeeNameOf(row: { name?: string } | { name?: string }[] | null | undefined): string {
+  if (!row) return '';
+  if (Array.isArray(row)) return String(row[0]?.name || '').trim();
+  return String(row.name || '').trim();
+}
+
+function committeeMatches(committeeName: string, query: string): boolean {
+  const n = committeeName.toLowerCase();
+  const q = query.trim().toLowerCase().replace(/\bcommitte?e?s?\b/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!q) return true;
+  if (n.includes(q) || q.includes(n)) return true;
+  const aliases: [RegExp, RegExp][] = [
+    [/\balumni\b/, /alumni/],
+    [/\bpr\b/, /\bpr\b/],
+    [/\bhr\b|social/, /social and environmental/],
+    [/\bgraphic/, /graphic/],
+    [/\beditorial\b/, /editorial/],
+    [/\bpublicity\b/, /publicity/],
+    [/\bprogram\b/, /program/],
+    [/\btechnical\b/, /technical/],
+  ];
+  return aliases.some(([ask, have]) => ask.test(q) && have.test(n));
+}
+
+function publicStorageUrl(bucket: string, path: string): string {
+  if (!path) return '';
+  if (/^https?:\/\//i.test(path)) return path;
+  const base = (process.env.NEXT_PUBLIC_SUPABASE_URL || '').replace(/\/$/, '');
+  return base ? `${base}/storage/v1/object/public/${bucket}/${path}` : path;
+}
+
+function clipText(value: unknown, max = 900): string {
+  const s = String(value || '').trim();
+  if (!s) return '';
+  return s.length > max ? `${s.slice(0, max)}…` : s;
+}
+
+function reportPlain(row: { report_content?: unknown; additional_notes?: string; additional_details?: string } | null): string {
+  if (!row) return '';
+  const notes = String(row.additional_notes || row.additional_details || '').trim();
+  let body = '';
+  const raw = row.report_content;
+  if (typeof raw === 'string' && raw.trim()) {
+    try {
+      const parsed = JSON.parse(raw);
+      body = typeof parsed === 'string' ? parsed : JSON.stringify(parsed, null, 2);
+    } catch {
+      body = raw;
+    }
+  } else if (raw && typeof raw === 'object') {
+    body = JSON.stringify(raw, null, 2);
+  }
+  return [notes, clipText(body, 1200)].filter(Boolean).join('\n\n');
+}
+
+export async function getEventArchive(
+  ctx: IicheAiToolCtx,
+  eventQuery: string,
+  committeeName: string,
+): Promise<string> {
+  const db = ctx.directory || ctx.supabase;
+  const q = eventQuery.trim();
+  let committeeFilter = committeeName.trim();
+  if (isThisCommitteeQuery(committeeFilter)) {
+    const { data: mine } = await db
+      .from('committee_members')
+      .select('committees(name)')
+      .eq('user_id', ctx.userId);
+    committeeFilter = committeeNameOf((mine || [])[0]?.committees) || committeeFilter;
+  }
+
+  let req = db
+    .from('events')
+    .select('id, title, description, event_date, location, status, guest_name, committees(name)')
+    .order('event_date', { ascending: false })
+    .limit(q ? 6 : 12);
+  if (q) req = req.ilike('title', `%${q}%`);
+  let { data, error } = await req;
+  if (error) return `Could not load events: ${error.message}`;
+  let events = (data || []) as {
+    id: string;
+    title?: string;
+    description?: string;
+    event_date?: string;
+    location?: string;
+    status?: string;
+    guest_name?: string;
+    committees?: { name?: string } | { name?: string }[];
+  }[];
+
+  if (q && !events.length) {
+    const fallback = await db
+      .from('events')
+      .select('id, title, description, event_date, location, status, guest_name, committees(name)')
+      .order('created_at', { ascending: false })
+      .limit(40);
+    const needle = q.toLowerCase();
+    events = ((fallback.data || []) as typeof events).filter((ev) =>
+      String(ev.title || '').toLowerCase().includes(needle),
+    );
+  }
+
+  if (!events.length) {
+    return q
+      ? `No event matched "${q}". Try a shorter title fragment, or open /dashboard.`
+      : 'There are no events on record yet.';
+  }
+
+  const eventIds = events.map((e) => e.id);
+  const { data: taskRows } = await db
+    .from('task_assignments')
+    .select(
+      'id, event_id, title, description, status, progress, deadline, completed_at, assigned_committee:assigned_to_committee(name)',
+    )
+    .in('event_id', eventIds)
+    .order('created_at', { ascending: true });
+
+  const tasks = (taskRows || []) as {
+    id: string;
+    event_id: string;
+    title?: string;
+    description?: string;
+    status?: string;
+    progress?: number;
+    deadline?: string;
+    completed_at?: string;
+    assigned_committee?: { name?: string } | { name?: string }[];
+  }[];
+  const taskIds = tasks.map((t) => t.id);
+
+  const [{ data: updateRows }, { data: docRows }, { data: photoRows }, { data: reportRows }] = await Promise.all([
+    taskIds.length
+      ? db
+          .from('task_updates')
+          .select('task_id, update_text, progress, created_at')
+          .in('task_id', taskIds)
+          .order('created_at', { ascending: true })
+      : Promise.resolve({ data: [] as any[] }),
+    taskIds.length
+      ? db.from('task_documents').select('task_id, file_name, file_url').in('task_id', taskIds)
+      : Promise.resolve({ data: [] as any[] }),
+    db.from('event_photos').select('event_id, photo_url, caption, created_at').in('event_id', eventIds).order('created_at', { ascending: false }),
+    db
+      .from('event_reports')
+      .select('event_id, report_content, additional_notes, additional_details, created_at')
+      .in('event_id', eventIds)
+      .order('created_at', { ascending: false }),
+  ]);
+
+  const updatesByTask = new Map<string, any[]>();
+  (updateRows || []).forEach((u: any) => {
+    const list = updatesByTask.get(u.task_id) || [];
+    list.push(u);
+    updatesByTask.set(u.task_id, list);
+  });
+  const docsByTask = new Map<string, any[]>();
+  (docRows || []).forEach((d: any) => {
+    const list = docsByTask.get(d.task_id) || [];
+    list.push(d);
+    docsByTask.set(d.task_id, list);
+  });
+  const photosByEvent = new Map<string, any[]>();
+  (photoRows || []).forEach((p: any) => {
+    const list = photosByEvent.get(p.event_id) || [];
+    list.push(p);
+    photosByEvent.set(p.event_id, list);
+  });
+  const reportByEvent = new Map<string, any>();
+  (reportRows || []).forEach((r: any) => {
+    if (!reportByEvent.has(r.event_id)) reportByEvent.set(r.event_id, r);
+  });
+
+  const detailed = events.length === 1 || !!q;
+  const blocks: string[] = [];
+  if (committeeFilter) {
+    blocks.push(`Filtered to work matching **${committeeFilter}**. Other committees are listed after that.`);
+    blocks.push('');
+  }
+
+  for (const event of events) {
+    const proposing = committeeNameOf(event.committees) || '—';
+    const eventTasks = tasks.filter((t) => t.event_id === event.id);
+    const focused = committeeFilter
+      ? eventTasks.filter((t) => committeeMatches(committeeNameOf(t.assigned_committee), committeeFilter))
+      : eventTasks;
+    const rest = committeeFilter ? eventTasks.filter((t) => !focused.includes(t)) : [];
+    const photos = photosByEvent.get(event.id) || [];
+    const report = reportByEvent.get(event.id);
+    const dateLabel = event.event_date ? formatPortalDate(event.event_date) : 'TBA';
+
+    const lines = [
+      `## ${event.title || 'Untitled event'}`,
+      '',
+      '| Field | Detail |',
+      '| --- | --- |',
+      `| Date | ${dateLabel} |`,
+      `| Venue | ${event.location || 'TBA'} |`,
+      `| Status | ${(event.status || '—').replace(/_/g, ' ')} |`,
+      `| Proposing committee | ${proposing} |`,
+      event.guest_name ? `| Guest | ${event.guest_name} |` : null,
+      `| Tasks | ${eventTasks.length} |`,
+      `| Photos | ${photos.length} |`,
+      `| Report | ${report ? 'on file' : 'none yet'} |`,
+      '',
+    ].filter((row) => row != null) as string[];
+
+    if (event.description) {
+      lines.push(clipText(event.description, 500), '');
+    }
+
+    const renderTasks = (list: typeof eventTasks, heading: string) => {
+      if (!list.length) {
+        lines.push(`### ${heading}`, '', '_No tasks in this group._', '');
+        return;
+      }
+      lines.push(`### ${heading}`, '');
+      for (const task of list) {
+        const who = committeeNameOf(task.assigned_committee) || 'Unassigned';
+        const status = (task.status || '—').replace(/_/g, ' ');
+        const pct = typeof task.progress === 'number' ? `${task.progress}%` : '—';
+        lines.push(`- **${task.title || 'Untitled task'}** — ${who} · ${status} · ${pct}`);
+        if (detailed && task.description) lines.push(`  - ${clipText(task.description, 280)}`);
+        if (detailed && task.deadline) lines.push(`  - Deadline: ${formatPortalDate(task.deadline)}`);
+        if (detailed && task.completed_at) lines.push(`  - Completed: ${formatPortalDate(task.completed_at)}`);
+        const ups = updatesByTask.get(task.id) || [];
+        if (detailed && ups.length) {
+          ups.slice(-8).forEach((u: any, i: number) => {
+            const text = clipText(u.update_text, 220);
+            if (text) lines.push(`  - Update ${i + 1}: ${text}`);
+          });
+        } else if (detailed) {
+          lines.push('  - No written updates yet.');
+        }
+        const docs = docsByTask.get(task.id) || [];
+        docs.forEach((d: any) => {
+          const href = publicStorageUrl('event-documents', String(d.file_url || ''));
+          lines.push(`  - File: ${d.file_name || 'document'}${href ? ` (${href})` : ''}`);
+        });
+      }
+      lines.push('');
+    };
+
+    if (committeeFilter) {
+      renderTasks(focused, `Tasks for ${committeeFilter}`);
+      if (rest.length) renderTasks(rest, 'Other committees');
+    } else {
+      renderTasks(eventTasks, 'Assigned tasks');
+    }
+
+    if (photos.length) {
+      lines.push('### Photos', '');
+      photos.slice(0, detailed ? 12 : 4).forEach((p: any) => {
+        const href = publicStorageUrl('event-photos', String(p.photo_url || ''));
+        lines.push(`- ${p.caption || 'Photo'}${href ? ` — ${href}` : ''}`);
+      });
+      lines.push('');
+    }
+
+    if (report) {
+      lines.push('### Event report', '', clipText(reportPlain(report), detailed ? 1400 : 400), '');
+    } else if (detailed) {
+      lines.push('### Event report', '', '_No report saved yet._', '');
+    }
+
+    lines.push(`Open /dashboard/event-detail/${event.id}`);
+    blocks.push(lines.join('\n'));
+  }
+
+  return blocks.join('\n\n---\n\n');
+}
+
+function encodeParticipantDraft(draft: NonNullable<IicheAiToolCtx['participantDraft']>): string {
+  const b64 = Buffer.from(JSON.stringify(draft), 'utf8').toString('base64url');
+  return `PARTICIPANT_DRAFT:${b64};;`;
+}
+
+async function findEventForParticipants(ctx: IicheAiToolCtx, query: string) {
+  const db = ctx.directory || ctx.supabase;
+  const q = query.trim();
+  const vague = !q || /^(this|the|current)?\s*events?$/i.test(q);
+  if (!vague) {
+    const { data, error } = await db
+      .from('events')
+      .select('id, title, status')
+      .ilike('title', `%${q}%`)
+      .order('created_at', { ascending: false })
+      .limit(6);
+    if (error) throw new Error(error.message);
+    return (data || []) as { id: string; title: string; status?: string }[];
+  }
+  const { data, error } = await db
+    .from('events')
+    .select('id, title, status')
+    .in('status', ['active', 'in_progress', 'faculty_approved'])
+    .order('created_at', { ascending: false })
+    .limit(8);
+  if (error) throw new Error(error.message);
+  return (data || []) as { id: string; title: string; status?: string }[];
+}
+
+export async function addEventParticipants(ctx: IicheAiToolCtx, args: Record<string, unknown>): Promise<string> {
+  const groupName = str(args.group_name) || str(args.group);
+  const eventTitle = str(args.event_title) || str(args.event_query) || ctx.participantDraft?.eventTitle || '';
+  const rosterText = str(args.participants_text) || str(args.roster) || str(args.students);
+  const rosterLines = rosterText.split(/\r?\n/);
+  const firstData = rosterLines.findIndex((line, i) => {
+    const t = line.trim();
+    if (!t) return false;
+    if (i === 0 && /\b(add|import|enroll|attached)\b/i.test(t) && rosterLines.length > 1) return false;
+    return true;
+  });
+  const parsed = parseBulkParticipantLines(
+    (firstData >= 0 ? rosterLines.slice(firstData) : rosterLines).join('\n'),
+    groupName,
+  );
+  const draftRows = ctx.participantDraft?.rows || [];
+  const rows = parsed.length ? parsed : draftRows.map((r) => ({ name: r.name, email: r.email || '', group: groupName || r.group || '' }));
+
+  let events: { id: string; title: string; status?: string }[] = [];
+  try {
+    events = await findEventForParticipants(ctx, eventTitle || ctx.participantDraft?.eventTitle || '');
+  } catch (e) {
+    return `Could not load events: ${e instanceof Error ? e.message : 'unknown error'}`;
+  }
+
+  if (ctx.participantDraft?.eventId && !eventTitle) {
+    events = events.filter((e) => e.id === ctx.participantDraft?.eventId);
+    if (!events.length) {
+      events = [{ id: ctx.participantDraft.eventId, title: ctx.participantDraft.eventTitle || 'Event' }];
+    }
+  }
+
+  if (!events.length) {
+    return eventTitle
+      ? `No event matched "${eventTitle}". Name the event the way it appears on the dashboard.`
+      : 'Which event should these students join? Reply with the event title, the group name, and the list.';
+  }
+  if (events.length > 1 && eventTitle) {
+    const exact = events.filter((e) => e.title.toLowerCase() === eventTitle.toLowerCase());
+    if (exact.length === 1) events = exact;
+  }
+  if (events.length > 1 && !ctx.participantDraft?.eventId) {
+    return [
+      'Several events matched. Reply with the exact title, then the group name:',
+      '',
+      ...events.map((e) => `- **${e.title}**`),
+    ].join('\n');
+  }
+
+  const event = events[0];
+  if (!rows.length) {
+    return 'I need the student list (one name per line, or Name, Email). You can paste from Excel or attach a CSV / Excel file.';
+  }
+
+  if (!groupName) {
+    const preview = rows
+      .map((r, i) => `${i + 1}. ${r.name}${r.email ? ` (${r.email})` : ''}`)
+      .join('\n');
+    return [
+      encodeParticipantDraft({
+        eventId: event.id,
+        eventTitle: event.title,
+        rows: rows.map((r) => ({ name: r.name, email: r.email })),
+      }),
+      `**${rows.length} name${rows.length === 1 ? '' : 's'} given** for **${event.title}**.`,
+      '',
+      preview,
+      '',
+      'What **group name** should I put them under? Reply with only the group (for example **1st years** or **Volunteers**). They will show on the Participants tab under that heading.',
+    ].join('\n');
+  }
+
+  await ctx.supabase.from('event_participant_groups').insert({
+    event_id: event.id,
+    name: groupName,
+  });
+
+  const payload = rows.map((r) => ({
+    name: r.name,
+    email: r.email || '',
+    group: groupName,
+  }));
+  const { data, error } = await ctx.supabase.rpc('bulk_import_event_participants', {
+    p_event_id: event.id,
+    p_rows: payload,
+  });
+  if (error) {
+    return `Could not add participants: ${error.message}`;
+  }
+  const result = (data || {}) as { inserted?: number; skipped?: number };
+  const given = rows.length;
+  const inserted = result.inserted ?? given;
+  const shown = rows.map((r, i) => `${i + 1}. ${r.name}${r.email ? ` (${r.email})` : ''}`).join('\n');
+  return [
+    'PARTICIPANT_DRAFT:clear;;',
+    `NAVIGATE:/dashboard/event-detail/${event.id}?tab=participants`,
+    `**${given} name${given === 1 ? '' : 's'} given · ${inserted} participant${inserted === 1 ? '' : 's'} added** to **${event.title}** under **${groupName}**.`,
+    result.skipped ? `Skipped ${result.skipped} row(s).` : '',
+    '',
+    shown,
+    '',
+    `Open the Participants tab to see all ${inserted} under **${groupName}**.`,
+  ]
+    .filter((line) => line != null)
+    .join('\n');
 }
 
 export async function getMyIdentity(ctx: IicheAiToolCtx): Promise<string> {
@@ -1040,9 +1488,33 @@ export async function runIicheAiTool(ctx: IicheAiToolCtx, name: string, args: Re
       return createMinutes(ctx, args);
     case 'list_events':
       return listEvents(ctx, str(args.query));
+    case 'get_event_archive':
+      return getEventArchive(ctx, str(args.event_query) || str(args.query), str(args.committee_name));
+    case 'add_event_participants':
+      return addEventParticipants(ctx, args);
     default:
       return `Unknown tool ${name}`;
   }
+}
+
+export function extractStandaloneGroupName(message: string): string | null {
+  const m = message.trim().replace(/[?.!]+$/g, '');
+  if (!m || m.length > 80 || /\n/.test(m)) return null;
+  if (/^(hi|hey|hello|thanks|thank you|ok|okay|yes|no|please)$/i.test(m)) return null;
+  if (
+    /\b(who|what|how|why|when|where|task|events?|election|poster|form|meeting|explain|summar|research|help|give|list|ideas|show|photos?)\b/i.test(
+      m,
+    ) &&
+    !/\bgroup\b/i.test(m)
+  ) {
+    return null;
+  }
+  const named = m.match(
+    /^(?:group(?:\s+name)?(?:\s+is)?|put them (?:in|under)|under|call (?:them|it)|name (?:the )?group)\s*[:\-]?\s*(.+)$/i,
+  );
+  if (named?.[1]) return named[1].replace(/^["']|["']$/g, '').trim();
+  if (/^[a-z0-9][a-z0-9 .'\-/&]{0,50}$/i.test(m) && m.split(/\s+/).length <= 6) return m;
+  return null;
 }
 
 export function maybeHeuristicTool(message: string): { name: string; args: Record<string, unknown> } | null {
@@ -1146,6 +1618,68 @@ export function maybeHeuristicTool(message: string): { name: string; args: Recor
   }
   if (wantsCreate && !askingHow && /\b(mom|minutes|minutes of meeting)\b/.test(lower)) {
     return { name: 'create_minutes', args: { title: 'Minutes of meeting', minutes: m } };
+  }
+  if (
+    !askingHow &&
+    /\b(add|import|enroll)\b/.test(lower) &&
+    /\b(participants?|students?|roster|attendees)\b/.test(lower)
+  ) {
+    const groupHit = m.match(
+      /\b(?:group(?:\s+name)?|under|in group)\s*[:\-]?\s*["']?([^,"\n]+)["']?/i,
+    );
+    const firstLine = m.split(/\r?\n/)[0];
+    const eventHit = firstLine.match(/\b(?:of|to|for)\s+(?:the\s+)?(.+?)(?:\s+event)?$/i);
+    let eventTitle = (eventHit?.[1] || '')
+      .replace(/\b(these|those|the|students|participants|as)\b/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (/^this$/i.test(eventTitle)) eventTitle = 'this event';
+    return {
+      name: 'add_event_participants',
+      args: {
+        event_title: eventTitle,
+        group_name: (groupHit?.[1] || '').trim(),
+        participants_text: m,
+      },
+    };
+  }
+  const groupOnly = extractStandaloneGroupName(m);
+  if (groupOnly) {
+    return { name: 'add_event_participants', args: { group_name: groupOnly, event_title: '' } };
+  }
+  const mentionsPortalEvent =
+    /\bevents?\b/.test(lower) ||
+    /\bcommitte/.test(lower) ||
+    /\borientation\b/.test(lower) ||
+    /\bace\b/.test(lower);
+  const wantsArchive =
+    !wantsCreate &&
+    !wantsOpen &&
+    mentionsPortalEvent &&
+    /\b(task|tasks|assigned|assignment|updates?|photos?|report|recap|summar[iy]s|what work|work did|given to|archive|last year|what happened)\b/.test(
+      lower,
+    );
+  if (wantsArchive) {
+    let committee = '';
+    const comm = lower.match(
+      /\b(alumni(?:\s+and\s+industry(?:\s+connect)?)?|editorial|graphics|publicity|program|technical|pr|hr|social(?:\s+and\s+environmental)?)\b(?:\s+committe?e?)?/,
+    );
+    if (comm) committee = comm[1];
+    else if (/\b(this|my|our)\s+committe?e?\b/.test(lower)) committee = 'this';
+    let eventQuery = '';
+    const inEvent = m.match(
+      /\b(?:in|for|at|about|from)\s+(?:the\s+)?(.+?)(?:\s+event)?[?.!]*$/i,
+    );
+    if (inEvent) {
+      eventQuery = inEvent[1]
+        .replace(/\b(the|event|committee|report|photos?|tasks?)\b/gi, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+    if (committee && eventQuery.toLowerCase().includes(committee.toLowerCase())) {
+      eventQuery = eventQuery.replace(new RegExp(committee, 'ig'), ' ').replace(/\s+/g, ' ').trim();
+    }
+    return { name: 'get_event_archive', args: { event_query: eventQuery, committee_name: committee } };
   }
   return null;
 }

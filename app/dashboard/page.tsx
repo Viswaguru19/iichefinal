@@ -146,13 +146,41 @@ export default async function DashboardPage() {
   );
 
   const eventIds = (eventProposals || []).map((e: any) => e.id);
-  const { data: allTasksForEvents } = eventIds.length > 0
-    ? await supabase
-      .from('task_assignments')
-      .select('id, title, status, completed_at, assigned_to_committee, assigned_committee:assigned_to_committee(name), event_id')
-      .in('event_id', eventIds)
-      .not('status', 'in', '(pending_ec_approval,rejected)')
-    : { data: [] as any[] };
+  const approverIds = [...new Set(
+    (eventProposals || []).flatMap((e: any) => [
+      e.head_approved_by,
+      e.second_head_approved_by,
+      e.faculty_approved_by,
+    ]).filter(Boolean),
+  )];
+
+  const [tasksRes, approversRes, ecApprovalsRes] = await Promise.all([
+    eventIds.length > 0
+      ? supabase
+          .from('task_assignments')
+          .select('id, title, status, completed_at, assigned_to_committee, assigned_committee:assigned_to_committee(name), event_id')
+          .in('event_id', eventIds)
+          .not('status', 'in', '(pending_ec_approval,rejected)')
+      : Promise.resolve({ data: [] as any[] }),
+    approverIds.length > 0
+      ? supabase.from('profiles').select('id, name').in('id', approverIds)
+      : Promise.resolve({ data: [] as any[] }),
+    eventIds.length > 0
+      ? supabase
+          .from('ec_approvals')
+          .select('event_id, user_id, approved, approved_at, profiles(name)')
+          .in('event_id', eventIds)
+          .eq('approved', true)
+      : Promise.resolve({ data: [] as any[] }),
+  ]);
+
+  const allTasksForEvents = tasksRes.data;
+  const approverById = Object.fromEntries((approversRes.data || []).map((p: any) => [p.id, p]));
+  const ecByEvent = (ecApprovalsRes.data || []).reduce((acc: Record<string, any[]>, row: any) => {
+    if (!acc[row.event_id]) acc[row.event_id] = [];
+    acc[row.event_id].push(row);
+    return acc;
+  }, {});
 
   const tasksByEvent = (allTasksForEvents || []).reduce((acc: Record<string, any[]>, task: any) => {
     if (!acc[task.event_id]) acc[task.event_id] = [];
@@ -162,6 +190,10 @@ export default async function DashboardPage() {
 
   const eventsWithTasks = (eventProposals || []).map((event: any) => ({
     ...event,
+    head_approver: approverById[event.head_approved_by] || null,
+    second_head_approver: approverById[event.second_head_approved_by] || null,
+    faculty_approver: approverById[event.faculty_approved_by] || null,
+    ec_approvals: ecByEvent[event.id] || [],
     tasks: tasksByEvent[event.id] || [],
   }));
 

@@ -17,8 +17,10 @@ You handle three kinds of requests:
 2. Live portal facts
    - Who am I / my name / my role / my committees → get_my_identity (answer in chat; do not only open Profile).
    - Who is head / co-head of a committee → get_committee_officers.
-   - What events exist / a named event → list_events.
-   - Never invent a member's name, role, officers, or events.
+   - What events exist (titles only) → list_events.
+   - A named event, tasks assigned to a committee, “what work did X do”, event report, photos, recap, or summarise events (including from a year ago) → get_event_archive. Always call it before answering; never say there were no tasks without that data.
+   - Add students as participants from pasted names, CSV, or Excel → add_event_participants. Ask for the group name first if it is missing, then insert. Do not invent names.
+   - Never invent a member's name, role, officers, events, tasks, reports, or photos. Quote the archive.
 
 3. Portal actions and navigation
    - You ARE allowed to open pages. Never say you cannot navigate or ask them to hunt for a tab.
@@ -428,15 +430,22 @@ export function splitPortalNavigate(
   navigate?: string;
   posterUrl?: string;
   posterDraft?: { path: string; eventId: string; title: string; dataUrl?: string };
+  participantDraft?: {
+    eventId: string;
+    eventTitle?: string;
+    rows: Array<{ name: string; email: string }>;
+  } | null;
 } {
   const raw = String(reply || '');
   const tagged = raw.match(/NAVIGATE:(\/dashboard\/[^\s]+)/);
   const poster = raw.match(/POSTER:(\S+)/);
   const draft = raw.match(/DRAFT:([^\s|]+)\|([^|\s]+)\|([^;]*);;/);
+  const people = raw.match(/PARTICIPANT_DRAFT:([A-Za-z0-9_-]+);;/);
   const cleaned = raw
     .replace(/NAVIGATE:\S+/g, '')
     .replace(/POSTER:\S+/g, '')
     .replace(/DRAFT:\S+;;?/g, '')
+    .replace(/PARTICIPANT_DRAFT:\S+;;?/g, '')
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
@@ -448,6 +457,33 @@ export function splitPortalNavigate(
     !tagged?.[1] && userMessage && WANTS_NAV.test(userMessage)
       ? cleaned.match(DASHBOARD_PATH)?.[0]
       : undefined;
+  let participantDraft:
+    | {
+        eventId: string;
+        eventTitle?: string;
+        rows: Array<{ name: string; email: string }>;
+      }
+    | null
+    | undefined;
+  if (people?.[1] === 'clear') participantDraft = null;
+  else if (people?.[1]) {
+    try {
+      const parsed = JSON.parse(Buffer.from(people[1], 'base64url').toString('utf8')) as {
+        eventId?: string;
+        eventTitle?: string;
+        rows?: Array<{ name: string; email: string }>;
+      };
+      if (parsed.eventId && Array.isArray(parsed.rows)) {
+        participantDraft = {
+          eventId: parsed.eventId,
+          eventTitle: parsed.eventTitle,
+          rows: parsed.rows,
+        };
+      }
+    } catch {
+      participantDraft = undefined;
+    }
+  }
   return {
     reply: cleaned,
     navigate: (tagged?.[1] || inferred)?.replace(/[).,;]+$/, ''),
@@ -460,6 +496,7 @@ export function splitPortalNavigate(
           dataUrl: posterUrl?.startsWith('data:image/') ? posterUrl : undefined,
         }
       : undefined,
+    participantDraft,
   };
 }
 
@@ -469,6 +506,11 @@ export type IicheAiAnswer = {
   navigate?: string;
   posterUrl?: string;
   posterDraft?: { path: string; eventId: string; title: string; dataUrl?: string };
+  participantDraft?: {
+    eventId: string;
+    eventTitle?: string;
+    rows: Array<{ name: string; email: string }>;
+  } | null;
 };
 
 function withNav(reply: string, provider: string, userMessage?: string): IicheAiAnswer {
@@ -479,6 +521,7 @@ function withNav(reply: string, provider: string, userMessage?: string): IicheAi
     navigate: split.navigate,
     posterUrl: split.posterUrl,
     posterDraft: split.posterDraft,
+    participantDraft: split.participantDraft,
   };
 }
 
@@ -498,6 +541,8 @@ const EAGER_TOOLS = new Set([
   'manage_election',
   'open_portal_page',
   'list_events',
+  'get_event_archive',
+  'add_event_participants',
 ]);
 
 export function shouldRunHeuristicBeforeModel(
