@@ -4,11 +4,13 @@ import { motion } from 'framer-motion';
 import Link from 'next/link';
 import { Sparkles, CheckCircle2, Clock, ArrowRight } from 'lucide-react';
 import EventApprovalTrail, { eventApprovalFlags, type EventApprovalSource } from '@/components/events/EventApprovalTrail';
+import { computeEventOverallProgress } from '@/lib/event-progress';
 
 interface Task {
     id: string;
     title: string;
     status: string;
+    progress?: number | null;
     assigned_committee?: { name: string } | null;
     completed_at?: string | null;
 }
@@ -43,9 +45,9 @@ export default function AnimatedEventProgress({ events }: AnimatedEventProgressP
             {events.map((event, index) => {
                 const steps = eventApprovalFlags(event.status);
                 const tasks = event.tasks || [];
+                const { overall: progress, completed: completedCount, total: totalCount } = computeEventOverallProgress(event, tasks);
                 const completedTasks = tasks.filter(t => t.status === 'completed' || t.completed_at);
-                const allTasksDone = tasks.length > 0 && completedTasks.length === tasks.length;
-                const progress = tasks.length > 0 ? (completedTasks.length / tasks.length) * 100 : 0;
+                const allTasksDone = totalCount > 0 && completedCount === totalCount;
 
                 return (
                     <motion.div
@@ -91,7 +93,7 @@ export default function AnimatedEventProgress({ events }: AnimatedEventProgressP
                                 <div className="border-t border-gray-100/80 pt-4 relative z-10">
                                     <div className="flex items-center justify-between mb-3">
                                         <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">
-                                            Tasks ({completedTasks.length}/{tasks.length})
+                                            Tasks ({completedCount}/{totalCount})
                                         </p>
                                         <ArrowRight className="w-4 h-4 text-gray-300 group-hover:text-indigo-400 transition-colors" />
                                     </div>
@@ -134,7 +136,7 @@ export default function AnimatedEventProgress({ events }: AnimatedEventProgressP
                                                 />
                                             </div>
                                             <p className="mt-1 text-[11px] text-gray-500">
-                                                {completedTasks.length} of {tasks.length} complete
+                                                Overall progress · {completedCount} of {totalCount} tasks
                                             </p>
                                         </div>
                                     </div>

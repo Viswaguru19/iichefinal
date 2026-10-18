@@ -22,6 +22,7 @@ import PortalLoadingScreen from '@/components/PortalLoadingScreen';
 import { insertPortalNotifications } from '@/lib/portal-notifications-client';
 import { formatPortalDate, formatPortalDateTime } from '@/lib/portal-date';
 import { notifyAllPortalUsers } from '@/lib/portal-notify-helpers';
+import { computeEventOverallProgress, eventProgressTasks } from '@/lib/event-progress';
 
 function taskSupportingDocHref(fileUrl: string) {
   const base = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -1079,29 +1080,12 @@ export default function EventDetailPage() {
     </div>;
   }
 
-  // Calculate progress: 30% from approvals + 70% from tasks
-  const approvedTasks = tasks.filter(t => t.status !== 'pending_ec_approval' && t.status !== 'rejected');
-  const completedTasks = approvedTasks.filter(t => t.status === 'completed' || t.completed_at).length;
-  const totalTasks = approvedTasks.length;
-
-  // Approval progress (30% total)
-  const headApproved = !!event.head_approved_by;
-  const ecApproved =
-    event.status !== 'pending_head_approval' &&
-    event.status !== 'pending_second_head_approval' &&
-    event.status !== 'pending_ec_approval' &&
-    event.status !== 'review_by_cohead';
-  const facultyApproved = event.status === 'active' || event.status === 'in_progress' || event.status === 'completed';
-  const approvalProgress = (headApproved ? 10 : 0) + (ecApproved ? 10 : 0) + (facultyApproved ? 10 : 0);
-
-  // Task progress (70% total) — based on individual task progress percentages
-  let taskProgress = 0;
-  if (totalTasks > 0) {
-    const taskProgressSum = approvedTasks.reduce((sum, t) => sum + (t.progress || 0), 0);
-    taskProgress = Math.round((taskProgressSum / (totalTasks * 100)) * 70);
-  }
-
-  const overallProgress = approvalProgress + taskProgress;
+  const approvedTasks = eventProgressTasks(tasks);
+  const {
+    overall: overallProgress,
+    completed: completedTasks,
+    total: totalTasks,
+  } = computeEventOverallProgress(event, tasks);
 
   // Count pending tasks for EC approval
   const pendingECApprovalCount = tasks.filter(t => t.status === 'pending_ec_approval').length;

@@ -158,7 +158,7 @@ export default async function DashboardPage() {
     eventIds.length > 0
       ? supabase
           .from('task_assignments')
-          .select('id, title, status, completed_at, assigned_to_committee, assigned_committee:assigned_to_committee(name), event_id')
+          .select('id, title, status, progress, completed_at, assigned_to_committee, assigned_committee:assigned_to_committee(name), event_id')
           .in('event_id', eventIds)
           .not('status', 'in', '(pending_ec_approval,rejected)')
       : Promise.resolve({ data: [] as any[] }),
