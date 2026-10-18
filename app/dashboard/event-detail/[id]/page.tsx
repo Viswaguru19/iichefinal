@@ -23,6 +23,7 @@ import { insertPortalNotifications } from '@/lib/portal-notifications-client';
 import { formatPortalDate, formatPortalDateTime } from '@/lib/portal-date';
 import { notifyAllPortalUsers } from '@/lib/portal-notify-helpers';
 import { computeEventOverallProgress, eventProgressTasks } from '@/lib/event-progress';
+import WavyEventProgressBar, { buildEventProgressMarks } from '@/components/events/WavyEventProgressBar';
 
 function taskSupportingDocHref(fileUrl: string) {
   const base = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -1086,6 +1087,7 @@ export default function EventDetailPage() {
   const approvedTasks = eventProgressTasks(tasks);
   const {
     overall: overallProgress,
+    approval: approvalProgress,
     completed: completedTasks,
     total: totalTasks,
   } = computeEventOverallProgress(event, tasks);
@@ -1562,16 +1564,17 @@ export default function EventDetailPage() {
 
           <div className="mt-5">
             <div className="flex justify-between items-center mb-2">
-              <span className="text-sm font-medium text-gray-700">Overall progress</span>
+              <span className="text-sm font-medium text-gray-700">Event progress</span>
               <span className="text-sm font-bold text-gray-900">{overallProgress}%</span>
             </div>
-            <div className="h-2.5 overflow-hidden rounded-full bg-slate-100">
-              <div
-                className="h-full rounded-full bg-gradient-to-r from-indigo-500 via-violet-500 to-teal-400 transition-all duration-500"
-                style={{ width: `${overallProgress}%` }}
-              />
-            </div>
-            <p className="text-xs text-gray-500 mt-1.5">{completedTasks}/{totalTasks} tasks done</p>
+            <WavyEventProgressBar
+              percent={overallProgress}
+              marks={buildEventProgressMarks(approvedTasks, approvalProgress)}
+            />
+            <p className="text-xs text-gray-500 mt-1.5">
+              {overallProgress}% event
+              {totalTasks > 0 ? ` · ${completedTasks}/${totalTasks} tasks done` : ''}
+            </p>
           </div>
         </div>
 

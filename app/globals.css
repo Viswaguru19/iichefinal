@@ -892,6 +892,12 @@ html[data-portal-theme='light'] .dashboard-section-title {
   animation: progress-shine 2s linear infinite;
 }
 
+.iiche-event-progress-fill {
+  background: linear-gradient(90deg, #4f46e5, #7c3aed, #db2777, #6366f1, #4f46e5);
+  background-size: 200% 100%;
+  animation: progress-shine 2.4s linear infinite;
+}
+
 /* ========== ANIMATED GRADIENT BORDER ========== */
 @keyframes border-glow {
 
@@ -998,6 +1004,7 @@ html[data-portal-theme='light'] .dashboard-section-title {
   .animate-orb-slow,
   .progress-animated,
   .progress-animated-green,
+  .iiche-event-progress-fill,
   .shimmer {
     animation: none !important;
   }

@@ -4,7 +4,8 @@ import { motion } from 'framer-motion';
 import Link from 'next/link';
 import { Sparkles, CheckCircle2, Clock, ArrowRight } from 'lucide-react';
 import EventApprovalTrail, { eventApprovalFlags, type EventApprovalSource } from '@/components/events/EventApprovalTrail';
-import { computeEventOverallProgress } from '@/lib/event-progress';
+import { computeEventOverallProgress, eventProgressTasks } from '@/lib/event-progress';
+import WavyEventProgressBar, { buildEventProgressMarks } from '@/components/events/WavyEventProgressBar';
 
 interface Task {
     id: string;
@@ -45,7 +46,13 @@ export default function AnimatedEventProgress({ events }: AnimatedEventProgressP
             {events.map((event, index) => {
                 const steps = eventApprovalFlags(event.status);
                 const tasks = event.tasks || [];
-                const { overall: progress, completed: completedCount, total: totalCount } = computeEventOverallProgress(event, tasks);
+                const {
+                    overall: eventProgress,
+                    approval: approvalProgress,
+                    completed: completedCount,
+                    total: totalCount,
+                } = computeEventOverallProgress(event, tasks);
+                const progressMarks = buildEventProgressMarks(eventProgressTasks(tasks), approvalProgress);
                 const completedTasks = tasks.filter(t => t.status === 'completed' || t.completed_at);
                 const allTasksDone = totalCount > 0 && completedCount === totalCount;
 
@@ -93,52 +100,19 @@ export default function AnimatedEventProgress({ events }: AnimatedEventProgressP
                                 <div className="border-t border-gray-100/80 pt-4 relative z-10">
                                     <div className="flex items-center justify-between mb-3">
                                         <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">
-                                            Tasks ({completedCount}/{totalCount})
+                                            Event progress
                                         </p>
                                         <ArrowRight className="w-4 h-4 text-gray-300 group-hover:text-indigo-400 transition-colors" />
                                     </div>
 
-                                    <div className="mb-4 flex items-center gap-3">
-                                        <div className="relative h-12 w-12 shrink-0">
-                                            <svg viewBox="0 0 36 36" className="h-full w-full -rotate-90">
-                                                <circle cx="18" cy="18" r="14" fill="none" stroke="#e2e8f0" strokeWidth="4" />
-                                                <motion.circle
-                                                    cx="18"
-                                                    cy="18"
-                                                    r="14"
-                                                    fill="none"
-                                                    stroke={`url(#dash-task-ring-${event.id})`}
-                                                    strokeWidth="4"
-                                                    strokeLinecap="round"
-                                                    strokeDasharray={2 * Math.PI * 14}
-                                                    initial={{ strokeDashoffset: 2 * Math.PI * 14 }}
-                                                    animate={{ strokeDashoffset: 2 * Math.PI * 14 * (1 - progress / 100) }}
-                                                    transition={{ duration: 1, delay: index * 0.08 + 0.35, ease: [0.22, 1, 0.36, 1] }}
-                                                />
-                                                <defs>
-                                                    <linearGradient id={`dash-task-ring-${event.id}`} x1="0%" y1="0%" x2="100%" y2="100%">
-                                                        <stop offset="0%" stopColor="#6366f1" />
-                                                        <stop offset="100%" stopColor="#14b8a6" />
-                                                    </linearGradient>
-                                                </defs>
-                                            </svg>
-                                            <span className="absolute inset-0 flex items-center justify-center text-[10px] font-bold text-gray-800">
-                                                {Math.round(progress)}%
-                                            </span>
+                                    <div className="mb-4">
+                                        <div className="mb-2 flex items-center justify-between">
+                                            <span className="text-sm font-bold text-gray-900">{eventProgress}%</span>
                                         </div>
-                                        <div className="min-w-0 flex-1">
-                                            <div className="h-2.5 overflow-hidden rounded-full bg-slate-100">
-                                                <motion.div
-                                                    initial={{ width: 0 }}
-                                                    animate={{ width: `${progress}%` }}
-                                                    transition={{ duration: 1, delay: index * 0.08 + 0.35, ease: [0.22, 1, 0.36, 1] }}
-                                                    className="h-full rounded-full bg-gradient-to-r from-indigo-500 via-violet-500 to-teal-400"
-                                                />
-                                            </div>
-                                            <p className="mt-1 text-[11px] text-gray-500">
-                                                Overall progress · {completedCount} of {totalCount} tasks
-                                            </p>
-                                        </div>
+                                        <WavyEventProgressBar percent={eventProgress} marks={progressMarks} />
+                                        <p className="mt-1.5 text-[11px] text-gray-500">
+                                            {completedCount}/{totalCount} tasks done
+                                        </p>
                                     </div>
 
                                     <div className="space-y-2">

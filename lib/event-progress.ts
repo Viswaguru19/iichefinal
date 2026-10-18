@@ -1,4 +1,6 @@
 export type EventProgressTask = {
+  id?: string;
+  title?: string | null;
   status?: string | null;
   completed_at?: string | null;
   progress?: number | null;
@@ -23,7 +25,14 @@ export function eventProgressTasks<T extends EventProgressTask>(tasks: T[] = [])
 export function computeEventOverallProgress(
   event: EventProgressSource,
   tasks: EventProgressTask[] = [],
-): { overall: number; approval: number; taskShare: number; completed: number; total: number } {
+): {
+  overall: number;
+  approval: number;
+  taskShare: number;
+  taskPercent: number;
+  completed: number;
+  total: number;
+} {
   const approvedTasks = eventProgressTasks(tasks);
   const completed = approvedTasks.filter(
     (t) => t.status === 'completed' || !!t.completed_at,
@@ -43,16 +52,19 @@ export function computeEventOverallProgress(
   const approval =
     (headApproved ? 10 : 0) + (ecApproved ? 10 : 0) + (facultyApproved ? 10 : 0);
 
+  let taskPercent = 0;
   let taskShare = 0;
   if (total > 0) {
     const taskProgressSum = approvedTasks.reduce((sum, t) => sum + (t.progress || 0), 0);
-    taskShare = Math.round((taskProgressSum / (total * 100)) * 70);
+    taskPercent = Math.round(taskProgressSum / total);
+    taskShare = Math.round((taskPercent / 100) * 70);
   }
 
   return {
     overall: approval + taskShare,
     approval,
     taskShare,
+    taskPercent,
     completed,
     total,
   };
