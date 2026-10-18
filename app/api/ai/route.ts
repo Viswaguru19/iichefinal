@@ -11,6 +11,17 @@ async function textFromAttachment(att: { filename?: string; mime?: string; data?
   if (!data) return '';
   const buf = Buffer.from(data, 'base64');
   const name = `${att.filename || ''} ${att.mime || ''}`.toLowerCase();
+  if (/\.pdf|application\/pdf/.test(name)) {
+    try {
+      const { extractText, getDocumentProxy } = await import('unpdf');
+      const pdf = await getDocumentProxy(new Uint8Array(buf));
+      const extracted = await extractText(pdf, { mergePages: true });
+      const text = Array.isArray(extracted.text) ? extracted.text.join('\n') : extracted.text;
+      return String(text || '').trim();
+    } catch {
+      return '';
+    }
+  }
   if (/\.xlsx|\.xls|spreadsheet|excel/.test(name)) {
     try {
       const XLSX = await import('xlsx');
@@ -31,7 +42,7 @@ function trimHistory(raw: unknown): IicheAiMessage[] {
     const role = row?.role === 'assistant' ? 'assistant' : row?.role === 'user' ? 'user' : null;
     const content = String(row?.content || '').trim();
     if (!role || !content) continue;
-    out.push({ role, content: content.slice(0, 8000) });
+    out.push({ role, content: content.slice(0, 20000) });
   }
   return out;
 }
@@ -49,8 +60,11 @@ export async function POST(request: NextRequest) {
     const attachment = body?.attachment as { filename?: string; mime?: string; data?: string } | undefined;
     if (attachment?.data) {
       const extracted = await textFromAttachment(attachment);
+      const isPdf = /\.pdf|application\/pdf/i.test(`${attachment.filename || ''} ${attachment.mime || ''}`);
       if (extracted.trim()) {
         message = `${message}\n\nAttached ${attachment.filename || 'file'}:\n${extracted.trim()}`.slice(0, 20000);
+      } else if (isPdf) {
+        message = `${message}\n\nAttached ${attachment.filename || 'file'} but no text could be read. If it is a scanned PDF, paste the names or export a CSV.`.slice(0, 20000);
       }
     }
     if (!message) {
@@ -98,6 +112,7 @@ export async function POST(request: NextRequest) {
               rows: peopleDraft.rows.map((r) => ({ name: String(r.name || ''), email: String(r.email || '') })),
             }
           : null,
+      history,
     };
 
     const { reply, provider, navigate, posterDraft: nextDraft, posterUrl, participantDraft } = await answerIicheAi(

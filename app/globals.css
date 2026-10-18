@@ -557,6 +557,10 @@ html[data-portal-theme='dark'] .premium-card select option {
   background: #ffffff;
   border: 1px solid #e2e8f0;
   color: #0f172a;
+  resize: none;
+  min-height: 42px;
+  max-height: 280px;
+  line-height: 1.4;
 }
 .iiche-ai-input::placeholder { color: #94a3b8; }
 

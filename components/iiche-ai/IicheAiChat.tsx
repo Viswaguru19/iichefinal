@@ -184,7 +184,15 @@ export default function IicheAiChat({ compact = false }: { compact?: boolean }) 
   } | null>(null);
   const [attachment, setAttachment] = useState<{ filename: string; mime: string; data: string } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const draftRef = useRef<HTMLTextAreaElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = draftRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 280)}px`;
+  }, [draft]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -206,7 +214,7 @@ export default function IicheAiChat({ compact = false }: { compact?: boolean }) 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: message || `Add these students as participants of this event from ${file?.filename || 'the file'}`,
-          history: nextTurns.slice(-10).map((t) => ({ role: t.role, content: t.content.slice(0, 4000) })),
+          history: nextTurns.slice(-10).map((t) => ({ role: t.role, content: t.content.slice(0, 20000) })),
           attachment: file,
           participantDraft,
           posterDraft: posterDraft
@@ -320,7 +328,7 @@ export default function IicheAiChat({ compact = false }: { compact?: boolean }) 
       )}
 
       <form
-        className="mt-2 flex gap-2"
+        className="mt-2 flex items-end gap-2"
         onSubmit={(e) => {
           e.preventDefault();
           void ask(draft);
@@ -329,7 +337,7 @@ export default function IicheAiChat({ compact = false }: { compact?: boolean }) 
         <input
           ref={fileRef}
           type="file"
-          accept=".csv,.txt,.tsv,.xlsx,.xls"
+          accept=".csv,.txt,.tsv,.xlsx,.xls,.pdf,application/pdf"
           className="hidden"
           onChange={async (e) => {
             const f = e.target.files?.[0];
@@ -352,12 +360,20 @@ export default function IicheAiChat({ compact = false }: { compact?: boolean }) 
         >
           <Paperclip className="w-4 h-4" />
         </button>
-        <input
+        <textarea
+          ref={draftRef}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          placeholder="Ask anything — or attach a list and add participants…"
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              void ask(draft);
+            }
+          }}
+          placeholder="Ask anything, or paste one name per line…"
           className="iiche-ai-input flex-1 rounded-xl px-3 py-2.5 text-sm"
-          maxLength={8000}
+          rows={1}
+          maxLength={20000}
         />
         <button
           type="submit"

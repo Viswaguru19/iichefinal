@@ -2,15 +2,21 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { Plus, Upload, Trash2, Users, ChevronDown, ChevronUp, FolderPlus, Download, RotateCcw, CheckCircle2, XCircle, Search, Copy } from 'lucide-react';
+import { Plus, Upload, Trash2, Users, ChevronDown, ChevronUp, FolderPlus, Download, RotateCcw, CheckCircle2, XCircle, Search, Copy, Pencil, Check, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import {
   type EventParticipantGroup,
   NO_GROUP_VALUE,
   groupParticipants,
   parseBulkParticipantLines,
+  FORM_REGISTRATION_GROUP,
+  ON_SPOT_REGISTRATION_GROUP,
+  participantDisplayGroup,
   participantGroupLabel,
+  participantSecondaryText,
+  isManualParticipantSource,
   registrationSourceLabel,
+  buildAttendanceReportCsv,
 } from '@/lib/event-participant-groups';
 import { formatPortalDateTime } from '@/lib/portal-date';
 
@@ -70,9 +76,11 @@ export default function EventParticipantManager({
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deletingGroupId, setDeletingGroupId] = useState<string | null>(null);
-  const [searchDraft, setSearchDraft] = useState('');
-  const [searchApplied, setSearchApplied] = useState('');
+  const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
+  const [editingGroupName, setEditingGroupName] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
   const [showDuplicatesOnly, setShowDuplicatesOnly] = useState(false);
+  const [reportMenuOpen, setReportMenuOpen] = useState(false);
 
   const groupNames = useMemo(() => groups.map((g) => g.name), [groups]);
 
@@ -107,9 +115,9 @@ export default function EventParticipantManager({
 
   const filterOptions = useMemo(() => {
     const fromParticipants = participants
-      .map((p) => participantGroupLabel(p.participant_group))
+      .map((p) => participantDisplayGroup(p))
       .filter((g) => g !== 'Unassigned');
-    return [...new Set([...groupNames, ...fromParticipants, 'Unassigned'])];
+    return [...new Set([...groupNames, FORM_REGISTRATION_GROUP, ON_SPOT_REGISTRATION_GROUP, ...fromParticipants, 'Unassigned'])];
   }, [groupNames, participants]);
 
   const duplicateStats = useMemo(() => {
@@ -140,20 +148,20 @@ export default function EventParticipantManager({
   const filteredParticipants = useMemo(() => {
     let list = participants;
     if (groupFilter !== 'all') {
-      list = list.filter((p) => participantGroupLabel(p.participant_group) === groupFilter);
+      list = list.filter((p) => participantDisplayGroup(p) === groupFilter);
     }
     if (mode === 'attendance' && attendanceFilter !== 'all') {
       list = list.filter((p) => (p.attendance_status || 'registered') === attendanceFilter);
     }
-    if (mode === 'attendance' && searchApplied) {
-      const q = searchApplied.toLowerCase();
+    if (mode === 'attendance' && searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase();
       list = list.filter((p) => participantSearchText(p).includes(q));
     }
     if (mode === 'attendance' && showDuplicatesOnly) {
       list = list.filter((p) => duplicateParticipantIds.has(p.id));
     }
     return list;
-  }, [participants, groupFilter, attendanceFilter, mode, searchApplied, showDuplicatesOnly, duplicateParticipantIds]);
+  }, [participants, groupFilter, attendanceFilter, mode, searchQuery, showDuplicatesOnly, duplicateParticipantIds]);
 
   const attendanceCounts = useMemo(() => ({
     present: participants.filter((p) => p.attendance_status === 'present').length,
@@ -161,33 +169,36 @@ export default function EventParticipantManager({
     registered: participants.filter((p) => !p.attendance_status || p.attendance_status === 'registered').length,
   }), [participants]);
 
-  function downloadAttendanceReport() {
-    const rows = participants.map((p, i) => ({
-      serial: i + 1,
-      name: p.participant_name || 'Participant',
-      email: p.participant_email || '',
-      group: participantGroupLabel(p.participant_group),
-      status: (p.attendance_status || 'registered').replace('_', ' '),
-      attended_at: p.attended_at ? formatPortalDateTime(p.attended_at) : '',
-    }));
-    const header = 'Serial,Name,Email,Group,Attendance,Marked At';
-    const body = rows.map((r) =>
-      [r.serial, r.name, r.email, r.group, r.status, r.attended_at]
-        .map((v) => `"${String(v).replace(/"/g, '""')}"`)
-        .join(','),
-    ).join('\n');
-    const blob = new Blob([`${header}\n${body}`], { type: 'text/csv;charset=utf-8' });
+  function downloadAttendanceReport(groupAsColumn: boolean) {
+    const csv = buildAttendanceReportCsv(
+      participants.map((p) => ({
+        participant_name: p.participant_name,
+        participant_email: p.participant_email,
+        participant_group: p.participant_group,
+        registration_source: p.registration_source,
+        attendance_status: p.attendance_status,
+        attended_at_label: p.attended_at ? formatPortalDateTime(p.attended_at) : '',
+      })),
+      groupNames,
+      groupAsColumn,
+    );
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = `attendance_report_${eventId.slice(0, 8)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
+    setReportMenuOpen(false);
     toast.success('Attendance report downloaded');
   }
 
   const grouped = useMemo(
-    () => groupParticipants(filteredParticipants, groupNames),
+    () =>
+      groupParticipants(
+        filteredParticipants.map((p) => ({ ...p, participant_group: participantDisplayGroup(p) })),
+        [...groupNames, FORM_REGISTRATION_GROUP, ON_SPOT_REGISTRATION_GROUP],
+      ),
     [filteredParticipants, groupNames],
   );
 
@@ -218,16 +229,65 @@ export default function EventParticipantManager({
     await loadGroups();
   }
 
+  async function handleRenameGroup(group: EventParticipantGroup) {
+    const trimmed = editingGroupName.trim();
+    if (!trimmed) {
+      toast.error('Enter a group name');
+      return;
+    }
+    if (
+      groups.some((g) => g.id !== group.id && g.name.toLowerCase() === trimmed.toLowerCase())
+    ) {
+      toast.error('This group already exists');
+      return;
+    }
+    setSaving(true);
+    const { error } = await supabase
+      .from('event_participant_groups')
+      .update({ name: trimmed })
+      .eq('id', group.id);
+    if (!error && group.name !== trimmed) {
+      await supabase
+        .from('event_participants')
+        .update({ participant_group: trimmed })
+        .eq('event_id', eventId)
+        .eq('participant_group', group.name);
+    }
+    setSaving(false);
+    if (error) {
+      toast.error(error.message || 'Failed to rename group');
+      return;
+    }
+    if (groupFilter === group.name) setGroupFilter(trimmed);
+    setEditingGroupId(null);
+    toast.success('Group renamed');
+    await loadGroups();
+    await onRefresh();
+  }
+
   async function handleDeleteGroup(group: EventParticipantGroup) {
     const inGroup = participants.filter(
       (p) => participantGroupLabel(p.participant_group) === group.name,
     ).length;
-    if (inGroup > 0) {
-      toast.error(`Cannot delete — ${inGroup} participant(s) are in this group`);
-      return;
-    }
-    if (!confirm(`Delete group "${group.name}"?`)) return;
+    const ok = confirm(
+      inGroup > 0
+        ? `Delete group "${group.name}" and remove its ${inGroup} member${inGroup === 1 ? '' : 's'}?`
+        : `Delete group "${group.name}"?`,
+    );
+    if (!ok) return;
     setDeletingGroupId(group.id);
+    if (inGroup > 0) {
+      const { error: memberError } = await supabase
+        .from('event_participants')
+        .delete()
+        .eq('event_id', eventId)
+        .eq('participant_group', group.name);
+      if (memberError) {
+        setDeletingGroupId(null);
+        toast.error(memberError.message || 'Failed to remove group members');
+        return;
+      }
+    }
     const { error } = await supabase.from('event_participant_groups').delete().eq('id', group.id);
     setDeletingGroupId(null);
     if (error) {
@@ -236,8 +296,10 @@ export default function EventParticipantManager({
     }
     if (selectedGroupId === group.id) setSelectedGroupId(NO_GROUP_VALUE);
     if (bulkDefaultGroupId === group.id) setBulkDefaultGroupId(NO_GROUP_VALUE);
-    toast.success('Group deleted');
+    if (groupFilter === group.name) setGroupFilter('all');
+    toast.success(inGroup > 0 ? `Group deleted · ${inGroup} member(s) removed` : 'Group deleted');
     await loadGroups();
+    await onRefresh();
   }
 
   async function handleAddSingle() {
@@ -304,13 +366,8 @@ export default function EventParticipantManager({
     await onRefresh();
   }
 
-  function applyParticipantSearch() {
-    setSearchApplied(searchDraft.trim());
-  }
-
   function clearParticipantSearch() {
-    setSearchDraft('');
-    setSearchApplied('');
+    setSearchQuery('');
   }
 
   function isDuplicateParticipant(p: any): boolean {
@@ -362,7 +419,7 @@ export default function EventParticipantManager({
   function renderParticipantRow(p: any) {
     const sourceLabel = registrationSourceLabel(p.registration_source);
     const isSelected = selectedParticipantId === p.id;
-    const groupLabel = participantGroupLabel(p.participant_group);
+    const groupLabel = participantDisplayGroup(p);
     const isMarking = markingId === p.id;
     const statusUi = attendanceStatusUi(p.attendance_status);
     const StatusIcon = statusUi.Icon;
@@ -396,7 +453,9 @@ export default function EventParticipantManager({
                 </span>
               )}
             </div>
-            <p className="text-xs text-gray-500 truncate">{p.participant_email || 'No email'}</p>
+            {participantSecondaryText(p.participant_email) ? (
+              <p className="text-xs text-gray-500 truncate">{participantSecondaryText(p.participant_email)}</p>
+            ) : null}
             {isDuplicate && p.created_at && (
               <p className="text-[10px] text-orange-800 mt-0.5">
                 Registered {formatPortalDateTime(p.created_at)}
@@ -409,12 +468,15 @@ export default function EventParticipantManager({
                   {groupLabel}
                 </span>
               )}
-              {sourceLabel && p.registration_source !== 'bulk_import' && (
+              {sourceLabel && (
                 <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-violet-100 text-violet-800">
                   {sourceLabel}
                 </span>
               )}
-              {mode !== 'attendance' && (
+              {mode !== 'attendance' &&
+                (p.attendance_status === 'present' ||
+                  p.attendance_status === 'absent' ||
+                  !isManualParticipantSource(p.registration_source)) && (
                 <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${p.attendance_status === 'present' ? 'bg-emerald-100 text-emerald-800' : p.attendance_status === 'absent' ? 'bg-rose-100 text-rose-800' : 'bg-amber-50 text-amber-800'}`}>
                   {(p.attendance_status || 'registered').replace('_', ' ')}
                 </span>
@@ -551,9 +613,55 @@ export default function EventParticipantManager({
                       ).length;
                       return (
                         <li key={g.id} className="flex items-center justify-between gap-2 rounded-lg bg-white border border-sky-100 px-3 py-2">
-                          <span className="text-sm font-medium text-gray-800">{g.name}</span>
-                          <div className="flex items-center gap-2">
+                          {editingGroupId === g.id ? (
+                            <input
+                              value={editingGroupName}
+                              onChange={(e) => setEditingGroupName(e.target.value)}
+                              className="flex-1 min-w-0 border border-sky-300 rounded-lg px-2 py-1 text-sm"
+                              autoFocus
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') void handleRenameGroup(g);
+                                if (e.key === 'Escape') setEditingGroupId(null);
+                              }}
+                            />
+                          ) : (
+                            <span className="text-sm font-medium text-gray-800">{g.name}</span>
+                          )}
+                          <div className="flex items-center gap-1.5 shrink-0">
                             <span className="text-xs text-gray-400">{count} member{count !== 1 ? 's' : ''}</span>
+                            {editingGroupId === g.id ? (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => void handleRenameGroup(g)}
+                                  disabled={saving}
+                                  className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg disabled:opacity-50"
+                                  title="Save name"
+                                >
+                                  <Check className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingGroupId(null)}
+                                  className="p-1.5 text-gray-400 hover:bg-gray-50 rounded-lg"
+                                  title="Cancel"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              </>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingGroupId(g.id);
+                                  setEditingGroupName(g.name);
+                                }}
+                                className="p-1.5 text-gray-400 hover:text-sky-700 hover:bg-sky-50 rounded-lg"
+                                title="Edit group name"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
+                            )}
                             <button
                               type="button"
                               onClick={() => handleDeleteGroup(g)}
@@ -608,7 +716,7 @@ export default function EventParticipantManager({
                 <input
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="Email (optional)"
+                  placeholder="Email / roll no (optional)"
                   className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
                 />
                 {groupSelect(selectedGroupId, setSelectedGroupId, 'Add under group')}
@@ -632,10 +740,12 @@ export default function EventParticipantManager({
                 {groupSelect(bulkDefaultGroupId, setBulkDefaultGroupId, 'Default group (for lines without a group)')}
                 <div className="rounded-lg bg-white border border-indigo-100 px-3 py-2 text-xs text-gray-600">
                   <p className="font-semibold text-gray-800 mb-1">Format (one per line):</p>
-                  <code>Name,Email</code> or <code>Name,Email,Group</code>
+                  <code>Name</code> or <code>Name,second field</code> or <code>Name,second field,Group</code>
+                  <p className="mt-2 text-gray-500">The second field is shown as-is (email, roll no, etc.). Name-only lines show no second line.</p>
                   <p className="mt-2 text-gray-500">Examples:</p>
+                  <code className="block">viswaguru,cb.en.u4che24063</code>
                   <code className="block">Arun Kumar,arun@college.edu</code>
-                  <code className="block">Priya S,,1st Year</code>
+                  <code className="block">Priya S</code>
                   <p className="mt-1 text-gray-500">Group in CSV must match a group you created, or use the default group above.</p>
                 </div>
                 <textarea
@@ -664,38 +774,34 @@ export default function EventParticipantManager({
         <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-4 space-y-2">
           <p className="text-sm font-semibold text-indigo-900 flex items-center gap-2">
             <Search className="w-4 h-4" />
-            Search participant to mark attendance
+            Search to mark attendance
           </p>
-          <div className="flex gap-2 flex-wrap">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-indigo-400" />
             <input
-              value={searchDraft}
-              onChange={(e) => setSearchDraft(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && applyParticipantSearch()}
-              placeholder="Search by name or email…"
-              className="flex-1 min-w-0 w-full sm:min-w-[200px] border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-indigo-500"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Type a name or roll no…"
+              autoComplete="off"
+              className="w-full border border-gray-300 rounded-lg pl-9 pr-10 py-2.5 text-sm bg-white focus:ring-2 focus:ring-indigo-500"
             />
-            <button
-              type="button"
-              onClick={applyParticipantSearch}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700"
-            >
-              <Search className="w-4 h-4" />
-              Search
-            </button>
-            {searchApplied && (
+            {searchQuery ? (
               <button
                 type="button"
                 onClick={clearParticipantSearch}
-                className="px-4 py-2 rounded-lg border border-gray-300 bg-white text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+                aria-label="Clear search"
               >
-                Clear
+                <X className="w-4 h-4" />
               </button>
-            )}
+            ) : null}
           </div>
-          {searchApplied && (
+          {searchQuery.trim() ? (
             <p className="text-xs text-indigo-800">
-              Showing {filteredParticipants.length} match(es) for &quot;{searchApplied}&quot; — tap Present or Absent below.
+              {filteredParticipants.length} match{filteredParticipants.length === 1 ? '' : 'es'} — mark Present or Absent below.
             </p>
+          ) : (
+            <p className="text-xs text-indigo-800/80">Results update as you type.</p>
           )}
         </div>
 
@@ -709,15 +815,36 @@ export default function EventParticipantManager({
           <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-50 text-amber-800">
             {attendanceCounts.registered} not marked
           </span>
-          <div className="ml-auto flex flex-wrap items-center gap-2">
+          <div className="ml-auto flex flex-wrap items-center gap-2 relative">
           <button
             type="button"
-            onClick={downloadAttendanceReport}
+            onClick={() => setReportMenuOpen((v) => !v)}
             className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700"
           >
             <Download className="w-3.5 h-3.5" />
             Download attendance report
           </button>
+          {reportMenuOpen && (
+            <div className="absolute right-0 top-full z-20 mt-2 w-72 rounded-xl border border-indigo-100 bg-white p-3 shadow-lg">
+              <p className="text-xs font-semibold text-gray-800 mb-2">Add group name as a column?</p>
+              <div className="flex flex-col gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => downloadAttendanceReport(true)}
+                  className="rounded-lg bg-indigo-600 px-3 py-2 text-left text-xs font-semibold text-white hover:bg-indigo-700"
+                >
+                  Yes — group as a column
+                </button>
+                <button
+                  type="button"
+                  onClick={() => downloadAttendanceReport(false)}
+                  className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-left text-xs font-semibold text-gray-800 hover:bg-gray-50"
+                >
+                  No — group name above each list
+                </button>
+              </div>
+            </div>
+          )}
           {onResetAttendance && (
             <button
               type="button"
@@ -796,8 +923,8 @@ export default function EventParticipantManager({
         <p className="text-gray-500">
           {mode === 'attendance' && showDuplicatesOnly
             ? 'No duplicate names found.'
-            : mode === 'attendance' && searchApplied
-            ? `No participants match "${searchApplied}".`
+            : mode === 'attendance' && searchQuery.trim()
+            ? `No participants match "${searchQuery.trim()}".`
             : mode === 'attendance' && attendanceFilter !== 'all'
             ? 'No participants match this attendance filter.'
             : 'No participants yet.'}

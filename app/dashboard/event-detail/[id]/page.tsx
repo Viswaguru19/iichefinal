@@ -16,7 +16,7 @@ import QRCode from 'qrcode';
 import EventQrScanner, { type QrScanResult } from '@/components/events/EventQrScanner';
 import EventParticipantManager from '@/components/events/EventParticipantManager';
 import EventParticipantEmailPanel from '@/components/events/EventParticipantEmailPanel';
-import { registrationSourceLabel } from '@/lib/event-participant-groups';
+import { isManualParticipantSource, participantDisplayGroup, participantSecondaryText, registrationSourceLabel } from '@/lib/event-participant-groups';
 import { isPortalAdmin } from '@/lib/permissions';
 import PortalLoadingScreen from '@/components/PortalLoadingScreen';
 import { insertPortalNotifications } from '@/lib/portal-notifications-client';
@@ -71,6 +71,9 @@ function sanitizeParticipantFormData(raw: any) {
     'email',
     'participant_email',
     'mail',
+    'group',
+    'bulk_import',
+    'added_manually',
   ]);
   const out: Record<string, unknown> = {};
   Object.entries(raw).forEach(([key, value]) => {
@@ -1893,15 +1896,26 @@ export default function EventDetailPage() {
                         </p>
                       )}
                       <h4 className="font-semibold text-gray-900 mb-1">{selectedParticipant.participant_name}</h4>
-                      <p className="text-sm text-gray-500 mb-3">{selectedParticipant.participant_email || 'No email'}</p>
+                      {participantSecondaryText(selectedParticipant.participant_email) ? (
+                        <p className="text-sm text-gray-500 mb-3">
+                          {participantSecondaryText(selectedParticipant.participant_email)}
+                        </p>
+                      ) : (
+                        <div className="mb-3" />
+                      )}
+                      {participantDisplayGroup(selectedParticipant) !== 'Unassigned' && (
+                        <span className="inline-flex text-[10px] font-semibold px-2 py-0.5 rounded-full bg-sky-100 text-sky-800 mb-3">
+                          {participantDisplayGroup(selectedParticipant)}
+                        </span>
+                      )}
                       {Object.keys(sanitizeParticipantFormData(selectedParticipant.form_data || {}) || {}).length > 0 ? (
                         <>
-                          <h4 className="font-semibold text-gray-900 mb-2">Form / extra details</h4>
+                          <h4 className="font-semibold text-gray-900 mb-2">Form details</h4>
                           <pre className="text-xs text-gray-700 whitespace-pre-wrap break-words">
                             {JSON.stringify(sanitizeParticipantFormData(selectedParticipant.form_data || {}), null, 2)}
                           </pre>
                         </>
-                      ) : (
+                      ) : isManualParticipantSource(selectedParticipant.registration_source) ? null : (
                         <p className="text-sm text-gray-500">No additional form responses for this participant.</p>
                       )}
                     </>

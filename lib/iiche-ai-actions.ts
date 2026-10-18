@@ -10,7 +10,7 @@ import {
 } from '@/lib/proposal-workflow-rules';
 import { composeIichePoster, resolvePosterTheme } from '@/lib/iiche-ai-poster';
 import { formatPortalDate, formatPortalDateTime } from '@/lib/portal-date';
-import { parseBulkParticipantLines } from '@/lib/event-participant-groups';
+import { looksLikeParticipantRoster, parseBulkParticipantLines } from '@/lib/event-participant-groups';
 
 export type IicheAiToolCtx = {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -28,6 +28,7 @@ export type IicheAiToolCtx = {
     eventTitle?: string;
     rows: Array<{ name: string; email: string; group?: string }>;
   } | null;
+  history?: Array<{ role: string; content: string }>;
 };
 
 export const IICHE_AI_TOOL_DECLARATIONS = [
@@ -226,7 +227,7 @@ export const IICHE_AI_TOOL_DECLARATIONS = [
   {
     name: 'add_event_participants',
     description:
-      'Add students as event participants from pasted names, CSV, or Excel text. If group_name is missing, ask for it and do not insert. After they give a group (e.g. 1st years), insert everyone under that group. They then appear on the event Participants tab.',
+      'Add students as event participants from pasted names, CSV, Excel, or PDF text. If group_name is missing, ask for it and do not insert. After they give a group (e.g. 1st years), insert everyone under that group. They then appear on the event Participants tab.',
     parameters: {
       type: 'object',
       properties: {
@@ -234,7 +235,8 @@ export const IICHE_AI_TOOL_DECLARATIONS = [
         group_name: { type: 'string', description: 'Participant group label. Required before insert.' },
         participants_text: {
           type: 'string',
-          description: 'Roster: one name per line, or Name,Email, or Excel/CSV paste including a header row.',
+          description:
+            'Roster: one name per line, or Name,second field (email or roll no), or Name,second,Group. Keep the second column as typed. May come from a pasted PDF.',
         },
       },
       required: ['event_title'],
@@ -682,23 +684,87 @@ async function findEventForParticipants(ctx: IicheAiToolCtx, query: string) {
   return (data || []) as { id: string; title: string; status?: string }[];
 }
 
-export async function addEventParticipants(ctx: IicheAiToolCtx, args: Record<string, unknown>): Promise<string> {
-  const groupName = str(args.group_name) || str(args.group);
-  const eventTitle = str(args.event_title) || str(args.event_query) || ctx.participantDraft?.eventTitle || '';
-  const rosterText = str(args.participants_text) || str(args.roster) || str(args.students);
-  const rosterLines = rosterText.split(/\r?\n/);
+type ParticipantImportRow = { name: string; email: string; group: string };
+
+function parseRosterText(text: string, groupName = ''): ParticipantImportRow[] {
+  const rosterLines = String(text || '').split(/\r?\n/);
   const firstData = rosterLines.findIndex((line, i) => {
     const t = line.trim();
     if (!t) return false;
     if (i === 0 && /\b(add|import|enroll|attached)\b/i.test(t) && rosterLines.length > 1) return false;
     return true;
   });
-  const parsed = parseBulkParticipantLines(
+  return parseBulkParticipantLines(
     (firstData >= 0 ? rosterLines.slice(firstData) : rosterLines).join('\n'),
     groupName,
   );
-  const draftRows = ctx.participantDraft?.rows || [];
-  const rows = parsed.length ? parsed : draftRows.map((r) => ({ name: r.name, email: r.email || '', group: groupName || r.group || '' }));
+}
+
+function namesMatchGroup(rows: ParticipantImportRow[], groupName: string): boolean {
+  const g = groupName.trim().toLowerCase();
+  if (!g || !rows.length) return false;
+  return rows.every((r) => r.name.trim().toLowerCase() === g);
+}
+
+/** Prefer the saved student list over a group-name reply that was parsed as a roster. */
+export function pickParticipantImportRows(opts: {
+  parsed: ParticipantImportRow[];
+  draftRows: Array<{ name: string; email?: string; group?: string }>;
+  groupName: string;
+  rosterText: string;
+  historyRows?: ParticipantImportRow[];
+}): ParticipantImportRow[] {
+  const groupName = opts.groupName.trim();
+  const draft = opts.draftRows
+    .map((r) => ({ name: r.name, email: r.email || '', group: groupName || r.group || '' }))
+    .filter((r) => r.name.trim());
+  const history = (opts.historyRows || []).filter((r) => r.name.trim());
+  const parsedIsGroupLabel =
+    namesMatchGroup(opts.parsed, groupName) ||
+    (!!extractStandaloneGroupName(opts.rosterText) && opts.parsed.length <= 1 && !looksLikeParticipantRoster(opts.rosterText));
+
+  let rows = opts.parsed;
+  if (parsedIsGroupLabel || !opts.parsed.length) {
+    rows = draft.length ? draft : history;
+  } else if (draft.length > opts.parsed.length) {
+    rows = draft;
+  }
+
+  if (groupName && rows.length > 1) {
+    rows = rows.filter((r) => r.name.trim().toLowerCase() !== groupName.toLowerCase());
+  }
+  return rows.map((r) => ({ ...r, group: groupName || r.group || '' }));
+}
+
+function rosterFromHistory(
+  history: Array<{ role: string; content: string }> | undefined,
+  groupName: string,
+): ParticipantImportRow[] {
+  if (!history?.length) return [];
+  for (const msg of [...history].reverse()) {
+    if (msg.role !== 'user') continue;
+    const text = String(msg.content || '').trim();
+    if (!text) continue;
+    if (extractStandaloneGroupName(text) && !looksLikeParticipantRoster(text) && !text.includes('\n')) continue;
+    const parsed = parseRosterText(text, groupName);
+    if (!parsed.length || namesMatchGroup(parsed, groupName)) continue;
+    if (parsed.length >= 1) return parsed;
+  }
+  return [];
+}
+
+export async function addEventParticipants(ctx: IicheAiToolCtx, args: Record<string, unknown>): Promise<string> {
+  const groupName = str(args.group_name) || str(args.group);
+  const eventTitle = str(args.event_title) || str(args.event_query) || ctx.participantDraft?.eventTitle || '';
+  const rosterText = str(args.participants_text) || str(args.roster) || str(args.students);
+  const parsed = parseRosterText(rosterText, groupName);
+  const rows = pickParticipantImportRows({
+    parsed,
+    draftRows: ctx.participantDraft?.rows || [],
+    groupName,
+    rosterText,
+    historyRows: rosterFromHistory(ctx.history, groupName),
+  });
 
   let events: { id: string; title: string; status?: string }[] = [];
   try {
@@ -733,7 +799,9 @@ export async function addEventParticipants(ctx: IicheAiToolCtx, args: Record<str
 
   const event = events[0];
   if (!rows.length) {
-    return 'I need the student list (one name per line, or Name, Email). You can paste from Excel or attach a CSV / Excel file.';
+    return groupName
+      ? `I have the group **${groupName}**, but I still need the student list from before. Paste the names again (one per line, or Name,roll no).`
+      : 'I need the student list (one name per line, or Name,roll no / email). You can paste from Excel or attach a CSV / Excel file.';
   }
 
   if (!groupName) {
@@ -754,10 +822,13 @@ export async function addEventParticipants(ctx: IicheAiToolCtx, args: Record<str
     ].join('\n');
   }
 
-  await ctx.supabase.from('event_participant_groups').insert({
+  const { error: groupError } = await ctx.supabase.from('event_participant_groups').insert({
     event_id: event.id,
     name: groupName,
   });
+  if (groupError && !/duplicate|unique|already exists/i.test(groupError.message)) {
+    return `Could not create group "${groupName}": ${groupError.message}`;
+  }
 
   const payload = rows.map((r) => ({
     name: r.name,
@@ -1619,11 +1690,14 @@ export function maybeHeuristicTool(message: string): { name: string; args: Recor
   if (wantsCreate && !askingHow && /\b(mom|minutes|minutes of meeting)\b/.test(lower)) {
     return { name: 'create_minutes', args: { title: 'Minutes of meeting', minutes: m } };
   }
-  if (
-    !askingHow &&
+  const groupOnly = extractStandaloneGroupName(m);
+  if (groupOnly && !looksLikeParticipantRoster(m) && !/\n/.test(m)) {
+    return { name: 'add_event_participants', args: { group_name: groupOnly, event_title: '' } };
+  }
+  const wantsParticipantImport =
     /\b(add|import|enroll)\b/.test(lower) &&
-    /\b(participants?|students?|roster|attendees)\b/.test(lower)
-  ) {
+    /\b(participants?|students?|roster|attendees)\b/.test(lower);
+  if (!askingHow && (wantsParticipantImport || looksLikeParticipantRoster(m))) {
     const groupHit = m.match(
       /\b(?:group(?:\s+name)?|under|in group)\s*[:\-]?\s*["']?([^,"\n]+)["']?/i,
     );
@@ -1642,10 +1716,6 @@ export function maybeHeuristicTool(message: string): { name: string; args: Recor
         participants_text: m,
       },
     };
-  }
-  const groupOnly = extractStandaloneGroupName(m);
-  if (groupOnly) {
-    return { name: 'add_event_participants', args: { group_name: groupOnly, event_title: '' } };
   }
   const mentionsPortalEvent =
     /\bevents?\b/.test(lower) ||

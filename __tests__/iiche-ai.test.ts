@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { fallbackIicheAiReply, shouldRunHeuristicBeforeModel, splitPortalNavigate } from '@/lib/iiche-ai';
-import { maybeHeuristicTool, extractStandaloneGroupName } from '@/lib/iiche-ai-actions';
+import { maybeHeuristicTool, extractStandaloneGroupName, pickParticipantImportRows } from '@/lib/iiche-ai-actions';
 import { iicheAiReplyPlain, parseIicheAiReply } from '@/lib/iiche-ai-format';
 import { buildIichePosterSvg, pickPosterHeroUrl, resolvePosterTheme, svgDataUrl } from '@/lib/iiche-ai-poster';
 
@@ -77,6 +77,24 @@ describe('IIChE AI tool heuristics', () => {
     expect(hit?.args.group_name).toBe('');
     expect(extractStandaloneGroupName('1st years')).toBe('1st years');
     expect(maybeHeuristicTool('group is Volunteers')?.name).toBe('add_event_participants');
+    expect(
+      maybeHeuristicTool('viswaguru,cb.en.u4che24063\nrahul,cb.en.u4che24001')?.name,
+    ).toBe('add_event_participants');
+    expect(maybeHeuristicTool('CHE A')?.args).toEqual({ group_name: 'CHE A', event_title: '' });
+    expect(maybeHeuristicTool('group is Volunteers')?.args.participants_text).toBeUndefined();
+  });
+
+  it('does not treat the group name as a participant when a roster is already saved', () => {
+    const rows = pickParticipantImportRows({
+      parsed: [{ name: 'CHE A', email: '', group: 'CHE A' }],
+      draftRows: [
+        { name: 'viswaguru', email: 'cb.en.u4che24063' },
+        { name: 'rahul', email: 'cb.en.u4che24001' },
+      ],
+      groupName: 'CHE A',
+      rosterText: 'CHE A',
+    });
+    expect(rows.map((r) => r.name)).toEqual(['viswaguru', 'rahul']);
   });
 
   it('loads the event archive for committee tasks and recaps', () => {
