@@ -22,14 +22,22 @@ async function textFromAttachment(att: { filename?: string; mime?: string; data?
       return '';
     }
   }
-  if (/\.xlsx|\.xls|spreadsheet|excel/.test(name)) {
+  if (/\.xlsx|\.xls|spreadsheet|excel/.test(name) || (buf.length > 4 && buf[0] === 0x50 && buf[1] === 0x4b && /\.xlsx?$/.test(att.filename || ''))) {
     try {
       const XLSX = await import('xlsx');
-      const wb = XLSX.read(buf, { type: 'buffer' });
-      const sheet = wb.Sheets[wb.SheetNames[0]];
-      return XLSX.utils.sheet_to_csv(sheet || {});
+      let wb;
+      try {
+        wb = XLSX.read(buf, { type: 'buffer', raw: false });
+      } catch {
+        wb = XLSX.read(new Uint8Array(buf), { type: 'array', raw: false });
+      }
+      const csv = (wb.SheetNames || [])
+        .map((sheetName) => XLSX.utils.sheet_to_csv(wb.Sheets[sheetName] || {}, { blankrows: false }).trim())
+        .filter(Boolean)
+        .join('\n');
+      return csv;
     } catch {
-      return buf.toString('utf8');
+      return '';
     }
   }
   return buf.toString('utf8');
@@ -60,11 +68,13 @@ export async function POST(request: NextRequest) {
     const attachment = body?.attachment as { filename?: string; mime?: string; data?: string } | undefined;
     if (attachment?.data) {
       const extracted = await textFromAttachment(attachment);
-      const isPdf = /\.pdf|application\/pdf/i.test(`${attachment.filename || ''} ${attachment.mime || ''}`);
+      const kind = `${attachment.filename || ''} ${attachment.mime || ''}`;
+      const isPdf = /\.pdf|application\/pdf/i.test(kind);
+      const isSheet = /\.xlsx|\.xls|spreadsheet|excel/i.test(kind);
       if (extracted.trim()) {
         message = `${message}\n\nAttached ${attachment.filename || 'file'}:\n${extracted.trim()}`.slice(0, 20000);
-      } else if (isPdf) {
-        message = `${message}\n\nAttached ${attachment.filename || 'file'} but no text could be read. If it is a scanned PDF, paste the names or export a CSV.`.slice(0, 20000);
+      } else if (isPdf || isSheet) {
+        message = `${message}\n\nAttached ${attachment.filename || 'file'} but the sheet could not be read. Save it as CSV or paste Name,Roll No lines.`.slice(0, 20000);
       }
     }
     if (!message) {
@@ -113,6 +123,7 @@ export async function POST(request: NextRequest) {
             }
           : null,
       history,
+      currentEventId: body?.currentEventId ? String(body.currentEventId) : null,
     };
 
     const { reply, provider, navigate, posterDraft: nextDraft, posterUrl, participantDraft } = await answerIicheAi(

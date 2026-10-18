@@ -162,6 +162,7 @@ function AssistantBody({ content, posterUrl }: { content: string; posterUrl?: st
 export default function IicheAiChat({ compact = false }: { compact?: boolean }) {
   const router = useRouter();
   const pathname = usePathname();
+  const currentEventId = pathname.match(/\/dashboard\/event-detail\/([^/?#]+)/)?.[1] || null;
   const [turns, setTurns] = useState<ChatTurn[]>([
     {
       role: 'assistant',
@@ -213,7 +214,12 @@ export default function IicheAiChat({ compact = false }: { compact?: boolean }) 
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: message || `Add these students as participants of this event from ${file?.filename || 'the file'}`,
+          message:
+            message ||
+            (file
+              ? `Add these students as participants of this event from the attached ${file.filename}`
+              : ''),
+          currentEventId,
           history: nextTurns.slice(-10).map((t) => ({ role: t.role, content: t.content.slice(0, 20000) })),
           attachment: file,
           participantDraft,

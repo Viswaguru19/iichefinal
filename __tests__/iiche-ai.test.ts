@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { fallbackIicheAiReply, shouldRunHeuristicBeforeModel, splitPortalNavigate } from '@/lib/iiche-ai';
-import { maybeHeuristicTool, extractStandaloneGroupName, pickParticipantImportRows } from '@/lib/iiche-ai-actions';
+import {
+  maybeHeuristicTool,
+  extractStandaloneGroupName,
+  pickParticipantImportRows,
+  participantImportHints,
+} from '@/lib/iiche-ai-actions';
 import { iicheAiReplyPlain, parseIicheAiReply } from '@/lib/iiche-ai-format';
 import { buildIichePosterSvg, pickPosterHeroUrl, resolvePosterTheme, svgDataUrl } from '@/lib/iiche-ai-poster';
 
@@ -82,6 +87,15 @@ describe('IIChE AI tool heuristics', () => {
     ).toBe('add_event_participants');
     expect(maybeHeuristicTool('CHE A')?.args).toEqual({ group_name: 'CHE A', event_title: '' });
     expect(maybeHeuristicTool('group is Volunteers')?.args.participants_text).toBeUndefined();
+    const fromFile = participantImportHints(
+      'Add these students as participants of this event from CHE 2026-30 Section A.xlsx',
+    );
+    expect(fromFile.eventTitle).toBe('');
+    const withGroup = participantImportHints(
+      'Add these students as participants of ACE Orientation under CHE A. Extract Name and Roll No from the Excel for every row.',
+    );
+    expect(withGroup.eventTitle.toLowerCase()).toContain('ace');
+    expect(withGroup.groupName.toLowerCase()).toContain('che a');
   });
 
   it('does not treat the group name as a participant when a roster is already saved', () => {

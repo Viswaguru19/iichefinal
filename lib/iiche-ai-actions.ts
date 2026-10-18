@@ -29,6 +29,7 @@ export type IicheAiToolCtx = {
     rows: Array<{ name: string; email: string; group?: string }>;
   } | null;
   history?: Array<{ role: string; content: string }>;
+  currentEventId?: string | null;
 };
 
 export const IICHE_AI_TOOL_DECLARATIONS = [
@@ -660,10 +661,53 @@ function encodeParticipantDraft(draft: NonNullable<IicheAiToolCtx['participantDr
   return `PARTICIPANT_DRAFT:${b64};;`;
 }
 
+export function isVagueParticipantEventQuery(query: string): boolean {
+  const q = query.trim().toLowerCase().replace(/[?.!]+$/g, '');
+  if (!q) return true;
+  if (/^(this|the|current)(\s+event)?$/.test(q)) return true;
+  if (/\bthis event\b/.test(q) && /\.(xlsx|xls|csv|pdf|txt|tsv)\b/.test(q)) return true;
+  if (/^this event from /.test(q)) return true;
+  return false;
+}
+
+export function participantImportHints(message: string): { eventTitle: string; groupName: string } {
+  const firstLine = message.split(/\r?\n/)[0] || '';
+  const cleaned = firstLine
+    .replace(/\bfrom\s+["']?[^"'\n]+\.(xlsx|xls|csv|pdf|txt|tsv)["']?/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const groupHit =
+    cleaned.match(/\bunder\s+["']?([^.,\n]+?)["']?(?=\.|,|\s+extract|\s*$)/i) ||
+    cleaned.match(/\b(?:group(?:\s+name)?|in group)\s*[:\-]?\s*["']?([^,"\n]+?)["']?\s*$/i);
+  const groupName = (groupHit?.[1] || '').replace(/\s+event$/i, '').trim();
+  const withoutGroup = cleaned
+    .replace(/\bunder\s+["']?[^.,\n]+["']?(?=\.|,|\s+extract|\s*$)/i, '')
+    .replace(/\b(?:group(?:\s+name)?|in group)\s*[:\-]?\s*["']?[^,"\n]+["']?\s*$/i, '')
+    .trim();
+  const eventHit = withoutGroup.match(/\b(?:of|to|for)\s+(?:the\s+)?(.+?)(?:\s+event)?$/i);
+  let eventTitle = (eventHit?.[1] || '')
+    .replace(/\b(these|those|the|students|participants|as)\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (isVagueParticipantEventQuery(eventTitle) || /^this$/i.test(eventTitle)) eventTitle = '';
+  return { eventTitle, groupName };
+}
+
 async function findEventForParticipants(ctx: IicheAiToolCtx, query: string) {
   const db = ctx.directory || ctx.supabase;
   const q = query.trim();
-  const vague = !q || /^(this|the|current)?\s*events?$/i.test(q);
+  const vague = isVagueParticipantEventQuery(q);
+
+  if (vague && ctx.currentEventId) {
+    const { data, error } = await db
+      .from('events')
+      .select('id, title, status')
+      .eq('id', ctx.currentEventId)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (data) return [data] as { id: string; title: string; status?: string }[];
+  }
+
   if (!vague) {
     const { data, error } = await db
       .from('events')
@@ -672,7 +716,8 @@ async function findEventForParticipants(ctx: IicheAiToolCtx, query: string) {
       .order('created_at', { ascending: false })
       .limit(6);
     if (error) throw new Error(error.message);
-    return (data || []) as { id: string; title: string; status?: string }[];
+    const rows = (data || []) as { id: string; title: string; status?: string }[];
+    if (rows.length) return rows;
   }
   const { data, error } = await db
     .from('events')
@@ -1694,25 +1739,18 @@ export function maybeHeuristicTool(message: string): { name: string; args: Recor
   if (groupOnly && !looksLikeParticipantRoster(m) && !/\n/.test(m)) {
     return { name: 'add_event_participants', args: { group_name: groupOnly, event_title: '' } };
   }
+  const attachedRoster = /\battached\b.+\.(xlsx|xls|csv|pdf|txt|tsv)\b/i.test(lower);
   const wantsParticipantImport =
-    /\b(add|import|enroll)\b/.test(lower) &&
-    /\b(participants?|students?|roster|attendees)\b/.test(lower);
+    (/\b(add|import|enroll|extract)\b/.test(lower) &&
+      /\b(participants?|students?|roster|attendees|roll\s*no)\b/.test(lower)) ||
+    attachedRoster;
   if (!askingHow && (wantsParticipantImport || looksLikeParticipantRoster(m))) {
-    const groupHit = m.match(
-      /\b(?:group(?:\s+name)?|under|in group)\s*[:\-]?\s*["']?([^,"\n]+)["']?/i,
-    );
-    const firstLine = m.split(/\r?\n/)[0];
-    const eventHit = firstLine.match(/\b(?:of|to|for)\s+(?:the\s+)?(.+?)(?:\s+event)?$/i);
-    let eventTitle = (eventHit?.[1] || '')
-      .replace(/\b(these|those|the|students|participants|as)\b/gi, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-    if (/^this$/i.test(eventTitle)) eventTitle = 'this event';
+    const hints = participantImportHints(m);
     return {
       name: 'add_event_participants',
       args: {
-        event_title: eventTitle,
-        group_name: (groupHit?.[1] || '').trim(),
+        event_title: hints.eventTitle,
+        group_name: hints.groupName,
         participants_text: m,
       },
     };
