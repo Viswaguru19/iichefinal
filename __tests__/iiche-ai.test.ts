@@ -87,6 +87,15 @@ describe('IIChE AI tool heuristics', () => {
     ).toBe('add_event_participants');
     expect(maybeHeuristicTool('CHE A')?.args).toEqual({ group_name: 'CHE A', event_title: '' });
     expect(maybeHeuristicTool('group is Volunteers')?.args.participants_text).toBeUndefined();
+    expect(extractStandaloneGroupName('I need to add participant')).toBeNull();
+    expect(maybeHeuristicTool('I need to add participant')?.name).toBe('add_event_participants');
+    expect(maybeHeuristicTool('I need to add participant')?.args.group_name).toBe('');
+    const follow = maybeHeuristicTool('Adwin A,CB.EN.U4CHE26101\nAkshara Ravikumar,CB.EN.U4CHE26102', [
+      { role: 'user', content: 'I need to add participants' },
+      { role: 'assistant', content: 'Yes, send the student list.' },
+    ]);
+    expect(follow?.name).toBe('add_event_participants');
+    expect(String(follow?.args.participants_text)).toContain('Adwin');
     const fromFile = participantImportHints(
       'Add these students as participants of this event from CHE 2026-30 Section A.xlsx',
     );

@@ -228,7 +228,7 @@ export const IICHE_AI_TOOL_DECLARATIONS = [
   {
     name: 'add_event_participants',
     description:
-      'Add students as event participants from pasted names, CSV, Excel, or PDF text. If group_name is missing, ask for it and do not insert. After they give a group (e.g. 1st years), insert everyone under that group. They then appear on the event Participants tab.',
+      'Add students as event participants from pasted names, CSV, Excel, or PDF text. Create group_name if it does not exist yet (e.g. CHE A). If group_name is missing, ask for it and do not insert. On a follow-up (list, file, or group name), call this again with the same event and the new text. They then appear on the event Participants tab.',
     parameters: {
       type: 'object',
       properties: {
@@ -689,7 +689,13 @@ export function participantImportHints(message: string): { eventTitle: string; g
     .replace(/\b(these|those|the|students|participants|as)\b/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim();
-  if (isVagueParticipantEventQuery(eventTitle) || /^this$/i.test(eventTitle)) eventTitle = '';
+  if (
+    isVagueParticipantEventQuery(eventTitle) ||
+    /^this$/i.test(eventTitle) ||
+    /^(add|import|enroll)\b/i.test(eventTitle)
+  ) {
+    eventTitle = '';
+  }
   return { eventTitle, groupName };
 }
 
@@ -731,6 +737,15 @@ async function findEventForParticipants(ctx: IicheAiToolCtx, query: string) {
 
 type ParticipantImportRow = { name: string; email: string; group: string };
 
+function isIntentLineNotName(name: string): boolean {
+  const n = name.trim();
+  if (!n) return true;
+  return (
+    n.split(/\s+/).length >= 3 &&
+    /\b(add|import|enroll|need|extract|attached|participants?|students?|please|send)\b/i.test(n)
+  );
+}
+
 function parseRosterText(text: string, groupName = ''): ParticipantImportRow[] {
   const rosterLines = String(text || '').split(/\r?\n/);
   const firstData = rosterLines.findIndex((line, i) => {
@@ -742,7 +757,7 @@ function parseRosterText(text: string, groupName = ''): ParticipantImportRow[] {
   return parseBulkParticipantLines(
     (firstData >= 0 ? rosterLines.slice(firstData) : rosterLines).join('\n'),
     groupName,
-  );
+  ).filter((r) => !isIntentLineNotName(r.name));
 }
 
 function namesMatchGroup(rows: ParticipantImportRow[], groupName: string): boolean {
@@ -867,12 +882,38 @@ export async function addEventParticipants(ctx: IicheAiToolCtx, args: Record<str
     ].join('\n');
   }
 
-  const { error: groupError } = await ctx.supabase.from('event_participant_groups').insert({
-    event_id: event.id,
-    name: groupName,
-  });
-  if (groupError && !/duplicate|unique|already exists/i.test(groupError.message)) {
-    return `Could not create group "${groupName}": ${groupError.message}`;
+  const groupDb = ctx.directory || ctx.supabase;
+  const { data: existingGroup } = await groupDb
+    .from('event_participant_groups')
+    .select('id, name')
+    .eq('event_id', event.id)
+    .ilike('name', groupName)
+    .limit(1);
+  const matchedGroup = Array.isArray(existingGroup) ? existingGroup[0] : existingGroup;
+  if (matchedGroup?.name) {
+    /* reuse spelling already on the event */
+  } else {
+    const { error: groupError } = await groupDb.from('event_participant_groups').insert({
+      event_id: event.id,
+      name: groupName,
+    });
+    if (
+      groupError &&
+      groupError.code !== '23505' &&
+      !/duplicate|unique|already exists/i.test(String(groupError.message || ''))
+    ) {
+      const { error: retryError } = await ctx.supabase.from('event_participant_groups').insert({
+        event_id: event.id,
+        name: groupName,
+      });
+      if (
+        retryError &&
+        retryError.code !== '23505' &&
+        !/duplicate|unique|already exists/i.test(String(retryError.message || ''))
+      ) {
+        return `Could not create group "${groupName}": ${retryError.message}`;
+      }
+    }
   }
 
   const payload = rows.map((r) => ({
@@ -1625,6 +1666,14 @@ export function extractStandaloneGroupName(message: string): string | null {
   ) {
     return null;
   }
+  if (
+    /\b(add|import|enroll|need to|want to|please|attach|extract|send|participant|students?|roster|excel|xlsx|csv|pdf)\b/i.test(
+      m,
+    ) &&
+    !/\bgroup\b/i.test(m)
+  ) {
+    return null;
+  }
   const named = m.match(
     /^(?:group(?:\s+name)?(?:\s+is)?|put them (?:in|under)|under|call (?:them|it)|name (?:the )?group)\s*[:\-]?\s*(.+)$/i,
   );
@@ -1633,7 +1682,29 @@ export function extractStandaloneGroupName(message: string): string | null {
   return null;
 }
 
-export function maybeHeuristicTool(message: string): { name: string; args: Record<string, unknown> } | null {
+function pendingParticipantFollowUp(history?: Array<{ role: string; content: string }>): boolean {
+  if (!history?.length) return false;
+  const recent = history.slice(-8);
+  const assistantWaiting = recent.some(
+    (msg) =>
+      msg.role === 'assistant' &&
+      /\b(group name|student list|paste the names|names given|send the|attach|what group|yes,? send)\b/i.test(
+        msg.content,
+      ),
+  );
+  const userStarted = recent.some(
+    (msg) =>
+      msg.role === 'user' &&
+      /\b(add|import|enroll|extract)\b/i.test(msg.content) &&
+      /\b(participant|student|roster|attendee|excel|xlsx|csv|pdf)\b/i.test(msg.content),
+  );
+  return assistantWaiting || userStarted;
+}
+
+export function maybeHeuristicTool(
+  message: string,
+  history?: Array<{ role: string; content: string }>,
+): { name: string; args: Record<string, unknown> } | null {
   const m = message.trim();
   const lower = m.toLowerCase().replace(/[?.!]+$/g, '');
   if (
@@ -1735,15 +1806,14 @@ export function maybeHeuristicTool(message: string): { name: string; args: Recor
   if (wantsCreate && !askingHow && /\b(mom|minutes|minutes of meeting)\b/.test(lower)) {
     return { name: 'create_minutes', args: { title: 'Minutes of meeting', minutes: m } };
   }
-  const groupOnly = extractStandaloneGroupName(m);
-  if (groupOnly && !looksLikeParticipantRoster(m) && !/\n/.test(m)) {
-    return { name: 'add_event_participants', args: { group_name: groupOnly, event_title: '' } };
-  }
   const attachedRoster = /\battached\b.+\.(xlsx|xls|csv|pdf|txt|tsv)\b/i.test(lower);
   const wantsParticipantImport =
     (/\b(add|import|enroll|extract)\b/.test(lower) &&
       /\b(participants?|students?|roster|attendees|roll\s*no)\b/.test(lower)) ||
     attachedRoster;
+  const pendingImport = pendingParticipantFollowUp(history);
+  const followUpLooksUnrelated =
+    /\b(who|what|how|why|explain|calculate|research|ideas?)\b/i.test(lower) && !/\bgroup\b/i.test(lower);
   if (!askingHow && (wantsParticipantImport || looksLikeParticipantRoster(m))) {
     const hints = participantImportHints(m);
     return {
@@ -1751,6 +1821,21 @@ export function maybeHeuristicTool(message: string): { name: string; args: Recor
       args: {
         event_title: hints.eventTitle,
         group_name: hints.groupName,
+        participants_text: m,
+      },
+    };
+  }
+  const groupOnly = extractStandaloneGroupName(m);
+  if (groupOnly && !looksLikeParticipantRoster(m) && !/\n/.test(m)) {
+    return { name: 'add_event_participants', args: { group_name: groupOnly, event_title: '' } };
+  }
+  if (pendingImport && !askingHow && !followUpLooksUnrelated) {
+    const hints = participantImportHints(m);
+    return {
+      name: 'add_event_participants',
+      args: {
+        event_title: hints.eventTitle,
+        group_name: hints.groupName || groupOnly || '',
         participants_text: m,
       },
     };

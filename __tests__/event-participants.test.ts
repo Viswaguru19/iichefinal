@@ -37,6 +37,22 @@ describe('parseBulkParticipantLines', () => {
     const rows = parseBulkParticipantLines('Name\tEmail\nAsha\tasha@amrita.edu');
     expect(rows).toEqual([{ name: 'Asha', email: 'asha@amrita.edu', group: '' }]);
   });
+
+  it('maps SL No, Roll No, Name regardless of column order', () => {
+    const rows = parseBulkParticipantLines(
+      [
+        ',,',
+        'SL No,Roll No,Name',
+        '1,CB.EN.U4CHE26101,Adwin A',
+        '2,CB.EN.U4CHE26102,Akshara Ravikumar',
+      ].join('\n'),
+      'CHE A',
+    );
+    expect(rows).toEqual([
+      { name: 'Adwin A', email: 'CB.EN.U4CHE26101', group: 'CHE A' },
+      { name: 'Akshara Ravikumar', email: 'CB.EN.U4CHE26102', group: 'CHE A' },
+    ]);
+  });
 });
 
 describe('buildAttendanceReportCsv', () => {

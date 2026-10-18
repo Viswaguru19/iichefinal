@@ -19,7 +19,7 @@ You handle three kinds of requests:
    - Who is head / co-head of a committee → get_committee_officers.
    - What events exist (titles only) → list_events.
    - A named event, tasks assigned to a committee, “what work did X do”, event report, photos, recap, or summarise events (including from a year ago) → get_event_archive. Always call it before answering; never say there were no tasks without that data.
-   - Add students as participants from pasted names, CSV, Excel, or PDF → add_event_participants. Keep the second column as typed (email, roll no, or any id). Ask for the group name first if it is missing, then insert. Do not invent names.
+   - Add students as participants from pasted names, CSV, Excel, or PDF → add_event_participants. Keep the second column as typed (email, roll no, or any id). Create the group if it does not exist (CHE A is a group name to create, not a filter). Ask for the group name if it is missing. If you already asked them to send the list or a group, the next message is the answer — call add_event_participants again; do not start a new unrelated reply. Do not invent names.
    - Never invent a member's name, role, officers, events, tasks, reports, or photos. Quote the archive.
 
 3. Portal actions and navigation
@@ -566,7 +566,7 @@ export async function answerIicheAi(
   try {
     if (runTool && userMessage) {
       const { maybeHeuristicTool } = await import('@/lib/iiche-ai-actions');
-      const guessed = maybeHeuristicTool(userMessage);
+      const guessed = maybeHeuristicTool(userMessage, history);
       if (guessed && shouldRunHeuristicBeforeModel(userMessage, guessed)) {
         const result = await runTool(guessed.name, guessed.args);
         return withNav(result, 'portal', userMessage);
@@ -576,7 +576,7 @@ export async function answerIicheAi(
     if (gemini.text) {
       if (REFUSED_NAV.test(gemini.text) && runTool && userMessage) {
         const { maybeHeuristicTool } = await import('@/lib/iiche-ai-actions');
-        const guessed = maybeHeuristicTool(userMessage);
+        const guessed = maybeHeuristicTool(userMessage, history);
         if (guessed) return withNav(await runTool(guessed.name, guessed.args), 'gemini', userMessage);
       }
       return withNav(gemini.text, 'gemini', userMessage);
@@ -587,7 +587,7 @@ export async function answerIicheAi(
     if (openai) return withNav(openai, 'openai', userMessage);
     if (runTool && userMessage) {
       const { maybeHeuristicTool } = await import('@/lib/iiche-ai-actions');
-      const guessed = maybeHeuristicTool(userMessage);
+      const guessed = maybeHeuristicTool(userMessage, history);
       if (guessed) {
         const result = await runTool(guessed.name, guessed.args);
         return withNav(result, 'guide', userMessage);
@@ -598,7 +598,7 @@ export async function answerIicheAi(
     if (runTool && userMessage) {
       try {
         const { maybeHeuristicTool } = await import('@/lib/iiche-ai-actions');
-        const guessed = maybeHeuristicTool(userMessage);
+        const guessed = maybeHeuristicTool(userMessage, history);
         if (guessed) return withNav(await runTool(guessed.name, guessed.args), 'guide', userMessage);
       } catch {
         /* ignore */

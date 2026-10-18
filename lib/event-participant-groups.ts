@@ -26,8 +26,14 @@ export function registrationSourceLabel(source: string | null | undefined): stri
 const NAME_HEADER_RE = /^(name|student|full\s*name|participant|student\s*name)$/i;
 const EMAIL_HEADER_RE = /^(email|e-?mail|mail|student\s*email)$/i;
 const IDENTIFIER_HEADER_RE =
-  /^(email|e-?mail|mail|student\s*email|roll(?:\s*no(?:\.|umber)?)?|reg(?:ister)?(?:\s*no)?|id|phone|mobile)$/i;
+  /^(email|e-?mail|mail|student\s*email|roll(?:\s*(?:no\.?|number))?|reg(?:ister)?(?:\s*(?:no\.?|number))?|id|phone|mobile)$/i;
 const GROUP_HEADER_RE = /^(group|section|class|batch|year)$/i;
+const SERIAL_HEADER_RE =
+  /^(s\.?\s*l\.?\s*no\.?|sl\.?\s*no\.?|s\/l|serial(?:\s*(?:no\.?|number))?|s\.?\s*no\.?|#)$/i;
+
+function cleanRosterCell(value: string): string {
+  return (value || '').replace(/^["']|["']$/g, '').trim();
+}
 
 function splitRosterLine(line: string): string[] {
   if (line.includes('\t')) return line.split('\t').map((p) => p.trim());
@@ -37,9 +43,33 @@ function splitRosterLine(line: string): string[] {
   return line.split(',').map((p) => p.trim());
 }
 
+function headerIndexes(parts: string[]) {
+  const cells = parts.map(cleanRosterCell);
+  return {
+    nameIdx: cells.findIndex((p) => NAME_HEADER_RE.test(p)),
+    emailIdx: cells.findIndex((p) => IDENTIFIER_HEADER_RE.test(p) || EMAIL_HEADER_RE.test(p)),
+    groupIdx: cells.findIndex((p) => GROUP_HEADER_RE.test(p)),
+    serialIdx: cells.findIndex((p) => SERIAL_HEADER_RE.test(p)),
+  };
+}
+
 function looksLikeRosterHeader(parts: string[]): boolean {
-  const first = (parts[0] || '').replace(/^["']|["']$/g, '');
-  return NAME_HEADER_RE.test(first) || EMAIL_HEADER_RE.test(first) || IDENTIFIER_HEADER_RE.test(first);
+  const idx = headerIndexes(parts);
+  return idx.nameIdx >= 0 || idx.emailIdx >= 0 || idx.groupIdx >= 0 || idx.serialIdx >= 0;
+}
+
+function looksLikeSerialValue(value: string): boolean {
+  return /^\d{1,4}$/.test(value);
+}
+
+function inferNameAndIdIndexes(parts: string[]): { nameIdx: number; emailIdx: number; groupIdx: number } {
+  const cells = parts.map(cleanRosterCell);
+  if (cells.length >= 3 && looksLikeSerialValue(cells[0])) {
+    const secondLooksId = /@/.test(cells[1]) || /\d/.test(cells[1]);
+    const thirdLooksName = /[A-Za-z]{2,}/.test(cells[2]);
+    if (secondLooksId && thirdLooksName) return { nameIdx: 2, emailIdx: 1, groupIdx: -1 };
+  }
+  return { nameIdx: 0, emailIdx: 1, groupIdx: 2 };
 }
 
 /** Second roster field (email, roll no, or any other id). Empty when the line is name-only. */
@@ -85,7 +115,7 @@ export function parseBulkParticipantLines(
   const lines = normalizeRosterText(text)
     .split(/\n/)
     .map((line) => line.trim())
-    .filter(Boolean);
+    .filter((line) => line && splitRosterLine(line).some((p) => cleanRosterCell(p)));
   if (!lines.length) return [];
 
   let start = 0;
@@ -95,23 +125,37 @@ export function parseBulkParticipantLines(
   const headerParts = splitRosterLine(lines[0]);
   if (looksLikeRosterHeader(headerParts)) {
     start = 1;
-    nameIdx = headerParts.findIndex((p) => NAME_HEADER_RE.test(p));
-    emailIdx = headerParts.findIndex((p) => IDENTIFIER_HEADER_RE.test(p) || EMAIL_HEADER_RE.test(p));
-    groupIdx = headerParts.findIndex((p) => GROUP_HEADER_RE.test(p));
-    if (nameIdx < 0) nameIdx = 0;
-    if (emailIdx < 0) emailIdx = 1;
+    const idx = headerIndexes(headerParts);
+    nameIdx = idx.nameIdx;
+    emailIdx = idx.emailIdx;
+    groupIdx = idx.groupIdx;
+    if (nameIdx < 0) nameIdx = idx.serialIdx === 0 ? 1 : 0;
+    if (emailIdx < 0) emailIdx = nameIdx === 0 ? 1 : 0;
+    if (emailIdx === nameIdx) emailIdx = nameIdx === 0 ? 1 : 0;
+  } else {
+    const inferred = inferNameAndIdIndexes(splitRosterLine(lines[Math.min(1, lines.length - 1)]));
+    nameIdx = inferred.nameIdx;
+    emailIdx = inferred.emailIdx;
+    groupIdx = inferred.groupIdx;
   }
 
   const rows: Array<{ name: string; email: string; group: string }> = [];
   for (const line of lines.slice(start)) {
-    const parts = splitRosterLine(line).map((p) => p.replace(/^["']|["']$/g, ''));
+    const parts = splitRosterLine(line).map(cleanRosterCell);
     while (parts.length && !parts[parts.length - 1]) parts.pop();
     if (!parts.length) continue;
     const name = (parts[nameIdx] || '').trim();
     const email = (parts[emailIdx] || '').trim();
     const group = ((groupIdx >= 0 ? parts[groupIdx] : '') || defaultGroup).trim();
-    if (!name) continue;
-    if (NAME_HEADER_RE.test(name) || IDENTIFIER_HEADER_RE.test(name) || GROUP_HEADER_RE.test(name)) continue;
+    if (!name || looksLikeSerialValue(name)) continue;
+    if (
+      NAME_HEADER_RE.test(name) ||
+      IDENTIFIER_HEADER_RE.test(name) ||
+      GROUP_HEADER_RE.test(name) ||
+      SERIAL_HEADER_RE.test(name)
+    ) {
+      continue;
+    }
     rows.push({ name, email, group: (group || defaultGroup).trim() });
   }
   return rows;
