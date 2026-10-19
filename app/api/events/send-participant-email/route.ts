@@ -42,8 +42,9 @@ async function canSendToEventParticipants(
     (profile.committee_members as { committee_id: string }[] | null)?.some(
       (m) => m.committee_id === committeeId,
     );
+  const isMember = (profile.committee_members as { committee_id: string }[] | null)?.length;
 
-  return Boolean(isFaculty || isEC || isAdmin || onCommittee);
+  return Boolean(isFaculty || isEC || isAdmin || onCommittee || isMember);
 }
 
 function posterMime(path: string): string {

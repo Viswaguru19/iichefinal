@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Plus, Upload, Trash2, Users, ChevronDown, ChevronUp, FolderPlus, Download, RotateCcw, CheckCircle2, XCircle, Search, Copy, Pencil, Check, X } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -42,6 +42,7 @@ interface EventParticipantManagerProps {
   markingId?: string | null;
   onResetAttendance?: () => void | Promise<void>;
   resettingAttendance?: boolean;
+  headerAction?: ReactNode;
 }
 
 export default function EventParticipantManager({
@@ -57,6 +58,7 @@ export default function EventParticipantManager({
   markingId = null,
   onResetAttendance,
   resettingAttendance = false,
+  headerAction,
 }: EventParticipantManagerProps) {
   const supabase = createClient();
   const [groups, setGroups] = useState<EventParticipantGroup[]>([]);
@@ -703,6 +705,7 @@ export default function EventParticipantManager({
                 Bulk add
                 {showBulkPanel ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
               </button>
+              {headerAction}
             </div>
 
             {showAddPanel && (

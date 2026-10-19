@@ -1934,20 +1934,9 @@ export default function EventDetailPage() {
 
         {activeTab === 'participants' && (
           <div className="premium-panel rounded-2xl p-8">
-            <div className="mb-4 flex items-center justify-between gap-3 flex-wrap">
-              <h3 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-                <Users className="w-6 h-6" /> Participant Details
-              </h3>
-              {!participantsLoading && (
-                <EventParticipantEmailPanel
-                  eventId={event.id}
-                  eventTitle={event.title}
-                  participants={participants}
-                  canSend={canEditEventMeta}
-                  posterUrl={posterUrl}
-                />
-              )}
-            </div>
+            <h3 className="text-2xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+              <Users className="w-6 h-6" /> Participant Details
+            </h3>
             {participantsLoading ? (
               <p className="text-gray-500">Loading participants...</p>
             ) : (
@@ -1960,6 +1949,15 @@ export default function EventDetailPage() {
                     onRefresh={loadParticipants}
                     selectedParticipantId={selectedParticipant?.id}
                     onSelectParticipant={setSelectedParticipant}
+                    headerAction={
+                      <EventParticipantEmailPanel
+                        eventId={event.id}
+                        eventTitle={event.title}
+                        participants={participants}
+                        canSend={canManageParticipants}
+                        posterUrl={posterUrl}
+                      />
+                    }
                   />
                 </div>
                 <div className="rounded-xl border border-gray-200 bg-white/70 p-4 min-h-[240px]">

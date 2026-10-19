@@ -115,10 +115,10 @@ export default function EventParticipantEmailPanel({
       <button
         type="button"
         onClick={openComposer}
-        className="inline-flex items-center gap-2 text-sm font-semibold text-indigo-600 hover:text-indigo-800 px-3 py-2 rounded-lg hover:bg-indigo-50 transition"
+        className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-violet-600 text-white text-sm font-semibold hover:bg-violet-700"
       >
         <Mail className="w-4 h-4" />
-        Email
+        Email participants
       </button>
 
       {open ? (
