@@ -13,6 +13,18 @@ export function isValidParticipantEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
 }
 
+export const PREVIEW_PARTICIPANT_NAME = 'Test Student';
+
+/** QR that looks like a check-in code but will not mark anyone present. */
+export function dummyCheckInPayload(eventId: string): Record<string, unknown> {
+  return {
+    dummy: true,
+    event_id: eventId,
+    participant_id: 'preview',
+    participant_name: PREVIEW_PARTICIPANT_NAME,
+  };
+}
+
 function emailFromFormData(formData: unknown): string {
   if (!formData || typeof formData !== 'object' || Array.isArray(formData)) return '';
   const entries = Object.entries(formData as Record<string, unknown>);

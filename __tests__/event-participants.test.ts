@@ -6,7 +6,7 @@ import {
   FORM_REGISTRATION_GROUP,
   ON_SPOT_REGISTRATION_GROUP,
 } from '@/lib/event-participant-groups';
-import { participantCheckInPayload, participantMailFromRosterField, resolveParticipantSendEmail } from '@/lib/event-participant-qr';
+import { dummyCheckInPayload, participantCheckInPayload, participantMailFromRosterField, resolveParticipantSendEmail } from '@/lib/event-participant-qr';
 import { draftParticipantInviteMessage } from '@/lib/event-participant-email-builder';
 
 describe('parseBulkParticipantLines', () => {
@@ -155,6 +155,15 @@ describe('draftParticipantInviteMessage', () => {
     expect(draft).toContain('We invite you to ACE Orientation.');
     expect(draft).toContain('Bring your ID card.');
     expect(draft).toContain('Use this QR code for attendance');
+  });
+});
+
+describe('dummyCheckInPayload', () => {
+  it('builds a preview QR that is not a real participant', () => {
+    const payload = dummyCheckInPayload('e1');
+    expect(payload.dummy).toBe(true);
+    expect(payload.participant_id).toBe('preview');
+    expect(payload.event_id).toBe('e1');
   });
 });
 

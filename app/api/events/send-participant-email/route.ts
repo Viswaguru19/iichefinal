@@ -9,7 +9,10 @@ import {
   plainTextToParticipantEmailHtml,
 } from '@/lib/event-participant-email-builder';
 import {
+  dummyCheckInPayload,
+  isValidParticipantEmail,
   participantCheckInPayload,
+  PREVIEW_PARTICIPANT_NAME,
   resolveParticipantSendEmail,
 } from '@/lib/event-participant-qr';
 
@@ -102,6 +105,56 @@ export async function POST(request: Request) {
       extraNotes,
     });
 
+    let posterAttachment: { filename: string; content: Buffer; contentType: string; contentId: string } | null =
+      null;
+    if (event.poster_url) {
+      const { data: posterFile } = await supabase.storage.from('event-documents').download(event.poster_url);
+      if (posterFile) {
+        const content = Buffer.from(await posterFile.arrayBuffer());
+        const filename = event.poster_url.split('/').pop() || 'event-poster.png';
+        posterAttachment = {
+          filename,
+          content,
+          contentType: posterMime(filename),
+          contentId: 'event-poster',
+        };
+      }
+    }
+
+    const previewTo = String(body.previewTo || '').trim().toLowerCase();
+    if (previewTo) {
+      if (!isValidParticipantEmail(previewTo)) {
+        return NextResponse.json({ error: 'Enter a valid email to send the check' }, { status: 400 });
+      }
+      const qrJson = JSON.stringify(dummyCheckInPayload(eventId));
+      const png = await QRCode.toBuffer(qrJson, { type: 'png', width: 280, margin: 1 });
+      const attachments: Array<{ filename: string; content: Buffer; contentType: string; contentId?: string }> = [];
+      if (posterAttachment) attachments.push(posterAttachment);
+      attachments.push({
+        filename: 'check-in-qr-preview.png',
+        content: png,
+        contentType: 'image/png',
+        contentId: 'check-in-qr',
+      });
+      const emailHtml = buildEventParticipantEmail({
+        event,
+        subject,
+        bodyHtml: `${plainTextToParticipantEmailHtml(messageBody, PREVIEW_PARTICIPANT_NAME)}<p style="margin:16px 0 0;font-size:12px;color:#6b7280;">This is a check email. The QR is a dummy and will not mark attendance.</p>`,
+        posterUrl: posterAttachment ? 'cid:event-poster' : undefined,
+        checkInQrDataUrl: 'cid:check-in-qr',
+      });
+      const result = await sendEmail(previewTo, subject, emailHtml, { attachments });
+      if (!result.success) {
+        return NextResponse.json({ error: result.error || 'Failed to send check email' }, { status: 500 });
+      }
+      return NextResponse.json({
+        success: true,
+        preview: true,
+        sent: 1,
+        message: `Check email sent to ${previewTo} with a dummy QR.`,
+      });
+    }
+
     const { data: participants, error: participantsError } = await supabase
       .from('event_participants')
       .select('id, participant_name, participant_email, participant_group, qr_data, created_at, form_data')
@@ -159,22 +212,6 @@ export async function POST(request: Request) {
         },
         { status: 400 },
       );
-    }
-
-    let posterAttachment: { filename: string; content: Buffer; contentType: string; contentId: string } | null =
-      null;
-    if (event.poster_url) {
-      const { data: posterFile } = await supabase.storage.from('event-documents').download(event.poster_url);
-      if (posterFile) {
-        const content = Buffer.from(await posterFile.arrayBuffer());
-        const filename = event.poster_url.split('/').pop() || 'event-poster.png';
-        posterAttachment = {
-          filename,
-          content,
-          contentType: posterMime(filename),
-          contentId: 'event-poster',
-        };
-      }
     }
 
     let sent = 0;

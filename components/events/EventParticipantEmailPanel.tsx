@@ -5,7 +5,7 @@ import { Loader2, Mail, Send, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { participantGroupLabel } from '@/lib/event-participant-groups';
 import { draftParticipantInviteMessage } from '@/lib/event-participant-email-builder';
-import { resolveParticipantSendEmail } from '@/lib/event-participant-qr';
+import { isValidParticipantEmail, resolveParticipantSendEmail } from '@/lib/event-participant-qr';
 
 type Props = {
   eventId: string;
@@ -27,6 +27,8 @@ export default function EventParticipantEmailPanel({
   const [extraNotes, setExtraNotes] = useState('');
   const [groupFilter, setGroupFilter] = useState('all');
   const [sending, setSending] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [checkEmail, setCheckEmail] = useState('');
 
   const groupOptions = useMemo(() => {
     const labels = participants.map((p) => participantGroupLabel(p.participant_group));
@@ -64,6 +66,34 @@ export default function EventParticipantEmailPanel({
   function openComposer() {
     setSubject(`You're invited: ${eventTitle}`);
     setOpen(true);
+  }
+
+  async function handleCheckEmail() {
+    const to = checkEmail.trim().toLowerCase();
+    if (!isValidParticipantEmail(to)) {
+      toast.error('Enter the email address to send the check to');
+      return;
+    }
+    setChecking(true);
+    try {
+      const res = await fetch('/api/events/send-participant-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          eventId,
+          subject: subject.trim(),
+          extraNotes: extraNotes.trim(),
+          previewTo: to,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to send check email');
+      toast.success(data.message || `Check email sent to ${to}`);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to send check email');
+    } finally {
+      setChecking(false);
+    }
   }
 
   async function handleSend() {
@@ -212,10 +242,43 @@ export default function EventParticipantEmailPanel({
               </pre>
             </div>
 
+            <div className="rounded-lg border border-violet-100 bg-violet-50/60 p-3 space-y-2">
+              <label className="block text-xs font-semibold text-gray-700">
+                Send a check email to yourself first
+              </label>
+              <div className="flex flex-wrap gap-2">
+                <input
+                  type="email"
+                  value={checkEmail}
+                  onChange={(e) => setCheckEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  className="flex-1 min-w-[180px] px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:ring-2 focus:ring-indigo-500"
+                />
+                <button
+                  type="button"
+                  disabled={checking || sending}
+                  onClick={() => void handleCheckEmail()}
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-violet-200 bg-white text-violet-800 text-sm font-semibold hover:bg-violet-50 disabled:opacity-50"
+                >
+                  {checking ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Sending check…
+                    </>
+                  ) : (
+                    'Send check with dummy QR'
+                  )}
+                </button>
+              </div>
+              <p className="text-[11px] text-gray-500">
+                Uses this draft and poster. The QR is a dummy and will not mark anyone present.
+              </p>
+            </div>
+
             <div className="flex flex-wrap items-center gap-2 pt-1">
               <button
                 type="button"
-                disabled={sending || emailStats.withEmail === 0}
+                disabled={sending || checking || emailStats.withEmail === 0}
                 onClick={() => void handleSend()}
                 className="inline-flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50"
               >
