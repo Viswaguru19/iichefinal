@@ -17,6 +17,23 @@ export function appOriginFromRequest(request: Request): string {
   return `${proto}://${host}`;
 }
 
+export function recoveryConfirmUrl(
+  origin: string,
+  properties: { hashed_token?: string | null; action_link?: string | null } | null | undefined,
+): string | null {
+  const base = origin.replace(/\/$/, '');
+  let token = String(properties?.hashed_token || '').trim();
+  if (!token && properties?.action_link) {
+    try {
+      token = new URL(properties.action_link).searchParams.get('token') || '';
+    } catch {
+      token = '';
+    }
+  }
+  if (!token) return null;
+  return `${base}/auth/confirm?token_hash=${encodeURIComponent(token)}&type=recovery`;
+}
+
 export function canManageMemberPasswords(profile: {
   is_admin?: boolean | null;
   is_faculty?: boolean | null;

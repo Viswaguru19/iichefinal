@@ -27,12 +27,15 @@ export default function LoginPage() {
         body: JSON.stringify({ emailOrUsername: emailOrUsername.trim() }),
       });
       const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body.error || 'Failed to send reset link');
+      if (!res.ok) throw new Error(body.error || 'Failed to send temporary password');
 
-      toast.success(body.message || 'If an account exists, a reset link was sent.');
+      toast.success(
+        body.message ||
+          'If an account exists, a temporary password was emailed. Sign in with it, then choose a new password.',
+      );
       setResetMode(false);
     } catch (error: any) {
-      alert(error?.message || 'Failed to send reset link');
+      alert(error?.message || 'Failed to send temporary password');
     } finally {
       setLoading(false);
     }
@@ -200,6 +203,11 @@ export default function LoginPage() {
         <form onSubmit={resetMode ? handleResetPassword : handleAuth} className="space-y-6">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Email or Username</label>
+            {resetMode ? (
+              <p className="text-xs text-gray-500 mb-2">
+                We will email a temporary password. Sign in with it, then you must choose a new password right away.
+              </p>
+            ) : null}
             <input
               type="text"
               value={emailOrUsername}
@@ -232,7 +240,13 @@ export default function LoginPage() {
             disabled={loading || demoLoading}
             className="w-full btn-gradient-blue py-3 rounded-xl font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {loading ? (resetMode ? 'Sending...' : 'Signing in...') : resetMode ? 'Send Reset Link' : 'Sign In'}
+            {loading
+              ? resetMode
+                ? 'Sending...'
+                : 'Signing in...'
+              : resetMode
+                ? 'Email temporary password'
+                : 'Sign In'}
           </button>
 
           {!resetMode && (

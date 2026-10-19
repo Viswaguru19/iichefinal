@@ -16,32 +16,84 @@ export default function ResetPasswordPage() {
   useEffect(() => {
     let cancelled = false;
 
+    async function hasUser() {
+      const { data } = await supabase.auth.getUser();
+      return !!data.user;
+    }
+
+    async function hydrateFromHash() {
+      const raw = window.location.hash.replace(/^#/, '');
+      if (!raw) return false;
+      const hash = new URLSearchParams(raw);
+      const access_token = hash.get('access_token');
+      const refresh_token = hash.get('refresh_token');
+      if (!access_token || !refresh_token) return false;
+      const { error } = await supabase.auth.setSession({ access_token, refresh_token });
+      if (error) {
+        console.error('Password reset hash session', error.message);
+        return false;
+      }
+      window.history.replaceState({}, '', window.location.pathname);
+      return hasUser();
+    }
+
     async function hydrate() {
       const params = new URLSearchParams(window.location.search);
+      if (params.get('error')) {
+        if (!cancelled) setMissingSession(true);
+        return;
+      }
+
+      const tokenHash = params.get('token_hash');
+      if (tokenHash) {
+        const { error } = await supabase.auth.verifyOtp({
+          type: 'recovery',
+          token_hash: tokenHash,
+        });
+        if (error) console.error('Password reset token', error.message);
+        else window.history.replaceState({}, '', window.location.pathname);
+      }
+
       const code = params.get('code');
       if (code) {
         const { error } = await supabase.auth.exchangeCodeForSession(code);
         if (error) console.error('Password reset code exchange', error.message);
       }
 
-      const { data } = await supabase.auth.getSession();
-      if (cancelled) return;
-      if (data.session) {
-        setReady(true);
+      if (await hasUser()) {
+        if (!cancelled) {
+          setReady(true);
+          setMissingSession(false);
+        }
         return;
       }
+
+      if (await hydrateFromHash()) {
+        if (!cancelled) {
+          setReady(true);
+          setMissingSession(false);
+        }
+        return;
+      }
+
       setTimeout(async () => {
-        const again = await supabase.auth.getSession();
         if (cancelled) return;
-        if (again.data.session) setReady(true);
-        else setMissingSession(true);
-      }, 800);
+        if (await hasUser()) {
+          setReady(true);
+          setMissingSession(false);
+        } else {
+          setMissingSession(true);
+        }
+      }, 600);
     }
 
-    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
-      if (session && (event === 'PASSWORD_RECOVERY' || event === 'SIGNED_IN' || event === 'INITIAL_SESSION')) {
-        setReady(true);
-        setMissingSession(false);
+    const { data: sub } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (!session) return;
+      if (event === 'PASSWORD_RECOVERY' || event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
+        if (await hasUser()) {
+          setReady(true);
+          setMissingSession(false);
+        }
       }
     });
 
@@ -64,16 +116,15 @@ export default function ResetPasswordPage() {
     }
     setLoading(true);
     try {
+      const { data: userData } = await supabase.auth.getUser();
+      if (!userData.user) {
+        throw new Error('Reset session expired. Request a new forgot-password email and use that latest link.');
+      }
       const { error } = await supabase.auth.updateUser({ password });
       if (error) throw error;
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (user) {
-        await supabase.from('profiles').update({ must_change_password: false }).eq('id', user.id);
-      }
+      await supabase.from('profiles').update({ must_change_password: false }).eq('id', userData.user.id);
       toast.success('Password updated');
-      window.location.href = '/dashboard';
+      window.location.href = '/login';
     } catch (error: any) {
       toast.error(error?.message || 'Could not update password');
     } finally {
@@ -90,7 +141,7 @@ export default function ResetPasswordPage() {
         {missingSession && !ready ? (
           <div className="space-y-4">
             <p className="text-sm text-red-700">
-              This reset link is invalid or has expired. Request a new one from the login page.
+              This reset link is invalid or has expired. Request a new one from the login page and open the latest email.
             </p>
             <Link href="/login" className="text-blue-600 text-sm font-semibold">
               ← Back to Sign In
