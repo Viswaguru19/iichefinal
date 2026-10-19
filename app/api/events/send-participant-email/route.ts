@@ -1,11 +1,13 @@
 import { NextResponse } from 'next/server';
 import QRCode from 'qrcode';
 import { createClient } from '@/lib/supabase/server';
+import { tryCreateAdminClient } from '@/lib/supabase/admin';
 import { sendEmail } from '@/lib/notifications';
 import { isPortalAdmin } from '@/lib/permissions';
 import {
   buildEventParticipantEmail,
   draftParticipantInviteMessage,
+  participantInvitePlainText,
   plainTextToParticipantEmailHtml,
 } from '@/lib/event-participant-email-builder';
 import {
@@ -48,6 +50,31 @@ async function canSendToEventParticipants(
   const isMember = (profile.committee_members as { committee_id: string }[] | null)?.length;
 
   return Boolean(isFaculty || isEC || isAdmin || onCommittee || isMember);
+}
+
+function publicEventDocumentUrl(path: string): string {
+  const raw = String(path || '').trim();
+  if (!raw) return '';
+  if (/^https?:\/\//i.test(raw)) return raw;
+  const base = (process.env.NEXT_PUBLIC_SUPABASE_URL || '').replace(/\/$/, '');
+  return `${base}/storage/v1/object/public/event-documents/${raw.replace(/^\//, '')}`;
+}
+
+async function uploadPublicPng(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  path: string,
+  png: Buffer,
+): Promise<string> {
+  const storage = tryCreateAdminClient() ?? supabase;
+  const { error } = await storage.storage.from('event-documents').upload(path, png, {
+    contentType: 'image/png',
+    upsert: true,
+  });
+  if (error) {
+    console.error('[send-participant-email] qr upload', error.message);
+    return '';
+  }
+  return publicEventDocumentUrl(path);
 }
 
 function posterMime(path: string): string {
@@ -105,8 +132,8 @@ export async function POST(request: Request) {
       extraNotes,
     });
 
-    let posterAttachment: { filename: string; content: Buffer; contentType: string; contentId: string } | null =
-      null;
+    const posterPublicUrl = event.poster_url ? publicEventDocumentUrl(event.poster_url) : '';
+    let posterAttachment: { filename: string; content: Buffer; contentType: string } | null = null;
     if (event.poster_url) {
       const { data: posterFile } = await supabase.storage.from('event-documents').download(event.poster_url);
       if (posterFile) {
@@ -116,7 +143,6 @@ export async function POST(request: Request) {
           filename,
           content,
           contentType: posterMime(filename),
-          contentId: 'event-poster',
         };
       }
     }
@@ -128,22 +154,29 @@ export async function POST(request: Request) {
       }
       const qrJson = JSON.stringify(dummyCheckInPayload(eventId));
       const png = await QRCode.toBuffer(qrJson, { type: 'png', width: 280, margin: 1 });
-      const attachments: Array<{ filename: string; content: Buffer; contentType: string; contentId?: string }> = [];
+      const qrPublicUrl = await uploadPublicPng(
+        supabase,
+        `participant-checkin-qr/${eventId}/preview.png`,
+        png,
+      );
+      const attachments: Array<{ filename: string; content: Buffer; contentType: string }> = [];
       if (posterAttachment) attachments.push(posterAttachment);
       attachments.push({
         filename: 'check-in-qr-preview.png',
         content: png,
         contentType: 'image/png',
-        contentId: 'check-in-qr',
       });
       const emailHtml = buildEventParticipantEmail({
         event,
         subject,
         bodyHtml: `${plainTextToParticipantEmailHtml(messageBody, PREVIEW_PARTICIPANT_NAME)}<p style="margin:16px 0 0;font-size:12px;color:#6b7280;">This is a check email. The QR is a dummy and will not mark attendance.</p>`,
-        posterUrl: posterAttachment ? 'cid:event-poster' : undefined,
-        checkInQrDataUrl: 'cid:check-in-qr',
+        posterUrl: posterPublicUrl || undefined,
+        checkInQrDataUrl: qrPublicUrl || `data:image/png;base64,${png.toString('base64')}`,
       });
-      const result = await sendEmail(previewTo, subject, emailHtml, { attachments });
+      const result = await sendEmail(previewTo, subject, emailHtml, {
+        attachments,
+        text: `${participantInvitePlainText(messageBody, PREVIEW_PARTICIPANT_NAME)}\n\nThis is a check email. The QR is a dummy and will not mark attendance.`,
+      });
       if (!result.success) {
         return NextResponse.json({ error: result.error || 'Failed to send check email' }, { status: 500 });
       }
@@ -219,7 +252,7 @@ export async function POST(request: Request) {
 
     for (const recipient of recipients) {
       const bodyHtml = plainTextToParticipantEmailHtml(messageBody, recipient.name);
-      const attachments: Array<{ filename: string; content: Buffer; contentType: string; contentId?: string }> = [];
+      const attachments: Array<{ filename: string; content: Buffer; contentType: string }> = [];
       if (posterAttachment) attachments.push(posterAttachment);
 
       const payload = participantCheckInPayload(
@@ -237,23 +270,33 @@ export async function POST(request: Request) {
         await supabase.from('event_participants').update({ qr_data: qrJson }).eq('id', recipient.id);
       }
       const png = await QRCode.toBuffer(qrJson, { type: 'png', width: 280, margin: 1 });
+      const qrPublicUrl = await uploadPublicPng(
+        supabase,
+        `participant-checkin-qr/${eventId}/${recipient.id}.png`,
+        png,
+      );
       attachments.push({
         filename: `check-in-qr-${recipient.name.replace(/[^\w.-]+/g, '-').slice(0, 40)}.png`,
         content: png,
         contentType: 'image/png',
-        contentId: 'check-in-qr',
       });
 
       const emailHtml = buildEventParticipantEmail({
         event,
         subject,
         bodyHtml,
-        posterUrl: posterAttachment ? 'cid:event-poster' : undefined,
-        checkInQrDataUrl: 'cid:check-in-qr',
+        posterUrl: posterPublicUrl || undefined,
+        checkInQrDataUrl: qrPublicUrl || `data:image/png;base64,${png.toString('base64')}`,
       });
-      const result = await sendEmail(recipient.email, subject, emailHtml, { attachments });
+      const result = await sendEmail(recipient.email, subject, emailHtml, {
+        attachments,
+        text: participantInvitePlainText(messageBody, recipient.name),
+      });
       if (result.success) sent += 1;
       else failed += 1;
+      if (recipients.length > 1) {
+        await new Promise((resolve) => setTimeout(resolve, 200));
+      }
     }
 
     return NextResponse.json({

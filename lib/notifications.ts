@@ -44,9 +44,11 @@ export async function sendEmail(to: string, subject: string, html: string, optio
         content: file.content,
         contentType: file.contentType,
         content_id: file.contentId,
+        contentId: file.contentId,
       })),
       headers: {
         'List-Unsubscribe': `<mailto:${process.env.RESEND_REPLY_TO || 'admin@iicheavvu.in'}>`,
+        'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
         ...options?.headers,
       },
     });

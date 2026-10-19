@@ -7,7 +7,7 @@ import {
   ON_SPOT_REGISTRATION_GROUP,
 } from '@/lib/event-participant-groups';
 import { dummyCheckInPayload, participantCheckInPayload, participantMailFromRosterField, resolveParticipantSendEmail } from '@/lib/event-participant-qr';
-import { draftParticipantInviteMessage } from '@/lib/event-participant-email-builder';
+import { buildEventParticipantEmail, draftParticipantInviteMessage } from '@/lib/event-participant-email-builder';
 
 describe('parseBulkParticipantLines', () => {
   it('parses name-only lines and CSV with emails', () => {
@@ -155,6 +155,19 @@ describe('draftParticipantInviteMessage', () => {
     expect(draft).toContain('We invite you to ACE Orientation.');
     expect(draft).toContain('Bring your ID card.');
     expect(draft).toContain('Use this QR code for attendance');
+  });
+
+  it('embeds poster and QR by https URL and has no View event button', () => {
+    const html = buildEventParticipantEmail({
+      event: { id: 'e1', title: 'ACE Orientation' },
+      subject: 'Invite',
+      bodyHtml: '<p>Hello</p>',
+      posterUrl: 'https://example.com/poster.png',
+      checkInQrDataUrl: 'https://example.com/qr.png',
+    });
+    expect(html).toContain('https://example.com/poster.png');
+    expect(html).toContain('https://example.com/qr.png');
+    expect(html.toLowerCase()).not.toContain('view event');
   });
 });
 

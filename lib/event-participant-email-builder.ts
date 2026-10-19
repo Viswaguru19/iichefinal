@@ -23,6 +23,10 @@ export function plainTextToParticipantEmailHtml(text: string, recipientName?: st
     .join('');
 }
 
+export function participantInvitePlainText(messageBody: string, recipientName: string): string {
+  return messageBody.replace(/\{\{name\}\}/gi, recipientName.trim() || 'Participant');
+}
+
 export function draftParticipantInviteMessage(options: {
   eventTitle: string;
   extraNotes?: string;
@@ -52,7 +56,6 @@ export function buildEventParticipantEmail(options: {
   checkInQrDataUrl?: string;
   posterUrl?: string;
 }): string {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.iicheavvu.in';
   const { event, bodyHtml, checkInQrDataUrl, posterUrl } = options;
 
   let dateLine = '';
@@ -91,19 +94,15 @@ export function buildEventParticipantEmail(options: {
           ? `<div style="text-align:center;margin:24px 0;padding:16px;background:#eef2ff;border-radius:12px;">
         <p style="margin:0 0 12px;font-weight:600;color:#312e81;">Your check-in QR</p>
         <img src="${checkInQrDataUrl}" alt="Check-in QR" width="220" height="220" style="display:block;margin:0 auto;background:#ffffff;padding:8px;border-radius:8px;" />
-        <p style="margin:12px 0 0;font-size:13px;color:#4338ca;">Show this at the venue. A PNG is also attached.</p>
+        <p style="margin:12px 0 0;font-size:13px;color:#4338ca;">Show this at the venue. If the image does not load, open the attached PNG.</p>
       </div>`
           : ''
       }
 
-      <a href="${appUrl}/dashboard/event-detail/${event.id}"
-         style="display:inline-block;background:#4f46e5;color:#ffffff;padding:12px 24px;
-                text-decoration:none;border-radius:6px;font-weight:600;margin-top:16px;">
-        View event
-      </a>
-
       <p style="color:#6b7280;font-size:13px;margin-top:32px;">
-        IIChE AVVU SC Student Chapter
+        IIChE AVVU Student Chapter, Amrita Vishwa Vidyapeetham, Coimbatore<br/>
+        This message is only for registered participants of this event.
+        If it is not for you, ignore it or reply to this email.
       </p>
     </div>
   `;

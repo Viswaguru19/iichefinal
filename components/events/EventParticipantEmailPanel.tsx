@@ -179,6 +179,10 @@ export default function EventParticipantEmailPanel({
               {emailStats.rollExample ? ` (e.g. ${emailStats.rollExample})` : ''}
               {emailStats.fromRoll ? ` — ${emailStats.fromRoll} from roll numbers` : ''}.
             </p>
+            <p className="text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+              If the poster or QR does not show in the message body, they are also attached as files
+              students can open. Amrita mail may still put the first send in Junk.
+            </p>
 
             {posterUrl ? (
               <img
