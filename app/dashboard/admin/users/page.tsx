@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import UserTable from '@/components/dashboard/UserTable';
+import { canManageMemberPasswords } from '@/lib/member-password';
 
 export default async function UserManagementPage() {
   const supabase = await createClient();
@@ -15,7 +16,7 @@ export default async function UserManagementPage() {
     .eq('id', user.id)
     .single();
 
-  if (!profile || ((profile as any).role !== 'super_admin' && (profile as any).role !== 'faculty_advisor' && !(profile as any).is_faculty)) {
+  if (!canManageMemberPasswords(profile)) {
     redirect('/dashboard');
   }
 

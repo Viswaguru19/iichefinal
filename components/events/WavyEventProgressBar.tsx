@@ -27,16 +27,18 @@ export function buildEventProgressMarks(
   const n = counted.length;
   if (!n) return marks;
   const doneCount = counted.filter(
-    (task) => task.status === 'completed' || !!task.completed_at || (task.progress || 0) >= 100,
+    (task) => task.status === 'completed' || !!task.completed_at,
   ).length;
   const slice = 70 / n;
-  for (let i = 0; i < n; i += 1) {
+  // Only place Task N once that many tasks are actually complete. Evenly
+  // spaced labels for unfinished work make a 50% fill look like Task 3 is done.
+  for (let i = 0; i < doneCount; i += 1) {
     marks.push({
       key: `task-${i + 1}`,
       label: `Task ${i + 1}`,
       hint: `${doneCount} of ${n} tasks completed`,
       at: Math.round(30 + slice * (i + 1)),
-      reached: i < doneCount,
+      reached: true,
     });
   }
   return marks;

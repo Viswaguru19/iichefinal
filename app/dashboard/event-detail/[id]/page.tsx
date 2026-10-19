@@ -19,6 +19,7 @@ import EventParticipantEmailPanel from '@/components/events/EventParticipantEmai
 import { isManualParticipantSource, participantDisplayGroup, participantSecondaryText, registrationSourceLabel } from '@/lib/event-participant-groups';
 import { participantCheckInPayload } from '@/lib/event-participant-qr';
 import { isPortalAdmin } from '@/lib/permissions';
+import { canSendEventParticipantEmail } from '@/lib/member-profile-edit';
 import PortalLoadingScreen from '@/components/PortalLoadingScreen';
 import { insertPortalNotifications } from '@/lib/portal-notifications-client';
 import { formatPortalDate, formatPortalDateTime } from '@/lib/portal-date';
@@ -1175,6 +1176,10 @@ export default function EventDetailPage() {
     event.status !== 'completed' &&
     (isFaculty || isEC || isAdminUser || userCommittees.includes(event.committee_id));
   const canManageParticipants = !!userProfile;
+  const canEmailParticipants = canSendEventParticipantEmail(
+    userProfile,
+    userProfile?.committee_members,
+  );
   const canUploadPoster = isGraphics || isAdminUser;
   const posterPublished =
     !!event.poster_url &&
@@ -1954,7 +1959,7 @@ export default function EventDetailPage() {
                         eventId={event.id}
                         eventTitle={event.title}
                         participants={participants}
-                        canSend={canManageParticipants}
+                        canSend={canEmailParticipants}
                         posterUrl={posterUrl}
                       />
                     }

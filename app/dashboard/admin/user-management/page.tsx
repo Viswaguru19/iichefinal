@@ -19,6 +19,7 @@ import {
 import toast from 'react-hot-toast';
 import type { UserRole, ExecutiveRole } from '@/types/database';
 import PortalLoadingScreen from '@/components/PortalLoadingScreen';
+import { canManageMemberPasswords } from '@/lib/member-password';
 
 export default function UserManagementPage() {
     const [users, setUsers] = useState<any[]>([]);
@@ -29,6 +30,14 @@ export default function UserManagementPage() {
     const [statusFilter, setStatusFilter] = useState<string>('all');
     const [selectedUser, setSelectedUser] = useState<any>(null);
     const [showEditModal, setShowEditModal] = useState(false);
+    const [passwordResult, setPasswordResult] = useState<{
+        name: string;
+        email: string;
+        tempPassword: string;
+        emailed: boolean;
+        emailError?: string | null;
+    } | null>(null);
+    const [resettingUserId, setResettingUserId] = useState<string | null>(null);
 
     const supabase = createClient();
     const router = useRouter();
@@ -47,11 +56,11 @@ export default function UserManagementPage() {
 
         const { data: profile } = await supabase
             .from('profiles')
-            .select('is_admin, is_faculty')
+            .select('is_admin, is_faculty, role')
             .eq('id', user.id)
             .single();
 
-        if (!profile?.is_admin && !profile?.is_faculty) {
+        if (!canManageMemberPasswords(profile)) {
             toast.error('Access denied: Admin or Faculty only');
             return router.push('/dashboard');
         }
@@ -152,24 +161,35 @@ export default function UserManagementPage() {
         }
     }
 
-    async function resetUserPassword(userId: string, email: string) {
-        const newPassword = prompt('Enter new password for user:');
-        if (!newPassword || newPassword.length < 6) {
-            toast.error('Password must be at least 6 characters');
+    async function resetUserPassword(user: { id: string; name?: string; email?: string }) {
+        if (
+            !confirm(
+                `Issue a temporary password for ${user.name || user.email}? They must change it the next time they sign in.`,
+            )
+        ) {
             return;
         }
-
+        setResettingUserId(user.id);
         try {
-            // This requires Supabase Admin API
-            // In production, create an API route that uses service role key
-            toast('Password reset functionality requires backend API', { icon: 'ℹ️' });
-            // Example API call:
-            // await fetch('/api/admin/reset-password', {
-            //   method: 'POST',
-            //   body: JSON.stringify({ userId, newPassword }),
-            // });
+            const res = await fetch('/api/admin/reset-member-password', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId: user.id }),
+            });
+            const body = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(body.error || 'Could not reset password');
+            setPasswordResult({
+                name: user.name || 'Member',
+                email: body.email || user.email || '',
+                tempPassword: body.tempPassword,
+                emailed: body.emailed === true,
+                emailError: body.emailError,
+            });
+            toast.success('Temporary password created');
         } catch (error: any) {
             toast.error(error.message);
+        } finally {
+            setResettingUserId(null);
         }
     }
 
@@ -391,6 +411,14 @@ export default function UserManagementPage() {
                                                     <Mail className="w-5 h-5" />
                                                 </button>
                                                 <button
+                                                    onClick={() => void resetUserPassword(user)}
+                                                    disabled={resettingUserId === user.id}
+                                                    className="text-amber-600 hover:text-amber-900 disabled:opacity-40"
+                                                    title="Temporary password"
+                                                >
+                                                    <Key className="w-5 h-5" />
+                                                </button>
+                                                <button
                                                     onClick={() => toggleUserStatus(user.id, user.is_active)}
                                                     className={user.is_active ? 'text-red-600 hover:text-red-900' : 'text-green-600 hover:text-green-900'}
                                                     title={user.is_active ? 'Deactivate' : 'Activate'}
@@ -417,6 +445,45 @@ export default function UserManagementPage() {
                     }}
                     onSave={updateUserRole}
                 />
+            )}
+
+            {passwordResult && (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                    <div className="glass-strong rounded-2xl p-6 max-w-md w-full">
+                        <h2 className="text-xl font-bold text-gray-900 mb-2">Temporary password</h2>
+                        <p className="text-sm text-gray-600 mb-4">
+                            Share this with {passwordResult.name}. They must change it as soon as they sign in.
+                        </p>
+                        <p className="text-xs text-gray-500 mb-1">{passwordResult.email}</p>
+                        <div className="flex items-center gap-2 mb-3">
+                            <code className="flex-1 text-sm bg-white/80 border rounded-lg px-3 py-2 break-all">
+                                {passwordResult.tempPassword}
+                            </code>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    void navigator.clipboard.writeText(passwordResult.tempPassword);
+                                    toast.success('Copied');
+                                }}
+                                className="text-sm font-semibold text-indigo-700"
+                            >
+                                Copy
+                            </button>
+                        </div>
+                        <p className="text-xs text-gray-500 mb-4">
+                            {passwordResult.emailed
+                                ? 'An email with this password was also sent.'
+                                : `Email was not sent${passwordResult.emailError ? `: ${passwordResult.emailError}` : ''}. Copy and share it yourself.`}
+                        </p>
+                        <button
+                            type="button"
+                            onClick={() => setPasswordResult(null)}
+                            className="w-full btn-gradient-blue py-2 rounded-xl font-semibold"
+                        >
+                            Done
+                        </button>
+                    </div>
+                </div>
             )}
         </div>
     );

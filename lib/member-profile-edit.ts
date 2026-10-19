@@ -20,6 +20,36 @@ export function isGraphicsCommitteeMember(
   });
 }
 
+export function isPrCommitteeMember(
+  memberships:
+    | { committees?: CommitteeRef; name?: string | null }[]
+    | null
+    | undefined,
+): boolean {
+  return (memberships || []).some((m) => {
+    const name = committeeDisplayName(m.committees, m.name).toLowerCase();
+    return /\bpr\b/.test(name) || name.includes('public relations');
+  });
+}
+
+/** Invite emails: PR committee, portal admins, and faculty only. */
+export function canSendEventParticipantEmail(
+  profile: {
+    is_admin?: boolean | null;
+    is_faculty?: boolean | null;
+    role?: string | null;
+  } | null | undefined,
+  memberships:
+    | { committees?: CommitteeRef; name?: string | null }[]
+    | null
+    | undefined,
+): boolean {
+  if (!profile) return false;
+  if (profile.is_faculty === true) return true;
+  if (isPortalAdmin(profile)) return true;
+  return isPrCommitteeMember(memberships);
+}
+
 export function canEditOtherMemberProfiles(
   profile: { is_admin?: boolean | null; role?: string | null } | null | undefined,
   memberships:

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { PortalPresenceContext, type PortalPresenceValue } from '@/components/dashboard/PortalPresenceContext';
+import MustChangePasswordGate from '@/components/auth/MustChangePasswordGate';
 
 /**
  * Subscribes authenticated dashboard visitors to shared presence (deferred so first paint stays fast).
@@ -92,5 +93,10 @@ export default function PortalPresenceProvider({ children }: { children: React.R
     [onlineUserIds, viewerIsAdmin, currentUserId, ready],
   );
 
-  return <PortalPresenceContext.Provider value={value}>{children}</PortalPresenceContext.Provider>;
+  return (
+    <PortalPresenceContext.Provider value={value}>
+      <MustChangePasswordGate />
+      {children}
+    </PortalPresenceContext.Provider>
+  );
 }

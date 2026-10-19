@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import PortalLoadingScreen from '@/components/PortalLoadingScreen';
+import MustChangePasswordGate from '@/components/auth/MustChangePasswordGate';
 import { formatPortalDateTime } from '@/lib/portal-date';
 
 type AppRow = {
@@ -66,6 +67,7 @@ export default function HiringPortalPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      <MustChangePasswordGate />
       <nav className="bg-white border-b px-4 py-4 flex flex-wrap justify-between gap-2">
         <Link href="/hiring" className="text-indigo-600 font-medium">
           Hiring home

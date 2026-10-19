@@ -21,23 +21,15 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      let email = emailOrUsername;
+      const res = await fetch('/api/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ emailOrUsername: emailOrUsername.trim() }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || 'Failed to send reset link');
 
-      if (!emailOrUsername.includes('@')) {
-        const { data: profileData } = await supabase
-          .from('profiles')
-          .select('email')
-          .eq('username', emailOrUsername)
-          .maybeSingle();
-
-        if (!(profileData as any)?.email) throw new Error('User not found');
-        email = (profileData as any).email;
-      }
-
-      const { error } = await supabase.auth.resetPasswordForEmail(email);
-      if (error) throw error;
-
-      alert('Password reset link sent to your email!');
+      toast.success(body.message || 'If an account exists, a reset link was sent.');
       setResetMode(false);
     } catch (error: any) {
       alert(error?.message || 'Failed to send reset link');

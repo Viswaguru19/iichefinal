@@ -3,7 +3,7 @@ import QRCode from 'qrcode';
 import { createClient } from '@/lib/supabase/server';
 import { tryCreateAdminClient } from '@/lib/supabase/admin';
 import { sendEmail } from '@/lib/notifications';
-import { isPortalAdmin } from '@/lib/permissions';
+import { canSendEventParticipantEmail } from '@/lib/member-profile-edit';
 import {
   buildEventParticipantEmail,
   draftParticipantInviteMessage,
@@ -20,36 +20,18 @@ import {
 
 export const runtime = 'nodejs';
 
-const EC_COMMITTEE_ID = '00000000-0000-0000-0000-000000000001';
-
 async function canSendToEventParticipants(
   supabase: Awaited<ReturnType<typeof createClient>>,
   userId: string,
-  committeeId: string | null,
 ): Promise<boolean> {
   const { data: profile } = await supabase
     .from('profiles')
-    .select('is_faculty, is_admin, role, executive_role, committee_members(committee_id)')
+    .select('is_faculty, is_admin, role, committee_members(committees(name))')
     .eq('id', userId)
     .single();
 
   if (!profile) return false;
-
-  const isFaculty = profile.is_faculty === true || profile.is_admin === true;
-  const isEC =
-    profile.executive_role != null ||
-    (profile.committee_members as { committee_id: string }[] | null)?.some(
-      (m) => m.committee_id === EC_COMMITTEE_ID,
-    );
-  const isAdmin = isPortalAdmin(profile);
-  const onCommittee =
-    committeeId &&
-    (profile.committee_members as { committee_id: string }[] | null)?.some(
-      (m) => m.committee_id === committeeId,
-    );
-  const isMember = (profile.committee_members as { committee_id: string }[] | null)?.length;
-
-  return Boolean(isFaculty || isEC || isAdmin || onCommittee || isMember);
+  return canSendEventParticipantEmail(profile, profile.committee_members);
 }
 
 function publicEventDocumentUrl(path: string): string {
@@ -117,7 +99,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Event not found' }, { status: 404 });
     }
 
-    const allowed = await canSendToEventParticipants(supabase, user.id, event.committee_id);
+    const allowed = await canSendToEventParticipants(supabase, user.id);
     if (!allowed) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
