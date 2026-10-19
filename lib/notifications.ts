@@ -16,6 +16,7 @@ export type SendEmailOptions = {
     filename: string;
     content: Buffer | string;
     contentType?: string;
+    contentId?: string;
   }>;
   headers?: Record<string, string>;
 };
@@ -38,7 +39,12 @@ export async function sendEmail(to: string, subject: string, html: string, optio
       subject,
       html,
       text: options?.text,
-      attachments: options?.attachments,
+      attachments: options?.attachments?.map((file) => ({
+        filename: file.filename,
+        content: file.content,
+        contentType: file.contentType,
+        content_id: file.contentId,
+      })),
       headers: {
         'List-Unsubscribe': `<mailto:${process.env.RESEND_REPLY_TO || 'admin@iicheavvu.in'}>`,
         ...options?.headers,

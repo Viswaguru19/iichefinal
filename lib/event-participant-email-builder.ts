@@ -23,6 +23,23 @@ export function plainTextToParticipantEmailHtml(text: string, recipientName?: st
     .join('');
 }
 
+export function draftParticipantInviteMessage(options: {
+  eventTitle: string;
+  extraNotes?: string;
+}): string {
+  const extra = String(options.extraNotes || '').trim();
+  const extraBlock = extra ? `\n${extra}\n\n` : '\n';
+  return `Hi {{name}},
+
+We invite you to ${options.eventTitle}.
+
+The event poster is included in this email.
+${extraBlock}Use this QR code for attendance at the venue.
+
+Regards,
+IIChE AVVU SC`;
+}
+
 export function buildEventParticipantEmail(options: {
   event: {
     id: string;
@@ -32,9 +49,11 @@ export function buildEventParticipantEmail(options: {
   };
   subject: string;
   bodyHtml: string;
+  checkInQrDataUrl?: string;
+  posterUrl?: string;
 }): string {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.iicheavvu.in';
-  const { event, bodyHtml } = options;
+  const { event, bodyHtml, checkInQrDataUrl, posterUrl } = options;
 
   let dateLine = '';
   if (event.event_date) {
@@ -57,6 +76,25 @@ export function buildEventParticipantEmail(options: {
       </div>
 
       ${bodyHtml}
+
+      ${
+        posterUrl
+          ? `<div style="text-align:center;margin:24px 0;">
+        <p style="margin:0 0 12px;font-weight:600;color:#312e81;">Event poster</p>
+        <img src="${posterUrl}" alt="Event poster" width="480" style="display:block;margin:0 auto;max-width:100%;border-radius:12px;" />
+      </div>`
+          : ''
+      }
+
+      ${
+        checkInQrDataUrl
+          ? `<div style="text-align:center;margin:24px 0;padding:16px;background:#eef2ff;border-radius:12px;">
+        <p style="margin:0 0 12px;font-weight:600;color:#312e81;">Your check-in QR</p>
+        <img src="${checkInQrDataUrl}" alt="Check-in QR" width="220" height="220" style="display:block;margin:0 auto;background:#ffffff;padding:8px;border-radius:8px;" />
+        <p style="margin:12px 0 0;font-size:13px;color:#4338ca;">Show this at the venue. A PNG is also attached.</p>
+      </div>`
+          : ''
+      }
 
       <a href="${appUrl}/dashboard/event-detail/${event.id}"
          style="display:inline-block;background:#4f46e5;color:#ffffff;padding:12px 24px;

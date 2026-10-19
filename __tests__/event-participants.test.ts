@@ -6,6 +6,8 @@ import {
   FORM_REGISTRATION_GROUP,
   ON_SPOT_REGISTRATION_GROUP,
 } from '@/lib/event-participant-groups';
+import { participantCheckInPayload, participantMailFromRosterField, resolveParticipantSendEmail } from '@/lib/event-participant-qr';
+import { draftParticipantInviteMessage } from '@/lib/event-participant-email-builder';
 
 describe('parseBulkParticipantLines', () => {
   it('parses name-only lines and CSV with emails', () => {
@@ -103,5 +105,68 @@ describe('buildAttendanceReportCsv', () => {
     expect(csv.startsWith('Serial,Name,Email,Group,Attendance,Marked At')).toBe(true);
     expect(csv).toContain('"Form Student","form@amrita.edu","Registered through form","Absent"');
     expect(csv).toContain('"Walk In","","On-spot registration","Present"');
+  });
+});
+
+describe('participantMailFromRosterField', () => {
+  it('builds Amrita student email from a roll number', () => {
+    expect(participantMailFromRosterField('CB.EN.U4CHE26101')).toBe(
+      'CB.EN.U4CHE26101@cb.students.amrita.edu',
+    );
+  });
+
+  it('keeps a real email as-is', () => {
+    expect(participantMailFromRosterField('Priya@amrita.edu')).toBe('priya@amrita.edu');
+  });
+});
+
+describe('resolveParticipantSendEmail', () => {
+  it('uses a stored email when present', () => {
+    expect(resolveParticipantSendEmail({ participant_email: 'priya@amrita.edu' })).toEqual({
+      email: 'priya@amrita.edu',
+      fromRoll: false,
+    });
+  });
+
+  it('falls back to campus mail from roll number', () => {
+    expect(resolveParticipantSendEmail({ participant_email: 'CB.EN.U4CHE26101' })).toEqual({
+      email: 'CB.EN.U4CHE26101@cb.students.amrita.edu',
+      fromRoll: true,
+    });
+  });
+
+  it('uses an email from form data when the roster field is a roll', () => {
+    expect(
+      resolveParticipantSendEmail({
+        participant_email: 'CB.EN.U4CHE26101',
+        form_data: { Email: 'form.student@amrita.edu' },
+      }),
+    ).toEqual({ email: 'form.student@amrita.edu', fromRoll: false });
+  });
+});
+
+describe('draftParticipantInviteMessage', () => {
+  it('personalizes an invite with optional extra points', () => {
+    const draft = draftParticipantInviteMessage({
+      eventTitle: 'ACE Orientation',
+      extraNotes: 'Bring your ID card.',
+    });
+    expect(draft).toContain('Hi {{name}},');
+    expect(draft).toContain('We invite you to ACE Orientation.');
+    expect(draft).toContain('Bring your ID card.');
+    expect(draft).toContain('Use this QR code for attendance');
+  });
+});
+
+describe('participantCheckInPayload', () => {
+  it('reuses stored qr_data when it has a participant id', () => {
+    const payload = participantCheckInPayload(
+      {
+        id: 'p1',
+        qr_data: JSON.stringify({ participant_id: 'p1', event_id: 'e1' }),
+      },
+      'e1',
+    );
+    expect(payload.participant_id).toBe('p1');
   });
 });

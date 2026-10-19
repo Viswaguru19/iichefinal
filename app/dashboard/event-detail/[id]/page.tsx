@@ -17,6 +17,7 @@ import EventQrScanner, { type QrScanResult } from '@/components/events/EventQrSc
 import EventParticipantManager from '@/components/events/EventParticipantManager';
 import EventParticipantEmailPanel from '@/components/events/EventParticipantEmailPanel';
 import { isManualParticipantSource, participantDisplayGroup, participantSecondaryText, registrationSourceLabel } from '@/lib/event-participant-groups';
+import { participantCheckInPayload } from '@/lib/event-participant-qr';
 import { isPortalAdmin } from '@/lib/permissions';
 import PortalLoadingScreen from '@/components/PortalLoadingScreen';
 import { insertPortalNotifications } from '@/lib/portal-notifications-client';
@@ -24,10 +25,29 @@ import { formatPortalDate, formatPortalDateTime } from '@/lib/portal-date';
 import { notifyAllPortalUsers } from '@/lib/portal-notify-helpers';
 import { computeEventOverallProgress, eventProgressTasks } from '@/lib/event-progress';
 import WavyEventProgressBar, { buildEventProgressMarks } from '@/components/events/WavyEventProgressBar';
+import { mapProfileDisplayNames, profileDisplayName } from '@/lib/profile-display-names';
 
 function taskSupportingDocHref(fileUrl: string) {
   const base = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
   return `${base}/storage/v1/object/public/event-documents/${fileUrl}`;
+}
+
+function taskUpdateAuthorId(update: { user_id?: string | null; updated_by?: string | null }) {
+  return update.user_id || update.updated_by || null;
+}
+
+function uniqueTaskAuthorNames(updates: Array<{ authorName?: string | null; user?: { name?: string | null } }>) {
+  const seen = new Set<string>();
+  const names: string[] = [];
+  for (const update of updates) {
+    const name = String(update.authorName || update.user?.name || '').trim();
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    names.push(name);
+  }
+  return names;
 }
 
 function TaskSupportingDocuments({ docs }: { docs: any[] | null | undefined }) {
@@ -350,6 +370,35 @@ export default function EventDetailPage() {
     const qr = await QRCode.toDataURL(formUrl, { width: 280, margin: 1 });
     setEventQrImage(qr);
     toast.success('On-spot registration QR ready — scan to open the event form; submitters are added as participants and marked present.');
+  }
+
+  async function downloadSelectedParticipantQr() {
+    if (!event?.id || !selectedParticipant?.id) return;
+    const payload = participantCheckInPayload(selectedParticipant, event.id);
+    const qrJson = JSON.stringify(payload);
+    if (!selectedParticipant.qr_data) {
+      const { error } = await supabase
+        .from('event_participants')
+        .update({ qr_data: qrJson })
+        .eq('id', selectedParticipant.id);
+      if (error) {
+        toast.error(error.message || 'Could not save QR for this participant');
+        return;
+      }
+      setSelectedParticipant({ ...selectedParticipant, qr_data: qrJson });
+      setParticipants((prev) =>
+        prev.map((p) => (p.id === selectedParticipant.id ? { ...p, qr_data: qrJson } : p)),
+      );
+    }
+    const dataUrl = await QRCode.toDataURL(qrJson, { width: 280, margin: 1 });
+    const link = document.createElement('a');
+    const slug = String(selectedParticipant.participant_name || 'participant')
+      .replace(/[^\w.-]+/g, '-')
+      .slice(0, 40);
+    link.href = dataUrl;
+    link.download = `check-in-${slug}.png`;
+    link.click();
+    toast.success('Check-in QR downloaded');
   }
 
   async function markAttendance(
@@ -724,7 +773,9 @@ export default function EventDetailPage() {
           const ids = rows.map((t: any) => t.id);
           let { data: updatesData } = await supabase
             .from('task_updates')
-            .select('*, user:updated_by(name)')
+            .select(
+              '*, author:profiles!task_updates_user_id_fkey(name, username, email), author_legacy:profiles!task_updates_updated_by_fkey(name, username, email)',
+            )
             .in('task_id', ids)
             .order('created_at', { ascending: true });
           if (!updatesData) {
@@ -735,10 +786,23 @@ export default function EventDetailPage() {
               .order('created_at', { ascending: true });
             updatesData = plain.data;
           }
+          const authorsById = await mapProfileDisplayNames(
+            supabase,
+            (updatesData || []).map((u: any) => taskUpdateAuthorId(u)),
+          );
           const byTask = new Map<string, any[]>();
           (updatesData || []).forEach((u: any) => {
+            const authorId = taskUpdateAuthorId(u);
             const list = byTask.get(u.task_id) || [];
-            list.push(u);
+            list.push({
+              ...u,
+              authorName:
+                profileDisplayName(u.author) ||
+                profileDisplayName(u.author_legacy) ||
+                (authorId ? authorsById[authorId] : '') ||
+                u.user?.name ||
+                '',
+            });
             byTask.set(u.task_id, list);
           });
           const taskApproverIds = [...new Set(rows.map((t: any) => t.ec_approved_by).filter(Boolean))];
@@ -1731,6 +1795,7 @@ export default function EventDetailPage() {
                 const updates = [...(task.updates || [])].sort(
                   (a: any, b: any) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
                 );
+                const contributorNames = uniqueTaskAuthorNames(updates);
                 const docs = task.task_documents || [];
                 return (
                   <div
@@ -1823,12 +1888,18 @@ export default function EventDetailPage() {
                                   <div className="min-w-0 flex-1 rounded-xl bg-white border border-slate-100 p-3">
                                     <LinkedText text={update.update_text || ''} className="text-sm text-gray-800" />
                                     <p className="text-xs text-gray-500 mt-1">
-                                      {update.user?.name || 'Member'} · {formatPortalDateTime(update.created_at)}
+                                      {update.authorName || update.user?.name || 'Unknown'} · {formatPortalDateTime(update.created_at)}
                                     </p>
                                   </div>
                                 </li>
                               ))}
                             </ol>
+                          )}
+                          {contributorNames.length > 0 && (
+                            <p className="text-xs text-gray-600 mt-3">
+                              Worked on this task:{' '}
+                              <span className="font-semibold text-gray-800">{contributorNames.join(', ')}</span>
+                            </p>
                           )}
                         </div>
                         <div>
@@ -1863,17 +1934,20 @@ export default function EventDetailPage() {
 
         {activeTab === 'participants' && (
           <div className="premium-panel rounded-2xl p-8">
-            <h3 className="text-2xl font-bold text-gray-900 mb-4 flex items-center gap-2">
-              <Users className="w-6 h-6" /> Participant Details
-            </h3>
-            {!participantsLoading && (
-              <EventParticipantEmailPanel
-                eventId={event.id}
-                eventTitle={event.title}
-                participants={participants}
-                canSend={canEditEventMeta}
-              />
-            )}
+            <div className="mb-4 flex items-center justify-between gap-3 flex-wrap">
+              <h3 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+                <Users className="w-6 h-6" /> Participant Details
+              </h3>
+              {!participantsLoading && (
+                <EventParticipantEmailPanel
+                  eventId={event.id}
+                  eventTitle={event.title}
+                  participants={participants}
+                  canSend={canEditEventMeta}
+                  posterUrl={posterUrl}
+                />
+              )}
+            </div>
             {participantsLoading ? (
               <p className="text-gray-500">Loading participants...</p>
             ) : (
@@ -1910,6 +1984,16 @@ export default function EventDetailPage() {
                         <span className="inline-flex text-[10px] font-semibold px-2 py-0.5 rounded-full bg-sky-100 text-sky-800 mb-3">
                           {participantDisplayGroup(selectedParticipant)}
                         </span>
+                      )}
+                      {canManageParticipants && (
+                        <button
+                          type="button"
+                          onClick={() => void downloadSelectedParticipantQr()}
+                          className="mb-3 inline-flex items-center gap-2 text-sm font-semibold text-indigo-600 hover:text-indigo-800"
+                        >
+                          <QrCode className="w-4 h-4" />
+                          Download check-in QR
+                        </button>
                       )}
                       {Object.keys(sanitizeParticipantFormData(selectedParticipant.form_data || {}) || {}).length > 0 ? (
                         <>
@@ -1952,7 +2036,7 @@ export default function EventDetailPage() {
             )}
             <div className="mb-6 rounded-xl border border-gray-200 bg-white/70 p-4">
               <p className="text-xs text-gray-600 mb-3">
-                <strong>Already registered online?</strong> They can show their <strong>personal check-in QR</strong> from their confirmation screen. Scan below or paste the QR JSON.
+                <strong>Already registered?</strong> Scan their <strong>personal check-in QR</strong> (from the form confirmation or the QR emailed from Participants). Paste QR JSON if needed.
               </p>
               <div className="flex items-center justify-between gap-2 mb-2">
                 <p className="text-sm font-medium text-gray-800">Scan participant check-in QR</p>

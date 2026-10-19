@@ -10,6 +10,7 @@ import DashboardAtmosphere from '@/components/react-bits/DashboardAtmosphere';
 import PageHeader from '@/components/PageHeader';
 import { formatPortalDate, formatPortalDateTime } from '@/lib/portal-date';
 import { LinkedText } from '@/components/LinkedText';
+import { mapProfileDisplayNames, profileDisplayName } from '@/lib/profile-display-names';
 
 export const dynamic = 'force-dynamic';
 
@@ -122,12 +123,29 @@ export default function EventProgressPage() {
         assigned_to:assigned_to_committee(name),
         creator:assigned_by_user(name),
         approver:ec_approved_by(name),
-        updates:task_updates(*, user:updated_by(name)),
+        updates:task_updates(*, author:profiles!task_updates_user_id_fkey(name, username, email), author_legacy:profiles!task_updates_updated_by_fkey(name, username, email)),
         task_documents(id, file_name, file_url, file_type, created_at)
       `)
       .eq('event_id', eventId)
       .order('created_at');
-    setTasks(data || []);
+    const rows = data || [];
+    const authorsById = await mapProfileDisplayNames(
+      supabase,
+      rows.flatMap((t: any) => (t.updates || []).map((u: any) => u.user_id || u.updated_by)),
+    );
+    setTasks(
+      rows.map((t: any) => ({
+        ...t,
+        updates: (t.updates || []).map((u: any) => ({
+          ...u,
+          authorName:
+            profileDisplayName(u.author) ||
+            profileDisplayName(u.author_legacy) ||
+            authorsById[u.user_id || u.updated_by] ||
+            '',
+        })),
+      })),
+    );
   }
 
   async function selectEvent(event: any) {
@@ -315,8 +333,8 @@ ${reportAdditionalDetails ? `## Additional Details\n${reportAdditionalDetails}` 
         .insert({
           task_id: selectedTask.id,
           updated_by: currentUser.id,
+          user_id: currentUser.id,
           update_text: updateText,
-          documents: []
         });
 
       if (error) throw error;
@@ -782,12 +800,25 @@ ${reportAdditionalDetails ? `## Additional Details\n${reportAdditionalDetails}` 
                     <div key={update.id} className="rounded-xl bg-slate-50 border border-slate-100 p-3">
                       <LinkedText text={update.update_text || ''} className="text-sm text-gray-800" />
                       <p className="text-xs text-gray-500 mt-1">
-                        {update.user?.name || 'Member'} · {formatPortalDateTime(update.created_at)}
+                        {update.authorName || update.user?.name || 'Unknown'} · {formatPortalDateTime(update.created_at)}
                       </p>
                     </div>
                   ))}
               </div>
             )}
+            {(() => {
+              const names = [...new Set(
+                (selectedTask.updates || [])
+                  .map((u: any) => String(u.authorName || u.user?.name || '').trim())
+                  .filter(Boolean),
+              )] as string[];
+              if (!names.length) return null;
+              return (
+                <p className="text-xs text-gray-600 mb-5">
+                  Worked on this task: <span className="font-semibold text-gray-800">{names.join(', ')}</span>
+                </p>
+              );
+            })()}
 
             <h3 className="text-sm font-semibold text-gray-900 mb-2 flex items-center gap-2">
               <Paperclip className="w-4 h-4 text-indigo-500" /> Documents

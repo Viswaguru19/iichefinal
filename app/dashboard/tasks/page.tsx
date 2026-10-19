@@ -306,6 +306,7 @@ export default function TasksPage() {
         .insert({
           task_id: progressTask.id,
           user_id: user?.id,
+          updated_by: user?.id,
           update_text: `Progress updated to ${progressValue}%`,
           progress_before: progressTask.progress || 0,
           progress_after: progressValue
@@ -366,6 +367,7 @@ export default function TasksPage() {
         .insert({
           task_id: selectedTask.id,
           user_id: user?.id,
+          updated_by: user?.id,
           update_text: updateText,
           progress_before: selectedTask.progress,
           progress_after: selectedTask.progress
