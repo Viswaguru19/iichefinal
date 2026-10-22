@@ -208,26 +208,39 @@ export function formatEventFeedbackDraftMarkdown(draft: EventFeedbackDraft): str
     .join('\n');
 }
 
+function amritaRollToken(raw: string): string {
+  const value = String(raw || '').trim();
+  if (!value) return '';
+  if (value.includes('@')) return amritaRollToken(value.split('@')[0]);
+  if (/^[A-Za-z]{2}\.[A-Za-z]{2}\.[A-Za-z0-9.]+$/.test(value)) return value;
+  if (/^cb[.\-][A-Za-z0-9.]+$/i.test(value) && /\d/.test(value)) return value;
+  return '';
+}
+
+function rollFromFormData(formData: unknown): string {
+  if (!formData || typeof formData !== 'object' || Array.isArray(formData)) return '';
+  for (const [key, value] of Object.entries(formData as Record<string, unknown>)) {
+    if (/e-?mail|correo/i.test(key)) continue;
+    if (!/roll|reg(?:istration)?\s*(no\.?|number)?/i.test(key)) continue;
+    const raw = String(value || '').trim();
+    if (!raw) continue;
+    const campus = amritaRollToken(raw);
+    if (campus) return campus;
+    if (!raw.includes('@')) return raw;
+  }
+  return '';
+}
+
 export function rosterRollDisplay(participant: {
   participant_email?: string | null;
   form_data?: unknown;
 }): string {
+  const fromForm = rollFromFormData(participant.form_data);
+  if (fromForm) return fromForm;
   const stored = String(participant.participant_email || '').trim();
-  if (stored && !stored.includes('@')) return stored;
-  if (stored.includes('@')) {
-    const local = stored.split('@')[0].trim();
-    if (/^cb[.\-]/i.test(local)) return local;
-    return stored;
-  }
-  if (participant.form_data && typeof participant.form_data === 'object' && !Array.isArray(participant.form_data)) {
-    for (const [key, value] of Object.entries(participant.form_data as Record<string, unknown>)) {
-      if (!/roll|reg(?:istration)?\s*(no\.?|number)?/i.test(key)) continue;
-      const raw = String(value || '').trim();
-      if (raw && !raw.includes('@')) return raw;
-      if (raw.includes('@')) return raw.split('@')[0];
-    }
-  }
-  return stored;
+  if (!stored) return '';
+  if (!stored.includes('@')) return stored;
+  return amritaRollToken(stored);
 }
 
 export function responseAnswer(

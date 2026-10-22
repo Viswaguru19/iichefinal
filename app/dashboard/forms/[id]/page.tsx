@@ -875,7 +875,9 @@ export default function FormSubmitPage() {
                 variants={fieldAnim}
                 initial="hidden"
                 animate="show"
-                className={`premium-panel p-6 transition-all duration-300 hover:shadow-lg ${errors[field.id] ? 'ring-2 ring-red-400/60' : ''}`}
+                className={`premium-panel p-6 transition-all duration-300 hover:shadow-lg overflow-visible ${
+                  isFeedbackNameField(field, form?.form_type) ? 'relative z-30' : 'relative z-0'
+                } ${errors[field.id] ? 'ring-2 ring-red-400/60' : ''}`}
               >
                 <label className="block text-base font-semibold text-gray-800 mb-1">
                   {field.label || 'Untitled Question'}

@@ -6,6 +6,7 @@ import {
   FEEDBACK_PARTICIPANT_META_KEY,
   latestEventFeedbackDraft,
   matchRosterFeedback,
+  rosterRollDisplay,
 } from '@/lib/event-feedback-form';
 
 describe('event feedback form draft', () => {
@@ -74,5 +75,18 @@ describe('event feedback form draft', () => {
     expect(status.given[0].name).toBe('Asha');
     expect(status.given[0].answers[0].text).toBe('The talk');
     expect(status.pending.map((p) => p.name)).toEqual(['Bala']);
+  });
+
+  it('uses form roll, not the registration email, for form-registered participants', () => {
+    expect(
+      rosterRollDisplay({
+        participant_email: 'asha@gmail.com',
+        form_data: { Email: 'asha@gmail.com', 'Roll No': 'CB.EN.U4CHE20001' },
+      }),
+    ).toBe('CB.EN.U4CHE20001');
+  });
+
+  it('does not show a personal email in the roll field', () => {
+    expect(rosterRollDisplay({ participant_email: 'asha@gmail.com', form_data: { Email: 'asha@gmail.com' } })).toBe('');
   });
 });
