@@ -40,6 +40,53 @@ function emailFromFormData(formData: unknown): string {
   return '';
 }
 
+function campusMailFromRoll(value: string): string {
+  const mail = participantMailFromRosterField(value);
+  if (mail && isValidParticipantEmail(mail)) return mail.toLowerCase();
+  return '';
+}
+
+function rollCampusMailFromFormData(formData: unknown): string {
+  if (!formData || typeof formData !== 'object' || Array.isArray(formData)) return '';
+  for (const [key, value] of Object.entries(formData as Record<string, unknown>)) {
+    if (!/roll|reg(?:istration)?\s*(no\.?|number)?/i.test(key)) continue;
+    const raw = String(value || '').trim();
+    if (!raw) continue;
+    if (!raw.includes('@')) return campusMailFromRoll(raw);
+    if (raw.toLowerCase().endsWith(`@${AMRITA_CB_STUDENT_EMAIL_DOMAIN}`)) {
+      return raw.toLowerCase();
+    }
+  }
+  return '';
+}
+
+/** Always `{roll}@cb.students.amrita.edu` when a roll number can be found. */
+export function participantCampusOutlookEmail(participant: {
+  participant_email?: string | null;
+  form_data?: unknown;
+}): string {
+  const stored = String(participant.participant_email || '').trim();
+  if (stored && !stored.includes('@')) return campusMailFromRoll(stored);
+
+  const fromForm = rollCampusMailFromFormData(participant.form_data);
+  if (fromForm) return fromForm;
+
+  if (stored.toLowerCase().endsWith(`@${AMRITA_CB_STUDENT_EMAIL_DOMAIN}`) && isValidParticipantEmail(stored)) {
+    return stored.toLowerCase();
+  }
+
+  if (stored.includes('@')) {
+    const local = stored.split('@')[0].trim();
+    if (/^cb[.\-]/i.test(local)) return campusMailFromRoll(local);
+  }
+
+  return '';
+}
+
+export function outlookAddressList(emails: string[]): string {
+  return [...new Set(emails.map((email) => email.trim().toLowerCase()).filter(Boolean))].join('; ');
+}
+
 /** Prefer a stored email; otherwise {their roll}@cb.students.amrita.edu. */
 export function resolveParticipantSendEmail(participant: {
   participant_email?: string | null;

@@ -6,7 +6,7 @@ import {
   FORM_REGISTRATION_GROUP,
   ON_SPOT_REGISTRATION_GROUP,
 } from '@/lib/event-participant-groups';
-import { dummyCheckInPayload, participantCheckInPayload, participantMailFromRosterField, resolveParticipantSendEmail } from '@/lib/event-participant-qr';
+import { dummyCheckInPayload, outlookAddressList, participantCampusOutlookEmail, participantCheckInPayload, participantMailFromRosterField, resolveParticipantSendEmail } from '@/lib/event-participant-qr';
 import { buildEventParticipantEmail, draftParticipantInviteMessage } from '@/lib/event-participant-email-builder';
 
 describe('parseBulkParticipantLines', () => {
@@ -142,6 +142,35 @@ describe('resolveParticipantSendEmail', () => {
         form_data: { Email: 'form.student@amrita.edu' },
       }),
     ).toEqual({ email: 'form.student@amrita.edu', fromRoll: false });
+  });
+});
+
+describe('participantCampusOutlookEmail', () => {
+  it('builds campus mail from a roll number', () => {
+    expect(participantCampusOutlookEmail({ participant_email: 'CB.EN.U4CHE26101' })).toBe(
+      'cb.en.u4che26101@cb.students.amrita.edu',
+    );
+  });
+
+  it('uses a roll from form data when the roster field is a personal email', () => {
+    expect(
+      participantCampusOutlookEmail({
+        participant_email: 'priya@gmail.com',
+        form_data: { 'Roll No': 'CB.EN.U4CHE26102' },
+      }),
+    ).toBe('cb.en.u4che26102@cb.students.amrita.edu');
+  });
+
+  it('joins unique addresses with Outlook semicolons', () => {
+    expect(
+      outlookAddressList([
+        'cb.en.u4che26101@cb.students.amrita.edu',
+        'CB.EN.U4CHE26101@cb.students.amrita.edu',
+        'cb.en.u4che26102@cb.students.amrita.edu',
+      ]),
+    ).toBe(
+      'cb.en.u4che26101@cb.students.amrita.edu; cb.en.u4che26102@cb.students.amrita.edu',
+    );
   });
 });
 

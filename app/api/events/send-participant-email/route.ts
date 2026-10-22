@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import QRCode from 'qrcode';
 import { createClient } from '@/lib/supabase/server';
 import { tryCreateAdminClient } from '@/lib/supabase/admin';
-import { sendEmail } from '@/lib/notifications';
+import { sendEmail, sendEmailWithRetry } from '@/lib/notifications';
 import { canSendEventParticipantEmail } from '@/lib/member-profile-edit';
 import {
   buildEventParticipantEmail,
@@ -19,6 +19,7 @@ import {
 } from '@/lib/event-participant-qr';
 
 export const runtime = 'nodejs';
+export const maxDuration = 300;
 
 async function canSendToEventParticipants(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -81,7 +82,8 @@ export async function POST(request: Request) {
     const eventId = String(body.eventId || '').trim();
     const extraNotes = String(body.extraNotes || '').trim();
     const customBody = String(body.messageBody || '').trim();
-    const groupFilter = body.groupFilter ? String(body.groupFilter).trim() : null;
+    let groupFilter = body.groupFilter ? String(body.groupFilter).trim() : null;
+    const retryLogId = String(body.retryLogId || '').trim();
 
     if (!eventId) {
       return NextResponse.json({ error: 'Event ID is required' }, { status: 400 });
@@ -108,12 +110,53 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    const subject = String(body.subject || '').trim() || `You're invited: ${event.title}`;
+    let retryEmails = new Set<string>();
+    let skipDelivered = new Set<string>();
+    let retrySubject = '';
+    let retryBody = '';
+    if (retryLogId) {
+      const { data: prior, error: priorError } = await supabase
+        .from('event_participant_email_sends')
+        .select('id, event_id, subject, message_body, failed_emails, sent_emails, failed_count, group_filter')
+        .eq('id', retryLogId)
+        .eq('event_id', eventId)
+        .maybeSingle();
+      if (priorError || !prior) {
+        return NextResponse.json({ error: 'Previous send log not found' }, { status: 404 });
+      }
+      retryEmails = new Set(
+        (Array.isArray(prior.failed_emails) ? prior.failed_emails : [])
+          .map((email: unknown) => String(email || '').trim().toLowerCase())
+          .filter(Boolean),
+      );
+      if (retryEmails.size === 0) {
+        const { data: priorLogs } = await supabase
+          .from('event_participant_email_sends')
+          .select('sent_emails')
+          .eq('event_id', eventId);
+        skipDelivered = new Set(
+          (priorLogs || []).flatMap((row) =>
+            (Array.isArray(row.sent_emails) ? row.sent_emails : []).map((email: unknown) =>
+              String(email || '').trim().toLowerCase(),
+            ),
+          ).filter(Boolean),
+        );
+      }
+      if (!groupFilter && prior.group_filter) {
+        groupFilter = String(prior.group_filter);
+      }
+      retrySubject = String(prior.subject || '').trim();
+      retryBody = String(prior.message_body || '').trim();
+    }
+
+    const subject =
+      retrySubject || String(body.subject || '').trim() || `You're invited: ${event.title}`;
     if (subject.length > 200) {
       return NextResponse.json({ error: 'Subject is too long (max 200 characters)' }, { status: 400 });
     }
 
     const messageBody =
+      retryBody ||
       customBody ||
       draftParticipantInviteMessage({
         eventTitle: event.title,
@@ -214,6 +257,8 @@ export async function POST(request: Request) {
         continue;
       }
       if (seen.has(resolved.email)) continue;
+      if (retryEmails.size > 0 && !retryEmails.has(resolved.email)) continue;
+      if (skipDelivered.size > 0 && skipDelivered.has(resolved.email)) continue;
       seen.add(resolved.email);
       if (resolved.fromRoll) sentToCampusRoll += 1;
       recipients.push({
@@ -239,6 +284,9 @@ export async function POST(request: Request) {
 
     let sent = 0;
     let failed = 0;
+    const sentEmails: string[] = [];
+    const failedEmails: string[] = [];
+    const failReasons = new Set<string>();
 
     for (const recipient of recipients) {
       const bodyHtml = plainTextToParticipantEmailHtml(messageBody, recipient.name);
@@ -278,14 +326,20 @@ export async function POST(request: Request) {
         posterUrl: posterPublicUrl || undefined,
         checkInQrDataUrl: qrPublicUrl || `data:image/png;base64,${png.toString('base64')}`,
       });
-      const result = await sendEmail(recipient.email, subject, emailHtml, {
+      const result = await sendEmailWithRetry(recipient.email, subject, emailHtml, {
         attachments,
         text: participantInvitePlainText(messageBody, recipient.name),
       });
-      if (result.success) sent += 1;
-      else failed += 1;
+      if (result.success) {
+        sent += 1;
+        sentEmails.push(recipient.email);
+      } else {
+        failed += 1;
+        failedEmails.push(recipient.email);
+        if (result.error) failReasons.add(result.error);
+      }
       if (recipients.length > 1) {
-        await new Promise((resolve) => setTimeout(resolve, 200));
+        await new Promise((resolve) => setTimeout(resolve, 450));
       }
     }
 
@@ -297,8 +351,12 @@ export async function POST(request: Request) {
       recipient_count: number;
       failed_count: number;
       group_filter: string | null;
+      error_summary?: string | null;
+      failed_emails?: string[] | null;
+      sent_emails?: string[] | null;
     } | null = null;
-    if (sent > 0) {
+    if (sent > 0 || failed > 0) {
+      const errorSummary = [...failReasons].slice(0, 3).join(' · ') || null;
       const { data: logRow, error: logError } = await supabase
         .from('event_participant_email_sends')
         .insert({
@@ -309,8 +367,13 @@ export async function POST(request: Request) {
           recipient_count: sent,
           failed_count: failed,
           group_filter: groupFilter && groupFilter !== 'all' ? groupFilter : null,
+          error_summary: errorSummary,
+          failed_emails: failedEmails,
+          sent_emails: sentEmails,
         })
-        .select('id, sent_at, subject, message_body, recipient_count, failed_count, group_filter')
+        .select(
+          'id, sent_at, subject, message_body, recipient_count, failed_count, group_filter, error_summary, failed_emails, sent_emails',
+        )
         .single();
       if (logError) {
         console.error('[send-participant-email] log', logError.message);

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
-import { Calendar, MapPin, CheckCircle, Clock, Edit, Check, X, Palette, ImageIcon, AlertCircle, Camera, ChevronLeft, ChevronRight, Users, QrCode, FileText, MessageSquare, Paperclip, ChevronDown } from 'lucide-react';
+import { Calendar, MapPin, CheckCircle, Clock, Edit, Check, X, Palette, ImageIcon, AlertCircle, Camera, ChevronLeft, ChevronRight, Users, QrCode, FileText, MessageSquare, Paperclip, ChevronDown, Mail } from 'lucide-react';
 import { LinkedText } from '@/components/LinkedText';
 import EventApprovalTrail from '@/components/events/EventApprovalTrail';
 import toast from 'react-hot-toast';
@@ -237,8 +237,10 @@ export default function EventDetailPage() {
   const [photoIndex, setPhotoIndex] = useState(0);
   const searchParams = useSearchParams();
   const tabFromUrl = searchParams.get('tab');
-  const [activeTab, setActiveTab] = useState<'info' | 'participants' | 'attendance'>(
-    tabFromUrl === 'participants' || tabFromUrl === 'attendance' ? tabFromUrl : 'info',
+  const [activeTab, setActiveTab] = useState<'info' | 'participants' | 'attendance' | 'email'>(
+    tabFromUrl === 'participants' || tabFromUrl === 'attendance' || tabFromUrl === 'email'
+      ? tabFromUrl
+      : 'info',
   );
   const [participants, setParticipants] = useState<any[]>([]);
   const [participantsLoading, setParticipantsLoading] = useState(false);
@@ -273,7 +275,7 @@ export default function EventDetailPage() {
 
   useEffect(() => {
     const tab = searchParams.get('tab');
-    if (tab === 'participants' || tab === 'attendance' || tab === 'info') {
+    if (tab === 'participants' || tab === 'attendance' || tab === 'info' || tab === 'email') {
       setActiveTab(tab);
     }
   }, [searchParams]);
@@ -287,7 +289,7 @@ export default function EventDetailPage() {
   }, []);
   useEffect(() => {
     if (!event?.id) return;
-    if (activeTab === 'participants' || activeTab === 'attendance') {
+    if (activeTab === 'participants' || activeTab === 'attendance' || activeTab === 'email') {
       void loadParticipants();
     }
   }, [event?.id, activeTab]);
@@ -1208,6 +1210,15 @@ export default function EventDetailPage() {
             <span className="sm:hidden">Attendance</span>
             <span className="hidden sm:inline">Participation / Attendance</span>
           </button>
+          {canEmailParticipants ? (
+            <button onClick={() => setActiveTab('email')} className={`px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold whitespace-nowrap shrink-0 ${activeTab === 'email' ? 'bg-indigo-600 text-white' : 'text-gray-600 hover:bg-white/70'}`}>
+              <span className="inline-flex items-center gap-1.5">
+                <Mail className="w-3.5 h-3.5" />
+                <span className="sm:hidden">Email</span>
+                <span className="hidden sm:inline">Email participants</span>
+              </span>
+            </button>
+          ) : null}
         </div>
         {activeTab === 'info' && (
           <>
@@ -1954,17 +1965,6 @@ export default function EventDetailPage() {
                     onRefresh={loadParticipants}
                     selectedParticipantId={selectedParticipant?.id}
                     onSelectParticipant={setSelectedParticipant}
-                    headerAction={
-                      <EventParticipantEmailPanel
-                        eventId={event.id}
-                        eventTitle={event.title}
-                        eventDate={event.event_date}
-                        location={event.location}
-                        participants={participants}
-                        canSend={canEmailParticipants}
-                        posterUrl={posterUrl}
-                      />
-                    }
                   />
                 </div>
                 <div className="rounded-xl border border-gray-200 bg-white/70 p-4 min-h-[240px]">
@@ -2016,6 +2016,24 @@ export default function EventDetailPage() {
                   )}
                 </div>
               </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'email' && canEmailParticipants && (
+          <div className="premium-panel rounded-2xl p-8">
+            {participantsLoading ? (
+              <p className="text-gray-500">Loading participants...</p>
+            ) : (
+              <EventParticipantEmailPanel
+                eventId={event.id}
+                eventTitle={event.title}
+                eventDate={event.event_date}
+                location={event.location}
+                participants={participants}
+                canSend={canEmailParticipants}
+                posterUrl={posterUrl}
+              />
             )}
           </div>
         )}

@@ -21,6 +21,41 @@ export type SendEmailOptions = {
   headers?: Record<string, string>;
 };
 
+function isRetryableEmailError(error?: string) {
+  const message = String(error || '').toLowerCase();
+  return (
+    message.includes('429') ||
+    message.includes('rate') ||
+    message.includes('too many') ||
+    message.includes('timeout') ||
+    message.includes('timed out') ||
+    message.includes('fetch failed') ||
+    message.includes('econnreset') ||
+    message.includes('503') ||
+    message.includes('502')
+  );
+}
+
+export async function sendEmailWithRetry(
+  to: string,
+  subject: string,
+  html: string,
+  options?: SendEmailOptions,
+  attempts = 4,
+) {
+  let last: { success: boolean; error?: string } = { success: false, error: 'Failed to send email' };
+  for (let i = 0; i < attempts; i += 1) {
+    last = await sendEmail(to, subject, html, options);
+    if (last.success) return last;
+    if (i < attempts - 1 && isRetryableEmailError(last.error)) {
+      await new Promise((resolve) => setTimeout(resolve, 600 * (i + 1)));
+      continue;
+    }
+    break;
+  }
+  return last;
+}
+
 export async function sendEmail(to: string, subject: string, html: string, options?: SendEmailOptions) {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {
