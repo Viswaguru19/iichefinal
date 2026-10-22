@@ -13,6 +13,7 @@ import { LinkedText } from '@/components/LinkedText';
 import EventFeedbackSummary from '@/components/events/EventFeedbackSummary';
 import { mapProfileDisplayNames, profileDisplayName } from '@/lib/profile-display-names';
 import { imageFilesFromList, uploadEventPhotoFiles } from '@/lib/event-photos';
+import EventPhotosDropZone from '@/components/events/EventPhotosDropZone';
 
 export const dynamic = 'force-dynamic';
 
@@ -207,16 +208,16 @@ export default function EventProgressPage() {
     setPhotoUploadProgress('');
   }
 
-  async function uploadPhoto() {
-    if (!photoFiles.length || !selectedEvent || !currentUser?.id) return;
+  async function ingestPhotos(files: File[], caption = '') {
+    if (!files.length || !selectedEvent || !currentUser?.id) return;
     setUploadingPhoto(true);
-    setPhotoUploadProgress(`Uploading 0 of ${photoFiles.length}…`);
+    setPhotoUploadProgress(`Uploading 0 of ${files.length}…`);
     try {
       const { uploaded, failed } = await uploadEventPhotoFiles(supabase, {
         eventId: selectedEvent.id,
         userId: currentUser.id,
-        files: photoFiles,
-        caption: photoCaption,
+        files,
+        caption,
         onProgress: (done, total) => setPhotoUploadProgress(`Uploading ${Math.min(done + 1, total)} of ${total}…`),
       });
       if (uploaded) toast.success(uploaded === 1 ? 'Photo uploaded' : `${uploaded} photos uploaded`);
@@ -231,6 +232,10 @@ export default function EventProgressPage() {
       setUploadingPhoto(false);
       setPhotoUploadProgress('');
     }
+  }
+
+  async function uploadPhoto() {
+    await ingestPhotos(photoFiles, photoCaption);
   }
 
   async function generateReport() {
@@ -571,33 +576,42 @@ ${reportAdditionalDetails ? `## Additional Details\n${reportAdditionalDetails}` 
                   />
 
                   {/* Event Photos Gallery */}
-                  <div className="mt-4 flex items-center gap-3">
-                    <button onClick={() => setShowPhotoUpload(true)} className="flex items-center gap-2 bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 text-sm">
-                      <Camera className="w-4 h-4" /> Upload Photos
-                    </button>
-                    {eventPhotos.length > 0 && (
-                      <button onClick={() => { setViewingPhotos(true); setPhotoIndex(0); }} className="flex items-center gap-2 text-purple-600 hover:text-purple-700 text-sm font-medium">
-                        📸 View {eventPhotos.length} Photo{eventPhotos.length > 1 ? 's' : ''}
+                  <EventPhotosDropZone
+                    className="mt-4 p-3 border-2 border-dashed border-gray-200"
+                    disabled={!currentUser?.id}
+                    busy={uploadingPhoto}
+                    busyLabel={photoUploadProgress || 'Uploading…'}
+                    hint="Drop all selected photos here"
+                    onFiles={(files) => void ingestPhotos(files)}
+                  >
+                    <div className="flex items-center gap-3">
+                      <button onClick={() => setShowPhotoUpload(true)} className="flex items-center gap-2 bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 text-sm">
+                        <Camera className="w-4 h-4" /> Upload Photos
                       </button>
-                    )}
-                  </div>
-
-                  {/* Photo Thumbnails */}
-                  {eventPhotos.length > 0 && (
-                    <div className="mt-3 flex gap-2 overflow-x-auto pb-2">
-                      {eventPhotos.slice(0, 6).map((photo: any, idx: number) => (
-                        <img key={photo.id} src={photo.photo_url} alt={photo.caption || 'Event photo'}
-                          className="w-16 h-16 rounded-lg object-cover cursor-pointer hover:opacity-80 transition flex-shrink-0"
-                          onClick={() => { setPhotoIndex(idx); setViewingPhotos(true); }} />
-                      ))}
-                      {eventPhotos.length > 6 && (
-                        <button onClick={() => { setViewingPhotos(true); setPhotoIndex(0); }}
-                          className="w-16 h-16 rounded-lg bg-gray-200 flex items-center justify-center text-xs text-gray-600 font-medium flex-shrink-0">
-                          +{eventPhotos.length - 6}
+                      {eventPhotos.length > 0 && (
+                        <button onClick={() => { setViewingPhotos(true); setPhotoIndex(0); }} className="flex items-center gap-2 text-purple-600 hover:text-purple-700 text-sm font-medium">
+                          📸 View {eventPhotos.length} Photo{eventPhotos.length > 1 ? 's' : ''}
                         </button>
                       )}
                     </div>
-                  )}
+                    <p className="text-xs text-gray-500 mt-2">Drag and drop many photos into this photos area.</p>
+
+                    {eventPhotos.length > 0 && (
+                      <div className="mt-3 flex gap-2 overflow-x-auto pb-2">
+                        {eventPhotos.slice(0, 6).map((photo: any, idx: number) => (
+                          <img key={photo.id} src={photo.photo_url} alt={photo.caption || 'Event photo'}
+                            className="w-16 h-16 rounded-lg object-cover cursor-pointer hover:opacity-80 transition flex-shrink-0"
+                            onClick={() => { setPhotoIndex(idx); setViewingPhotos(true); }} />
+                        ))}
+                        {eventPhotos.length > 6 && (
+                          <button onClick={() => { setViewingPhotos(true); setPhotoIndex(0); }}
+                            className="w-16 h-16 rounded-lg bg-gray-200 flex items-center justify-center text-xs text-gray-600 font-medium flex-shrink-0">
+                            +{eventPhotos.length - 6}
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </EventPhotosDropZone>
                 </div>
 
                 <div className="mb-6">
@@ -945,7 +959,11 @@ ${reportAdditionalDetails ? `## Additional Details\n${reportAdditionalDetails}` 
               <button onClick={closePhotoUpload} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
             </div>
             <div className="space-y-4">
-              <div>
+              <EventPhotosDropZone
+                className="rounded-xl border-2 border-dashed border-gray-200 p-3"
+                hint="Drop photos here"
+                onFiles={(files) => setPhotoFiles((prev) => [...prev, ...files])}
+              >
                 <label className="block text-sm font-medium text-gray-700 mb-2">Photos *</label>
                 <input
                   type="file"
@@ -958,8 +976,8 @@ ${reportAdditionalDetails ? `## Additional Details\n${reportAdditionalDetails}` 
                   }}
                   className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm"
                 />
-                <p className="text-xs text-gray-500 mt-1">Select several photos at once, or add more after the first pick.</p>
-              </div>
+                <p className="text-xs text-gray-500 mt-1">Select several at once, or drag a batch onto this box or the photos column.</p>
+              </EventPhotosDropZone>
               {photoFiles.length > 0 && (
                 <div className="grid grid-cols-3 gap-2">
                   {photoFiles.map((file, i) => (

@@ -20,6 +20,7 @@ import EventParticipantEmailPanel from '@/components/events/EventParticipantEmai
 import { isManualParticipantSource, participantDisplayGroup, participantSecondaryText, registrationSourceLabel } from '@/lib/event-participant-groups';
 import { participantCheckInPayload } from '@/lib/event-participant-qr';
 import { imageFilesFromList, uploadEventPhotoFiles } from '@/lib/event-photos';
+import EventPhotosDropZone from '@/components/events/EventPhotosDropZone';
 import { isPortalAdmin } from '@/lib/permissions';
 import { canSendEventParticipantEmail } from '@/lib/member-profile-edit';
 import PortalLoadingScreen from '@/components/PortalLoadingScreen';
@@ -959,16 +960,16 @@ export default function EventDetailPage() {
     setPhotoUploadProgress('');
   }
 
-  async function uploadEventPhoto() {
-    if (!photoFiles.length || !event || !userProfile) return;
+  async function ingestEventPhotos(files: File[], caption = '') {
+    if (!files.length || !event || !userProfile) return;
     setUploadingPhoto(true);
-    setPhotoUploadProgress(`Uploading 0 of ${photoFiles.length}…`);
+    setPhotoUploadProgress(`Uploading 0 of ${files.length}…`);
     try {
       const { uploaded, failed } = await uploadEventPhotoFiles(supabase, {
         eventId: event.id,
         userId: userProfile.id,
-        files: photoFiles,
-        caption: photoCaption,
+        files,
+        caption,
         onProgress: (done, total) => setPhotoUploadProgress(`Uploading ${Math.min(done + 1, total)} of ${total}…`),
       });
       if (uploaded) toast.success(uploaded === 1 ? 'Photo uploaded' : `${uploaded} photos uploaded`);
@@ -983,6 +984,10 @@ export default function EventDetailPage() {
       setUploadingPhoto(false);
       setPhotoUploadProgress('');
     }
+  }
+
+  async function uploadEventPhoto() {
+    await ingestEventPhotos(photoFiles, photoCaption);
   }
 
   async function uploadPoster(file: File) {
@@ -1404,7 +1409,14 @@ export default function EventDetailPage() {
         )}
 
         {/* Event Photos Section */}
-        <div className="premium-panel rounded-2xl p-8 mb-6">
+        <EventPhotosDropZone
+          className="premium-panel rounded-2xl p-8 mb-6"
+          disabled={!userProfile}
+          busy={uploadingPhoto}
+          busyLabel={photoUploadProgress || 'Uploading…'}
+          hint="Drop all selected photos here"
+          onFiles={(files) => void ingestEventPhotos(files)}
+        >
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
               <Camera className="w-6 h-6" /> Event Photos
@@ -1434,9 +1446,11 @@ export default function EventDetailPage() {
               ))}
             </div>
           ) : (
-            <p className="text-gray-400 text-center py-8">No photos uploaded yet. Be the first to share event moments!</p>
+            <p className="text-gray-400 text-center py-8 border-2 border-dashed border-gray-200 rounded-xl">
+              Drag and drop photos here, or use Upload Photos. You can drop many at once.
+            </p>
           )}
-        </div>
+        </EventPhotosDropZone>
 
         {/* Photo Upload Modal */}
         {showPhotoUpload && (
@@ -1447,7 +1461,11 @@ export default function EventDetailPage() {
                 <button onClick={closePhotoUpload} className="text-gray-400 hover:text-gray-600 text-xl">✕</button>
               </div>
               <div className="space-y-4">
-                <div>
+                <EventPhotosDropZone
+                  className="rounded-xl border-2 border-dashed border-gray-200 p-3"
+                  hint="Drop photos here"
+                  onFiles={(files) => setPhotoFiles((prev) => [...prev, ...files])}
+                >
                   <label className="block text-sm font-medium text-gray-700 mb-2">Photos *</label>
                   <input
                     type="file"
@@ -1460,8 +1478,8 @@ export default function EventDetailPage() {
                     }}
                     className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm"
                   />
-                  <p className="text-xs text-gray-500 mt-1">Select several photos at once, or add more after the first pick.</p>
-                </div>
+                  <p className="text-xs text-gray-500 mt-1">Select several at once, or drag a batch onto this box or the Event Photos column.</p>
+                </EventPhotosDropZone>
                 {photoFiles.length > 0 && (
                   <div className="grid grid-cols-3 gap-2">
                     {photoFiles.map((file, i) => (
