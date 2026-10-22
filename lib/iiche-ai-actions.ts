@@ -11,6 +11,18 @@ import {
 import { composeIichePoster, resolvePosterTheme } from '@/lib/iiche-ai-poster';
 import { formatPortalDate, formatPortalDateTime } from '@/lib/portal-date';
 import { looksLikeParticipantRoster, parseBulkParticipantLines } from '@/lib/event-participant-groups';
+import {
+  applyFeedbackFieldEdits,
+  defaultEventFeedbackFields,
+  encodeEventFeedbackDraft,
+  EVENT_FEEDBACK_FORM_TYPE,
+  formatEventFeedbackDraftMarkdown,
+  latestEventFeedbackDraft,
+  toPortalFormFields,
+  type EventFeedbackDraft,
+  type FeedbackFieldSpec,
+} from '@/lib/event-feedback-form';
+import { publicFormUrl } from '@/lib/form-public-access';
 
 export type IicheAiToolCtx = {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -125,8 +137,44 @@ export const IICHE_AI_TOOL_DECLARATIONS = [
     },
   },
   {
+    name: 'draft_event_feedback_form',
+    description:
+      'Build a draft event feedback form from a named event (includes speaker-talk questions when the event has a guest). Do not publish. Show the draft and wait for edits or confirmation.',
+    parameters: {
+      type: 'object',
+      properties: {
+        event_title: { type: 'string' },
+        extra_notes: { type: 'string', description: 'User change requests for this draft' },
+        speaker_name: { type: 'string' },
+        fields: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              label: { type: 'string' },
+              type: { type: 'string' },
+              required: { type: 'boolean' },
+              options: { type: 'array', items: { type: 'string' } },
+            },
+          },
+        },
+      },
+    },
+  },
+  {
+    name: 'create_event_feedback_form',
+    description:
+      'Publish the event feedback form only after the user confirms the draft (create it / looks good / publish). Uses the last draft in this chat.',
+    parameters: {
+      type: 'object',
+      properties: {
+        event_title: { type: 'string' },
+      },
+    },
+  },
+  {
     name: 'create_form',
-    description: 'Create a real form in the portal. Use when the user asks to create, make, or add a form.',
+    description: 'Create a real form in the portal. Use when the user asks to create, make, or add a form. For event feedback forms, use draft_event_feedback_form instead.',
     parameters: {
       type: 'object',
       properties: {
@@ -1009,6 +1057,121 @@ export async function getMyIdentity(ctx: IicheAiToolCtx): Promise<string> {
   ].join('\n');
 }
 
+function specsFromArgs(raw: unknown): FeedbackFieldSpec[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((row) => {
+      const item = row as { label?: string; type?: string; required?: boolean; options?: string[] };
+      return {
+        label: str(item.label),
+        type: allowedFieldType(String(item.type || 'text')),
+        required: item.required !== false,
+        options: Array.isArray(item.options) ? item.options.map((o) => String(o)) : undefined,
+      };
+    })
+    .filter((row) => row.label);
+}
+
+export async function draftEventFeedbackForm(ctx: IicheAiToolCtx, args: Record<string, unknown>): Promise<string> {
+  const previous = latestEventFeedbackDraft(ctx.history);
+  const eventQuery = str(args.event_title) || str(args.query) || previous?.eventTitle || '';
+  const events = eventQuery
+    ? await findEventForParticipants(ctx, eventQuery)
+    : previous
+      ? [{ id: previous.eventId, title: previous.eventTitle }]
+      : await findEventForParticipants(ctx, '');
+  if (!events.length) return 'I could not find an event to attach feedback to. Name the event.';
+  if (events.length > 1 && eventQuery) {
+    const list = events.map((e) => `- ${e.title}`).join('\n');
+    return `Several events matched. Which one?\n${list}`;
+  }
+  const picked = events[0];
+  const db = ctx.directory || ctx.supabase;
+  const { data: event } = await db
+    .from('events')
+    .select('id, title, description, event_date, location, guest_name')
+    .eq('id', picked.id)
+    .maybeSingle();
+  if (!event) return 'That event could not be loaded.';
+
+  const speaker = str(args.speaker_name) || String(event.guest_name || '').trim();
+  let fields = specsFromArgs(args.fields);
+  if (!fields.length) {
+    fields =
+      previous?.eventId === event.id
+        ? previous.fields
+        : defaultEventFeedbackFields({ ...event, guest_name: speaker });
+  }
+  const extra = str(args.extra_notes);
+  if (extra) fields = applyFeedbackFieldEdits(fields, extra);
+
+  const draft: EventFeedbackDraft = {
+    eventId: event.id,
+    eventTitle: String(event.title || 'Event'),
+    title: `Feedback: ${event.title}`,
+    description: [
+      `Share feedback for ${event.title}${speaker ? ` and ${speaker}'s talk` : ''}.`,
+      extra ? `Requested changes: ${extra}` : '',
+    ]
+      .filter(Boolean)
+      .join(' '),
+    speakerName: speaker || undefined,
+    fields,
+  };
+  const token = encodeEventFeedbackDraft(draft);
+  return `${formatEventFeedbackDraftMarkdown(draft)}\n\nFEEDBACK_FORM_DRAFT:${token};;`;
+}
+
+export async function createEventFeedbackForm(ctx: IicheAiToolCtx, args: Record<string, unknown>): Promise<string> {
+  let draft = latestEventFeedbackDraft(ctx.history);
+  if (!draft || (str(args.event_title) && !draft.eventTitle.toLowerCase().includes(str(args.event_title).toLowerCase()))) {
+    const prepared = await draftEventFeedbackForm(ctx, args);
+    draft = parseEventFeedbackDraftFromPrepared(prepared) || draft;
+  }
+  if (!draft) return 'There is no feedback form draft yet. Ask me to draft one for the event first.';
+
+  const { data, error } = await ctx.supabase
+    .from('forms')
+    .insert({
+      title: draft.title,
+      description: draft.description || null,
+      fields: toPortalFormFields(draft.fields),
+      created_by: ctx.userId,
+      is_active: true,
+      settings: {
+        allow_multiple: false,
+        require_login: false,
+        access_type: 'public',
+        status: 'active',
+        response_viewer_ids: [],
+        response_viewers_all: true,
+        show_attendance_qr_after_submit: false,
+      },
+      form_type: EVENT_FEEDBACK_FORM_TYPE,
+      event_id: draft.eventId,
+    })
+    .select('id, title')
+    .single();
+  if (error || !data) return `Could not create the feedback form: ${error?.message || 'unknown error'}`;
+  const fill = publicFormUrl(ctx.origin, data.id);
+  const responses = `${ctx.origin}/dashboard/forms/${data.id}/responses`;
+  try {
+    await notifyEC(ctx.supabase, {
+      type: 'form',
+      title: 'Event feedback form',
+      message: `${data.title} is open for responses`,
+      link: `/dashboard/forms/${data.id}`,
+    });
+  } catch {
+    /* ignore */
+  }
+  return `Created "${data.title}". Public fill link: ${fill} — responses: ${responses}. Feedback also appears on Event Progress.`;
+}
+
+function parseEventFeedbackDraftFromPrepared(text: string) {
+  return latestEventFeedbackDraft([{ role: 'assistant', content: text }]);
+}
+
 export async function createForm(ctx: IicheAiToolCtx, args: Record<string, unknown>): Promise<string> {
   const title = str(args.title);
   if (!title) return 'A form title is required.';
@@ -1635,6 +1798,10 @@ export async function runIicheAiTool(ctx: IicheAiToolCtx, name: string, args: Re
       return designPoster(ctx, args);
     case 'upload_poster':
       return uploadPoster(ctx, args);
+    case 'draft_event_feedback_form':
+      return draftEventFeedbackForm(ctx, args);
+    case 'create_event_feedback_form':
+      return createEventFeedbackForm(ctx, args);
     case 'create_form':
       return createForm(ctx, args);
     case 'create_meeting':
@@ -1791,7 +1958,39 @@ export function maybeHeuristicTool(
     }
     return { name: 'get_committee_officers', args: { committee_name: name } };
   }
-  if (wantsCreate && !askingHow && /\bform\b/.test(lower)) {
+  const feedbackForm =
+    /\bfeedback\b/.test(lower) && /\b(form|event)\b/.test(lower);
+  const pendingFeedback = (history || []).some(
+    (msg) =>
+      msg.role === 'assistant' &&
+      /FEEDBACK_FORM_DRAFT:|Draft event feedback form/i.test(msg.content),
+  );
+  const confirmsFeedback =
+    pendingFeedback &&
+    /\b(create it|looks good|publish|confirm|go ahead|yes create|ok create|okay create|make it)\b/i.test(
+      lower,
+    );
+  if (confirmsFeedback && !askingHow) {
+    return { name: 'create_event_feedback_form', args: {} };
+  }
+  if (pendingFeedback && !askingHow && !wantsOpen && !/\b(who|what is|how do)\b/i.test(lower) && !confirmsFeedback) {
+    if (
+      /\b(change|remove|add|drop|include|instead|edit|update|speaker|question)\b/i.test(lower) ||
+      (feedbackForm && !/\bcreate it\b/i.test(lower))
+    ) {
+      return { name: 'draft_event_feedback_form', args: { extra_notes: m } };
+    }
+  }
+  if ((feedbackForm && !askingHow) || (wantsCreate && !askingHow && /\bfeedback form\b/.test(lower))) {
+    const titled =
+      m.match(/(?:for|of)\s+["']?(.+?)["']?$/i) ||
+      m.match(/form (?:called|named|titled|:)\s*["']?(.+?)["']?$/i);
+    return {
+      name: 'draft_event_feedback_form',
+      args: { event_title: titled?.[1]?.trim() || '', extra_notes: m },
+    };
+  }
+  if (wantsCreate && !askingHow && /\bform\b/.test(lower) && !/\bfeedback\b/.test(lower)) {
     const titled = m.match(/form (?:called|named|titled|:)\s*["']?(.+?)["']?$/i) || m.match(/["'](.+?)["']\s*form/i);
     return { name: 'create_form', args: { title: titled?.[1]?.trim() || 'Untitled form', description: m } };
   }

@@ -6,7 +6,7 @@ import {
   FORM_REGISTRATION_GROUP,
   ON_SPOT_REGISTRATION_GROUP,
 } from '@/lib/event-participant-groups';
-import { dummyCheckInPayload, outlookAddressList, participantCampusOutlookEmail, participantCheckInPayload, participantMailFromRosterField, remainingEmailsAfterSend, resolveParticipantSendEmail } from '@/lib/event-participant-qr';
+import { dummyCheckInPayload, outlookAddressList, participantCampusOutlookEmail, participantCheckInPayload, participantMailFromRosterField, participantMatchesLookup, remainingEmailsAfterSend, resolveParticipantSendEmail } from '@/lib/event-participant-qr';
 import { buildEventParticipantEmail, draftParticipantInviteMessage } from '@/lib/event-participant-email-builder';
 
 describe('parseBulkParticipantLines', () => {
@@ -191,6 +191,14 @@ describe('remainingEmailsAfterSend', () => {
   });
 });
 
+describe('participantMatchesLookup', () => {
+  it('matches a campus roll query to the roster field', () => {
+    expect(
+      participantMatchesLookup({ participant_email: 'CB.EN.U4CHE26101' }, 'cb.en.u4che26101'),
+    ).toBe(true);
+  });
+});
+
 describe('draftParticipantInviteMessage', () => {
   it('personalizes an invite with optional extra points', () => {
     const draft = draftParticipantInviteMessage({
@@ -204,6 +212,12 @@ describe('draftParticipantInviteMessage', () => {
     );
     expect(draft).toContain('Bring your ID card.');
     expect(draft).toContain('Use this QR code for attendance');
+    expect(
+      draftParticipantInviteMessage({
+        eventTitle: 'ACE Orientation',
+        qrPageUrl: 'https://example.com/e/1/my-qr',
+      }),
+    ).toContain('https://example.com/e/1/my-qr');
   });
 
   it('embeds poster and QR by https URL and has no View event button', () => {

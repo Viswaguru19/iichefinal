@@ -32,6 +32,7 @@ export function draftParticipantInviteMessage(options: {
   extraNotes?: string;
   eventDate?: string | null;
   location?: string | null;
+  qrPageUrl?: string | null;
 }): string {
   const extra = String(options.extraNotes || '').trim();
   const extraBlock = extra ? `\n${extra}\n` : '';
@@ -39,14 +40,16 @@ export function draftParticipantInviteMessage(options: {
   const where = String(options.location || '').trim();
   const whenLine = when ? `\nDate & time: ${formatPortalDateTime(when)}` : '';
   const whereLine = where ? `\nVenue: ${where}` : '';
+  const qrLink = String(options.qrPageUrl || '').trim();
+  const qrBlock = qrLink
+    ? `\nYour personal check-in QR is unique. If this mail does not show it, open:\n${qrLink}\nEnter your roll number to display your QR at the venue.\n`
+    : '\nUse this QR code for attendance at the venue.\n';
   return `Hi {{name}},
 
 We invite you to ${options.eventTitle}.${whenLine}${whereLine}
 
 The event poster is included in this email.
-${extraBlock}
-Use this QR code for attendance at the venue.
-
+${extraBlock}${qrBlock}
 Regards,
 IIChE AVVU SC`;
 }

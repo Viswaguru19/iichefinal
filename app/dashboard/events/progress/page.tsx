@@ -10,6 +10,7 @@ import DashboardAtmosphere from '@/components/react-bits/DashboardAtmosphere';
 import PageHeader from '@/components/PageHeader';
 import { formatPortalDate, formatPortalDateTime } from '@/lib/portal-date';
 import { LinkedText } from '@/components/LinkedText';
+import EventFeedbackSummary from '@/components/events/EventFeedbackSummary';
 import { mapProfileDisplayNames, profileDisplayName } from '@/lib/profile-display-names';
 
 export const dynamic = 'force-dynamic';
@@ -589,6 +590,10 @@ ${reportAdditionalDetails ? `## Additional Details\n${reportAdditionalDetails}` 
                       )}
                     </div>
                   )}
+                </div>
+
+                <div className="mb-6">
+                  <EventFeedbackSummary eventId={selectedEvent.id} />
                 </div>
 
                 <div className="premium-panel rounded-2xl p-5 sm:p-6 mb-6">

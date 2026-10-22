@@ -164,6 +164,32 @@ export function resolveParticipantSendEmail(participant: {
   return { email: '', fromRoll: false };
 }
 
+export function participantMyQrPath(eventId: string) {
+  return `/e/${encodeURIComponent(eventId)}/my-qr`;
+}
+
+export function participantMatchesLookup(
+  participant: {
+    participant_email?: string | null;
+    form_data?: unknown;
+  },
+  query: string,
+): boolean {
+  const q = String(query || '').trim().toLowerCase().replace(/\s+/g, '');
+  if (!q) return false;
+  const stored = String(participant.participant_email || '').trim().toLowerCase().replace(/\s+/g, '');
+  if (stored && (stored === q || stored.split('@')[0] === q)) return true;
+  const resolved = resolveParticipantSendEmail(participant).email.toLowerCase();
+  if (resolved && (resolved === q || resolved === `${q}@${AMRITA_CB_STUDENT_EMAIL_DOMAIN}`)) return true;
+  const campus = participantCampusOutlookEmail(participant);
+  if (campus && (campus === q || campus === `${q}@${AMRITA_CB_STUDENT_EMAIL_DOMAIN}`)) return true;
+  if (!q.includes('@')) {
+    const fromRoll = participantMailFromRosterField(q).toLowerCase();
+    if (fromRoll && (resolved === fromRoll || campus === fromRoll)) return true;
+  }
+  return false;
+}
+
 export function participantCheckInPayload(
   participant: {
     id: string;

@@ -13,6 +13,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { EVENT_REGISTRATION_ELIGIBLE_STATUSES } from '@/lib/event-registration';
+import { defaultEventFeedbackFields, EVENT_FEEDBACK_FORM_TYPE, toPortalFormFields } from '@/lib/event-feedback-form';
 import { publicFormUrl } from '@/lib/form-public-access';
 import { notifyEC } from '@/lib/portal-notify-helpers';
 import DashboardAtmosphere from '@/components/react-bits/DashboardAtmosphere';
@@ -89,7 +90,7 @@ export default function CreateFormPage() {
   const [accessType, setAccessType] = useState<'public' | 'internal'>('public');
   const [responseViewerIds, setResponseViewerIds] = useState<string[]>([]);
   const [responseViewersAll, setResponseViewersAll] = useState(false);
-  const [formType, setFormType] = useState<'normal' | 'event_registration'>('normal');
+  const [formType, setFormType] = useState<'normal' | 'event_registration' | 'event_feedback'>('normal');
   const [activeEvents, setActiveEvents] = useState<any[]>([]);
   const [eventsLoading, setEventsLoading] = useState(false);
   const [selectedEventId, setSelectedEventId] = useState('');
@@ -99,13 +100,14 @@ export default function CreateFormPage() {
   const [pages, setPages] = useState<FormPage[]>([initialPage]);
   const [activePageId, setActivePageId] = useState(initialPage.id);
   const prevFormTypeRef = useRef<string | null>(null);
+  const seededFeedbackEventRef = useRef('');
 
   const router = useRouter();
   const supabase = createClient();
   const bannerInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (formType !== 'event_registration') return;
+    if (formType !== 'event_registration' && formType !== 'event_feedback') return;
     void loadActiveEvents();
   }, [formType]);
 
@@ -117,17 +119,42 @@ export default function CreateFormPage() {
       setAccessType('public');
       setShowAttendanceQrAfterSubmit(true);
     }
-    if (formType === 'normal' && prev === 'event_registration') {
+    if (formType === 'event_feedback' && prev !== 'event_feedback') {
+      setRequireLogin(false);
+      setAccessType('public');
+      setShowAttendanceQrAfterSubmit(false);
+      setResponseViewersAll(true);
+    }
+    if (formType === 'normal' && (prev === 'event_registration' || prev === 'event_feedback')) {
       setShowAttendanceQrAfterSubmit(false);
     }
     prevFormTypeRef.current = formType;
   }, [formType]);
 
+  useEffect(() => {
+    if (formType !== 'event_feedback' || !selectedEventId) return;
+    if (seededFeedbackEventRef.current === selectedEventId) return;
+    const ev = activeEvents.find((row) => row.id === selectedEventId);
+    if (!ev) return;
+    seededFeedbackEventRef.current = selectedEventId;
+    setTitle(`Feedback: ${ev.title}`);
+    setDescription(
+      `Share feedback for ${ev.title}${ev.guest_name ? ` and ${ev.guest_name}'s talk` : ''}.`,
+    );
+    const specs = defaultEventFeedbackFields(ev);
+    setFields(
+      toPortalFormFields(specs).map((f) => ({
+        ...f,
+        page_id: pages[0]?.id,
+      })),
+    );
+  }, [formType, selectedEventId, activeEvents]);
+
   async function loadActiveEvents() {
     setEventsLoading(true);
     const wide = await supabase
       .from('events')
-      .select('id, title, location, event_date, date, status, created_at')
+      .select('id, title, location, event_date, date, status, created_at, guest_name')
       .in('status', [...EVENT_REGISTRATION_ELIGIBLE_STATUSES])
       .order('created_at', { ascending: false });
 
@@ -142,7 +169,7 @@ export default function CreateFormPage() {
     ) {
       const narrow = await supabase
         .from('events')
-        .select('id, title, location, event_date, status, created_at')
+        .select('id, title, location, event_date, status, created_at, guest_name')
         .in('status', [...EVENT_REGISTRATION_ELIGIBLE_STATUSES])
         .order('created_at', { ascending: false });
       rows = narrow.data;
@@ -260,8 +287,12 @@ export default function CreateFormPage() {
   async function handleSubmit() {
     if (!title.trim()) { toast.error('Form title is required'); return; }
     if (fields.length === 0) { toast.error('Add at least one question'); return; }
-    if (formType === 'event_registration' && !selectedEventId) {
-      toast.error('Select an active event for event registration form');
+    if ((formType === 'event_registration' || formType === 'event_feedback') && !selectedEventId) {
+      toast.error(
+        formType === 'event_feedback'
+          ? 'Select an event for the feedback form'
+          : 'Select an active event for event registration form',
+      );
       return;
     }
     const emptyLabels = fields.filter(f => !f.label.trim());
@@ -303,7 +334,8 @@ export default function CreateFormPage() {
           pages,
         },
         form_type: formType,
-        event_id: formType === 'event_registration' ? selectedEventId : null,
+        event_id:
+          formType === 'event_registration' || formType === 'event_feedback' ? selectedEventId : null,
       })
       .select()
       .single();
@@ -520,6 +552,11 @@ export default function CreateFormPage() {
                       {formType === 'event_registration' && (
                         <p className="text-sm text-emerald-700 font-medium">Personal check-in QR is always shown after event registration.</p>
                       )}
+                      {formType === 'event_feedback' && (
+                        <p className="text-sm text-emerald-700 font-medium">
+                          No check-in QR. Responses show on Event Progress.
+                        </p>
+                      )}
                     </div>
                     <div className="pt-2 border-t border-gray-100">
                       <ResponseViewerPicker
@@ -564,9 +601,10 @@ export default function CreateFormPage() {
                     <select value={formType} onChange={e => setFormType(e.target.value as any)} className="w-full border border-gray-200 rounded-xl px-3 py-2 bg-white/80">
                       <option value="normal">Normal Form</option>
                       <option value="event_registration">Event Registration Form</option>
+                      <option value="event_feedback">Event Feedback Form</option>
                     </select>
                   </div>
-                  {formType === 'event_registration' && (
+                  {(formType === 'event_registration' || formType === 'event_feedback') && (
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Active Event</label>
                       {eventsLoading ? (
@@ -579,6 +617,7 @@ export default function CreateFormPage() {
                           {activeEvents.map((ev) => (
                             <option key={ev.id} value={ev.id}>
                               {ev.title} · {formatEventListDate(ev)} · {ev.location || 'Venue TBA'}
+                              {ev.guest_name ? ` · ${ev.guest_name}` : ''}
                             </option>
                           ))}
                         </select>

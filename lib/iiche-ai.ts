@@ -27,6 +27,7 @@ You handle three kinds of requests:
    - Only navigate when they ask to open, go to, take them to, or find a page.
    - If they only ask how something works, explain it. Do not start voting or create records.
    - Create form / meeting / event report / minutes → the matching create tool.
+   - Event feedback form: call draft_event_feedback_form first (event details + speaker talk questions when guest_name exists). Show the draft and wait. If they ask for changes, call draft_event_feedback_form again with extra_notes. Call create_event_feedback_form only when they clearly confirm (create it, looks good, publish).
    - Propose or approve events with the matching tool.
    - Poster: call design_poster and show it in chat. Call upload_poster only when they explicitly say upload, save, attach, or publish.
 
@@ -446,6 +447,7 @@ export function splitPortalNavigate(
     .replace(/POSTER:\S+/g, '')
     .replace(/DRAFT:\S+;;?/g, '')
     .replace(/PARTICIPANT_DRAFT:\S+;;?/g, '')
+    .replace(/FEEDBACK_FORM_DRAFT:\S+;;?/g, '')
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
@@ -533,6 +535,8 @@ const EAGER_TOOLS = new Set([
   'design_poster',
   'upload_poster',
   'create_form',
+  'draft_event_feedback_form',
+  'create_event_feedback_form',
   'create_meeting',
   'create_event_report',
   'create_minutes',

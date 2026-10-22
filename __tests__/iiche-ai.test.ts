@@ -63,8 +63,24 @@ describe('IIChE AI tool heuristics', () => {
   });
 
   it('detects form creation', () => {
-    expect(maybeHeuristicTool('Create a form called Guest Feedback')?.name).toBe('create_form');
+    expect(maybeHeuristicTool('Create a form called Attendance')?.name).toBe('create_form');
     expect(maybeHeuristicTool('ceate a form')?.name).toBe('create_form');
+  });
+
+  it('drafts an event feedback form and waits for confirmation', () => {
+    expect(maybeHeuristicTool('Create an event feedback form for Orientation')?.name).toBe(
+      'draft_event_feedback_form',
+    );
+    expect(
+      maybeHeuristicTool('looks good, create it', [
+        { role: 'assistant', content: '## Draft event feedback form\nFEEDBACK_FORM_DRAFT:abc;;' },
+      ])?.name,
+    ).toBe('create_event_feedback_form');
+    expect(
+      maybeHeuristicTool('remove the venue question and add food rating', [
+        { role: 'assistant', content: '## Draft event feedback form\nFEEDBACK_FORM_DRAFT:abc;;' },
+      ])?.name,
+    ).toBe('draft_event_feedback_form');
   });
 
   it('detects meeting, report, and minutes creation', () => {

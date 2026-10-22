@@ -10,6 +10,7 @@ import {
   isValidParticipantEmail,
   outlookAddressList,
   participantCampusOutlookEmail,
+  participantMyQrPath,
   remainingEmailsAfterSend,
   resolveParticipantSendEmail,
 } from '@/lib/event-participant-qr';
@@ -61,6 +62,12 @@ export default function EventParticipantEmailPanel({
   const [sendLogs, setSendLogs] = useState<SendLog[]>([]);
   const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
   const [draftReady, setDraftReady] = useState(false);
+  const [outlook, setOutlook] = useState({
+    connected: false,
+    mailbox: null as string | null,
+    configured: false,
+    requiredMailbox: 'iiche@cb.amrita.edu',
+  });
   const supabase = useMemo(() => createClient(), []);
 
   const groupOptions = useMemo(() => {
@@ -107,9 +114,17 @@ export default function EventParticipantEmailPanel({
     participants,
   ]);
 
+  const qrPageUrl = useMemo(() => {
+    const origin =
+      typeof window !== 'undefined'
+        ? window.location.origin
+        : String(process.env.NEXT_PUBLIC_SITE_URL || '').replace(/\/$/, '');
+    return origin ? `${origin}${participantMyQrPath(eventId)}` : '';
+  }, [eventId]);
+
   const automatedMessage = useMemo(
-    () => draftParticipantInviteMessage({ eventTitle, eventDate, location }),
-    [eventTitle, eventDate, location],
+    () => draftParticipantInviteMessage({ eventTitle, eventDate, location, qrPageUrl }),
+    [eventTitle, eventDate, location, qrPageUrl],
   );
 
   async function loadSendLogs() {
@@ -134,9 +149,26 @@ export default function EventParticipantEmailPanel({
     );
   }
 
+  async function loadOutlookStatus() {
+    const res = await fetch('/api/outlook/status');
+    if (!res.ok) return;
+    const data = await res.json();
+    setOutlook({
+      connected: Boolean(data.connected),
+      mailbox: data.mailbox || null,
+      configured: Boolean(data.configured),
+      requiredMailbox: String(data.requiredMailbox || 'iiche@cb.amrita.edu'),
+    });
+  }
+
   useEffect(() => {
     if (!canSend) return;
     void loadSendLogs();
+    void loadOutlookStatus();
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('outlook') === 'connected') toast.success('Outlook connected');
+    const outlookError = params.get('outlook_error');
+    if (params.get('outlook') === 'error' && outlookError) toast.error(outlookError);
   }, [canSend, eventId]);
 
   useEffect(() => {
@@ -164,6 +196,19 @@ export default function EventParticipantEmailPanel({
     try {
       await navigator.clipboard.writeText(list);
       toast.success(`Copied ${count} address${count === 1 ? '' : 'es'} for Outlook`);
+    } catch {
+      toast.error('Could not copy. Allow clipboard access and try again.');
+    }
+  }
+
+  async function copyQrPageLink() {
+    if (!qrPageUrl) {
+      toast.error('QR page link is not ready');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(qrPageUrl);
+      toast.success('Copied personal QR page link. Put this in the Outlook mail body.');
     } catch {
       toast.error('Could not copy. Allow clipboard access and try again.');
     }
@@ -239,7 +284,7 @@ export default function EventParticipantEmailPanel({
     }
   }
 
-  async function handleSend() {
+  async function handleSend(viaOutlook = false) {
     if (!subject.trim()) {
       toast.error('Enter a subject');
       return;
@@ -254,7 +299,9 @@ export default function EventParticipantEmailPanel({
     }
 
     const ok = window.confirm(
-      `Send this invite (poster + attendance QR) to ${emailStats.withEmail} participant(s)? If they have an email on file we use it; otherwise each person is mailed at their own roll@cb.students.amrita.edu${
+      `Send this invite (poster + attendance QR) to ${emailStats.withEmail} participant(s)${
+        viaOutlook ? ` from ${outlook.mailbox || outlook.requiredMailbox}` : ''
+      }? If they have an email on file we use it; otherwise each person is mailed at their own roll@cb.students.amrita.edu${
         emailStats.rollExample ? ` (e.g. ${emailStats.rollExample})` : ''
       }.`,
     );
@@ -270,6 +317,7 @@ export default function EventParticipantEmailPanel({
           subject: subject.trim(),
           messageBody: messageBody.trim() || automatedMessage,
           groupFilter: groupFilter === 'all' ? undefined : groupFilter,
+          viaOutlook,
         }),
       });
       const data = await res.json();
@@ -285,7 +333,7 @@ export default function EventParticipantEmailPanel({
     }
   }
 
-  async function handleRetryFailed(log: SendLog) {
+  async function handleRetryFailed(log: SendLog, viaOutlook = false) {
     const failedCount = log.failed_count || log.failed_emails?.length || 0;
     if (failedCount <= 0) {
       toast.error('Nothing failed on this send');
@@ -311,6 +359,7 @@ export default function EventParticipantEmailPanel({
           eventId,
           retryLogId: log.id,
           groupFilter: log.group_filter || undefined,
+          viaOutlook,
         }),
       });
       const data = await res.json();
@@ -344,7 +393,7 @@ export default function EventParticipantEmailPanel({
               : `Sent ${sendCount} time${sendCount === 1 ? '' : 's'}. Anyone who can mail participants can open this tab and read the log.`}
           </p>
           <p className="text-xs text-gray-500 mt-1">
-            Copy all mails or Copy remaining (people who did not get the last send), as roll@cb.students.amrita.edu for Outlook Bcc.
+            Copy remaining into Outlook Bcc for a normal mail. Unique check-in QR: copy the QR page link into that mail so each student opens their own code.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -367,6 +416,14 @@ export default function EventParticipantEmailPanel({
               {remainingOutlook.count ? ` (${remainingOutlook.count})` : ''}
             </button>
           ) : null}
+          <button
+            type="button"
+            onClick={() => void copyQrPageLink()}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-indigo-200 bg-white text-indigo-800 text-sm font-semibold hover:bg-indigo-50"
+          >
+            <Copy className="w-4 h-4" />
+            Copy QR page link
+          </button>
           <div className="inline-flex rounded-xl bg-slate-100 p-1">
           <button
             type="button"
@@ -390,6 +447,50 @@ export default function EventParticipantEmailPanel({
         </div>
       </div>
 
+      <div className="rounded-2xl border border-sky-200 bg-sky-50/80 p-4 space-y-2">
+        <p className="text-sm font-semibold text-sky-950">Send from IIChE@cb.amrita.edu</p>
+        {outlook.connected ? (
+          <>
+            <p className="text-xs text-sky-900">
+              Connected as <span className="font-semibold">{outlook.mailbox}</span>. Participant mail can go through this Outlook mailbox instead of portal mail.
+            </p>
+            <button
+              type="button"
+              className="text-xs font-semibold text-sky-800 hover:text-sky-950"
+              onClick={async () => {
+                await fetch('/api/outlook/status', { method: 'DELETE' });
+                await loadOutlookStatus();
+                toast.success('Outlook disconnected');
+              }}
+            >
+              Disconnect Outlook
+            </button>
+          </>
+        ) : (
+          <>
+            <p className="text-xs text-sky-900">
+              Sign in with the chapter mailbox {outlook.requiredMailbox}. Amrita IT must allow this portal as a Microsoft app (Mail.Send).
+            </p>
+            <button
+              type="button"
+              disabled={!outlook.configured}
+              onClick={() => {
+                const returnTo = `/dashboard/event-detail/${eventId}?tab=email`;
+                window.location.href = `/api/outlook/connect?returnTo=${encodeURIComponent(returnTo)}`;
+              }}
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-sky-700 text-white text-sm font-semibold hover:bg-sky-800 disabled:opacity-50"
+            >
+              Connect Outlook
+            </button>
+            {!outlook.configured ? (
+              <p className="text-[11px] text-sky-800">
+                Server still needs MICROSOFT_CLIENT_ID, MICROSOFT_CLIENT_SECRET, and OUTLOOK_TOKEN_SECRET.
+              </p>
+            ) : null}
+          </>
+        )}
+      </div>
+
       {page === 'log' ? (
         <div className="space-y-3">
           {remainingLog && remainingCount > 0 ? (
@@ -408,6 +509,16 @@ export default function EventParticipantEmailPanel({
                 Copy remaining
                 {remainingOutlook.count ? ` (${remainingOutlook.count})` : ''}
               </button>
+              {outlook.connected ? (
+                <button
+                  type="button"
+                  disabled={sending}
+                  onClick={() => void handleRetryFailed(remainingLog, true)}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-700 text-white text-sm font-semibold hover:bg-sky-800 disabled:opacity-50"
+                >
+                  Send remaining via Outlook
+                </button>
+              ) : null}
               <button
                 type="button"
                 disabled={sending}
@@ -669,6 +780,7 @@ export default function EventParticipantEmailPanel({
             </p>
           </div>
 
+          <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             disabled={sending || checking || emailStats.withEmail === 0}
@@ -687,6 +799,18 @@ export default function EventParticipantEmailPanel({
               </>
             )}
           </button>
+          {outlook.connected ? (
+            <button
+              type="button"
+              disabled={sending || checking || emailStats.withEmail === 0}
+              onClick={() => void handleSend(true)}
+              className="inline-flex items-center gap-2 bg-sky-700 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-sky-800 disabled:opacity-50"
+            >
+              <Send className="w-4 h-4" />
+              Send via Outlook ({emailStats.withEmail})
+            </button>
+          ) : null}
+          </div>
         </div>
       )}
     </div>

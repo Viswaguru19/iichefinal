@@ -3,6 +3,8 @@ import QRCode from 'qrcode';
 import { createClient } from '@/lib/supabase/server';
 import { tryCreateAdminClient } from '@/lib/supabase/admin';
 import { sendEmail, sendEmailWithRetry } from '@/lib/notifications';
+import { sendOutlookMail } from '@/lib/outlook-graph';
+import { appOriginFromRequest } from '@/lib/member-password';
 import { canSendEventParticipantEmail } from '@/lib/member-profile-edit';
 import {
   buildEventParticipantEmail,
@@ -14,6 +16,7 @@ import {
   dummyCheckInPayload,
   isValidParticipantEmail,
   participantCheckInPayload,
+  participantMyQrPath,
   PREVIEW_PARTICIPANT_NAME,
   remainingEmailsAfterSend,
   resolveParticipantSendEmail,
@@ -85,6 +88,7 @@ export async function POST(request: Request) {
     const customBody = String(body.messageBody || '').trim();
     let groupFilter = body.groupFilter ? String(body.groupFilter).trim() : null;
     const retryLogId = String(body.retryLogId || '').trim();
+    const viaOutlook = Boolean(body.viaOutlook);
 
     if (!eventId) {
       return NextResponse.json({ error: 'Event ID is required' }, { status: 400 });
@@ -164,6 +168,7 @@ export async function POST(request: Request) {
         extraNotes,
         eventDate: event.event_date,
         location: event.location,
+        qrPageUrl: `${appOriginFromRequest(request)}${participantMyQrPath(eventId)}`,
       });
 
     const posterPublicUrl = event.poster_url ? publicEventDocumentUrl(event.poster_url) : '';
@@ -207,10 +212,19 @@ export async function POST(request: Request) {
         posterUrl: posterPublicUrl || undefined,
         checkInQrDataUrl: qrPublicUrl || `data:image/png;base64,${png.toString('base64')}`,
       });
-      const result = await sendEmail(previewTo, subject, emailHtml, {
-        attachments,
-        text: `${participantInvitePlainText(messageBody, PREVIEW_PARTICIPANT_NAME)}\n\nThis is a check email. The QR is a dummy and will not mark attendance.`,
-      });
+      const result = viaOutlook
+        ? await sendOutlookMail({
+            userId: user.id,
+            to: previewTo,
+            subject,
+            html: emailHtml,
+            text: `${participantInvitePlainText(messageBody, PREVIEW_PARTICIPANT_NAME)}\n\nThis is a check email. The QR is a dummy and will not mark attendance.`,
+            attachments,
+          })
+        : await sendEmail(previewTo, subject, emailHtml, {
+            attachments,
+            text: `${participantInvitePlainText(messageBody, PREVIEW_PARTICIPANT_NAME)}\n\nThis is a check email. The QR is a dummy and will not mark attendance.`,
+          });
       if (!result.success) {
         return NextResponse.json({ error: result.error || 'Failed to send check email' }, { status: 500 });
       }
@@ -338,10 +352,19 @@ export async function POST(request: Request) {
         posterUrl: posterPublicUrl || undefined,
         checkInQrDataUrl: qrPublicUrl || `data:image/png;base64,${png.toString('base64')}`,
       });
-      const result = await sendEmailWithRetry(recipient.email, subject, emailHtml, {
-        attachments,
-        text: participantInvitePlainText(messageBody, recipient.name),
-      });
+      const result = viaOutlook
+        ? await sendOutlookMail({
+            userId: user.id,
+            to: recipient.email,
+            subject,
+            html: emailHtml,
+            text: participantInvitePlainText(messageBody, recipient.name),
+            attachments,
+          })
+        : await sendEmailWithRetry(recipient.email, subject, emailHtml, {
+            attachments,
+            text: participantInvitePlainText(messageBody, recipient.name),
+          });
       if (result.success) {
         sent += 1;
         sentEmails.push(recipient.email);
@@ -368,7 +391,13 @@ export async function POST(request: Request) {
       sent_emails?: string[] | null;
     } | null = null;
     if (sent > 0 || failed > 0) {
-      const errorSummary = [...failReasons].slice(0, 3).join(' · ') || null;
+      const errorSummary = [
+        viaOutlook ? 'via Outlook' : '',
+        ...failReasons,
+      ]
+        .filter(Boolean)
+        .slice(0, 3)
+        .join(' · ') || null;
       const { data: logRow, error: logError } = await supabase
         .from('event_participant_email_sends')
         .insert({
