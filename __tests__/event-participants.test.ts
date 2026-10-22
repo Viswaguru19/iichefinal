@@ -6,7 +6,7 @@ import {
   FORM_REGISTRATION_GROUP,
   ON_SPOT_REGISTRATION_GROUP,
 } from '@/lib/event-participant-groups';
-import { dummyCheckInPayload, outlookAddressList, participantCampusOutlookEmail, participantCheckInPayload, participantMailFromRosterField, resolveParticipantSendEmail } from '@/lib/event-participant-qr';
+import { dummyCheckInPayload, outlookAddressList, participantCampusOutlookEmail, participantCheckInPayload, participantMailFromRosterField, remainingEmailsAfterSend, resolveParticipantSendEmail } from '@/lib/event-participant-qr';
 import { buildEventParticipantEmail, draftParticipantInviteMessage } from '@/lib/event-participant-email-builder';
 
 describe('parseBulkParticipantLines', () => {
@@ -171,6 +171,23 @@ describe('participantCampusOutlookEmail', () => {
     ).toBe(
       'cb.en.u4che26101@cb.students.amrita.edu; cb.en.u4che26102@cb.students.amrita.edu',
     );
+  });
+});
+
+describe('remainingEmailsAfterSend', () => {
+  it('infers remaining as everyone after the delivered count when no failed list was saved', () => {
+    const people = Array.from({ length: 5 }, (_, i) => ({
+      id: String(i + 1),
+      created_at: `2026-10-22T10:5${i}:00.000Z`,
+      participant_email: `CB.EN.U4CHE2610${i + 1}`,
+    }));
+    expect(remainingEmailsAfterSend({ participants: people, deliveredCount: 3 })).toEqual({
+      inferred: true,
+      emails: [
+        'cb.en.u4che26104@cb.students.amrita.edu',
+        'cb.en.u4che26105@cb.students.amrita.edu',
+      ],
+    });
   });
 });
 

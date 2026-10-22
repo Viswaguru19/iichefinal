@@ -10,6 +10,7 @@ import {
   isValidParticipantEmail,
   outlookAddressList,
   participantCampusOutlookEmail,
+  remainingEmailsAfterSend,
   resolveParticipantSendEmail,
 } from '@/lib/event-participant-qr';
 import { formatPortalDateTime } from '@/lib/portal-date';
@@ -187,15 +188,20 @@ export default function EventParticipantEmailPanel({
 
   async function copyRemainingMails(log?: SendLog | null) {
     const remaining = remainingOutlookAddresses(log || sendLogs[0] || null, participants, sendLogs);
-    if (remaining.unknown) {
-      toast.error('That send did not save who failed, so remaining addresses cannot be copied.');
+    if (!remaining.list) {
+      toast.error('No remaining addresses to copy. Everyone recorded as delivered already got mail.');
       return;
     }
-    await copyAddressList(
-      remaining.list,
-      remaining.count,
-      'No remaining addresses to copy. Everyone recorded as delivered already got mail.',
-    );
+    try {
+      await navigator.clipboard.writeText(remaining.list);
+      toast.success(
+        remaining.inferred
+          ? `Copied ${remaining.count} remaining address${remaining.count === 1 ? '' : 'es'} (estimated from send order)`
+          : `Copied ${remaining.count} remaining address${remaining.count === 1 ? '' : 'es'} for Outlook`,
+      );
+    } catch {
+      toast.error('Could not copy. Allow clipboard access and try again.');
+    }
   }
 
   function useLogAsDraft(log: SendLog) {
@@ -350,7 +356,7 @@ export default function EventParticipantEmailPanel({
             <Copy className="w-4 h-4" />
             Copy all mails ({outlookMail.count})
           </button>
-          {remainingOutlook.count > 0 || remainingOutlook.unknown ? (
+          {remainingOutlook.count > 0 ? (
             <button
               type="button"
               onClick={() => void copyRemainingMails(remainingLog)}
@@ -702,33 +708,17 @@ function remainingOutlookAddresses(
   log: SendLog | null,
   participants: any[],
   allLogs: SendLog[],
-): { list: string; count: number; unknown: boolean } {
-  if (!log) return { list: '', count: 0, unknown: false };
+): { list: string; count: number; inferred: boolean } {
+  if (!log) return { list: '', count: 0, inferred: false };
 
-  const failed = (log.failed_emails || [])
-    .map((email) => String(email || '').trim().toLowerCase())
-    .filter(Boolean);
-  if (failed.length) {
-    const emails = failed.map((email) => campusMailForAddress(email, participants) || email);
-    const list = outlookAddressList(emails);
-    return { list, count: list ? list.split('; ').length : 0, unknown: false };
-  }
-
-  const delivered = new Set(
-    allLogs.flatMap((row) => row.sent_emails || []).map((email) => String(email || '').trim().toLowerCase()).filter(Boolean),
-  );
-  if (delivered.size === 0) {
-    return { list: '', count: 0, unknown: (log.failed_count || 0) > 0 };
-  }
-
-  const emails: string[] = [];
-  for (const participant of participants) {
-    const resolved = resolveParticipantSendEmail(participant).email;
-    const campus = participantCampusOutlookEmail(participant);
-    if ((resolved && delivered.has(resolved)) || (campus && delivered.has(campus))) continue;
-    if (campus) emails.push(campus);
-    else if (resolved) emails.push(resolved);
-  }
+  const remaining = remainingEmailsAfterSend({
+    participants,
+    groupFilter: log.group_filter,
+    failedEmails: log.failed_emails,
+    sentEmails: allLogs.flatMap((row) => row.sent_emails || []),
+    deliveredCount: log.recipient_count,
+  });
+  const emails = remaining.emails.map((email) => campusMailForAddress(email, participants) || email);
   const list = outlookAddressList(emails);
-  return { list, count: list ? list.split('; ').length : 0, unknown: false };
+  return { list, count: list ? list.split('; ').length : 0, inferred: remaining.inferred };
 }

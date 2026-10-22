@@ -15,6 +15,7 @@ import {
   isValidParticipantEmail,
   participantCheckInPayload,
   PREVIEW_PARTICIPANT_NAME,
+  remainingEmailsAfterSend,
   resolveParticipantSendEmail,
 } from '@/lib/event-participant-qr';
 
@@ -112,12 +113,13 @@ export async function POST(request: Request) {
 
     let retryEmails = new Set<string>();
     let skipDelivered = new Set<string>();
+    let retryDeliveredCount = 0;
     let retrySubject = '';
     let retryBody = '';
     if (retryLogId) {
       const { data: prior, error: priorError } = await supabase
         .from('event_participant_email_sends')
-        .select('id, event_id, subject, message_body, failed_emails, sent_emails, failed_count, group_filter')
+        .select('id, event_id, subject, message_body, failed_emails, sent_emails, failed_count, recipient_count, group_filter')
         .eq('id', retryLogId)
         .eq('event_id', eventId)
         .maybeSingle();
@@ -129,19 +131,18 @@ export async function POST(request: Request) {
           .map((email: unknown) => String(email || '').trim().toLowerCase())
           .filter(Boolean),
       );
-      if (retryEmails.size === 0) {
-        const { data: priorLogs } = await supabase
-          .from('event_participant_email_sends')
-          .select('sent_emails')
-          .eq('event_id', eventId);
-        skipDelivered = new Set(
-          (priorLogs || []).flatMap((row) =>
-            (Array.isArray(row.sent_emails) ? row.sent_emails : []).map((email: unknown) =>
-              String(email || '').trim().toLowerCase(),
-            ),
-          ).filter(Boolean),
-        );
-      }
+      retryDeliveredCount = Number(prior.recipient_count) || 0;
+      const { data: priorLogs } = await supabase
+        .from('event_participant_email_sends')
+        .select('sent_emails')
+        .eq('event_id', eventId);
+      skipDelivered = new Set(
+        (priorLogs || []).flatMap((row) =>
+          (Array.isArray(row.sent_emails) ? row.sent_emails : []).map((email: unknown) =>
+            String(email || '').trim().toLowerCase(),
+          ),
+        ).filter(Boolean),
+      );
       if (!groupFilter && prior.group_filter) {
         groupFilter = String(prior.group_filter);
       }
@@ -224,7 +225,8 @@ export async function POST(request: Request) {
     const { data: participants, error: participantsError } = await supabase
       .from('event_participants')
       .select('id, participant_name, participant_email, participant_group, qr_data, created_at, form_data')
-      .eq('event_id', eventId);
+      .eq('event_id', eventId)
+      .order('created_at', { ascending: true });
 
     if (participantsError) {
       return NextResponse.json({ error: participantsError.message }, { status: 500 });
@@ -236,6 +238,16 @@ export async function POST(request: Request) {
         const label = p.participant_group?.trim() || 'Unassigned';
         return label === groupFilter;
       });
+    }
+
+    if (retryLogId && retryEmails.size === 0) {
+      const remaining = remainingEmailsAfterSend({
+        participants: rows,
+        groupFilter,
+        sentEmails: [...skipDelivered],
+        deliveredCount: retryDeliveredCount,
+      });
+      retryEmails = new Set(remaining.emails);
     }
 
     const seen = new Set<string>();

@@ -87,6 +87,66 @@ export function outlookAddressList(emails: string[]): string {
   return [...new Set(emails.map((email) => email.trim().toLowerCase()).filter(Boolean))].join('; ');
 }
 
+type RosterParticipant = {
+  id?: string;
+  created_at?: string | null;
+  participant_email?: string | null;
+  participant_group?: string | null;
+  form_data?: unknown;
+};
+
+export function orderedUniqueSendEmails(
+  participants: RosterParticipant[],
+  groupFilter?: string | null,
+): string[] {
+  const rows =
+    groupFilter && groupFilter !== 'all'
+      ? participants.filter((row) => (row.participant_group?.trim() || 'Unassigned') === groupFilter)
+      : participants;
+  const sorted = [...rows].sort((a, b) => {
+    const byDate = String(a.created_at || '').localeCompare(String(b.created_at || ''));
+    if (byDate) return byDate;
+    return String(a.id || '').localeCompare(String(b.id || ''));
+  });
+  const seen = new Set<string>();
+  const emails: string[] = [];
+  for (const row of sorted) {
+    const email = resolveParticipantSendEmail(row).email.toLowerCase();
+    if (!email || seen.has(email)) continue;
+    seen.add(email);
+    emails.push(email);
+  }
+  return emails;
+}
+
+/** Who still needs mail after a send. Uses the failed list when saved; otherwise skips the first N unique addresses (send order). */
+export function remainingEmailsAfterSend(opts: {
+  participants: RosterParticipant[];
+  groupFilter?: string | null;
+  failedEmails?: string[] | null;
+  sentEmails?: string[] | null;
+  deliveredCount?: number | null;
+}): { emails: string[]; inferred: boolean } {
+  const failed = (opts.failedEmails || [])
+    .map((email) => String(email || '').trim().toLowerCase())
+    .filter(Boolean);
+  if (failed.length) return { emails: [...new Set(failed)], inferred: false };
+
+  const ordered = orderedUniqueSendEmails(opts.participants, opts.groupFilter);
+  const delivered = new Set(
+    (opts.sentEmails || []).map((email) => String(email || '').trim().toLowerCase()).filter(Boolean),
+  );
+  if (delivered.size) {
+    return { emails: ordered.filter((email) => !delivered.has(email)), inferred: false };
+  }
+
+  const skip = Math.max(0, Number(opts.deliveredCount) || 0);
+  if (skip > 0 && skip < ordered.length) {
+    return { emails: ordered.slice(skip), inferred: true };
+  }
+  return { emails: [], inferred: false };
+}
+
 /** Prefer a stored email; otherwise {their roll}@cb.students.amrita.edu. */
 export function resolveParticipantSendEmail(participant: {
   participant_email?: string | null;
