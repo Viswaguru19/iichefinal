@@ -1,11 +1,23 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Loader2, Mail, Send, X } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { createClient } from '@/lib/supabase/client';
 import { participantGroupLabel } from '@/lib/event-participant-groups';
 import { draftParticipantInviteMessage } from '@/lib/event-participant-email-builder';
 import { isValidParticipantEmail, resolveParticipantSendEmail } from '@/lib/event-participant-qr';
+import { formatPortalDateTime } from '@/lib/portal-date';
+
+type SendLog = {
+  id: string;
+  sent_at: string;
+  subject: string;
+  message_body: string;
+  recipient_count: number;
+  failed_count: number | null;
+  group_filter: string | null;
+};
 
 type Props = {
   eventId: string;
@@ -33,6 +45,9 @@ export default function EventParticipantEmailPanel({
   const [sending, setSending] = useState(false);
   const [checking, setChecking] = useState(false);
   const [checkEmail, setCheckEmail] = useState('');
+  const [sendLogs, setSendLogs] = useState<SendLog[]>([]);
+  const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
+  const supabase = useMemo(() => createClient(), []);
 
   const groupOptions = useMemo(() => {
     const labels = participants.map((p) => participantGroupLabel(p.participant_group));
@@ -61,6 +76,21 @@ export default function EventParticipantEmailPanel({
     }
     return { total: filtered.length, withEmail: emails.size, noEmail, fromRoll, rollExample };
   }, [participants, groupFilter]);
+
+  async function loadSendLogs() {
+    const { data } = await supabase
+      .from('event_participant_email_sends')
+      .select('id, sent_at, subject, message_body, recipient_count, failed_count, group_filter')
+      .eq('event_id', eventId)
+      .order('sent_at', { ascending: false })
+      .limit(20);
+    setSendLogs((data as SendLog[]) || []);
+  }
+
+  useEffect(() => {
+    if (!canSend) return;
+    void loadSendLogs();
+  }, [canSend, eventId]);
 
   const automatedMessage = useMemo(
     () => draftParticipantInviteMessage({ eventTitle, eventDate, location }),
@@ -137,9 +167,13 @@ export default function EventParticipantEmailPanel({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to send');
       toast.success(data.message || 'Emails sent');
-      setOpen(false);
-      setMessageBody('');
-      setGroupFilter('all');
+      if (data.log) {
+        setSendLogs((prev) => [data.log as SendLog, ...prev.filter((row) => row.id !== data.log.id)]);
+        setExpandedLogId(data.log.id);
+      } else {
+        void loadSendLogs();
+      }
+      setOpen(true);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Failed to send emails');
     } finally {
@@ -158,6 +192,11 @@ export default function EventParticipantEmailPanel({
       >
         <Mail className="w-4 h-4" />
         Email participants
+        {sendLogs[0] ? (
+          <span className="text-[10px] font-semibold bg-white/20 px-1.5 py-0.5 rounded-full">
+            Last sent {formatPortalDateTime(sendLogs[0].sent_at)}
+          </span>
+        ) : null}
       </button>
 
       {open ? (
@@ -180,6 +219,42 @@ export default function EventParticipantEmailPanel({
                 <X className="w-4 h-4" />
               </button>
             </div>
+
+            {sendLogs.length > 0 ? (
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50/80 p-3 space-y-2">
+                <p className="text-xs font-semibold text-emerald-900">Mail log</p>
+                {sendLogs.map((log) => {
+                  const openLog = expandedLogId === log.id;
+                  return (
+                    <div key={log.id} className="rounded-lg bg-white/80 border border-emerald-100 p-2.5">
+                      <p className="text-xs text-emerald-900">
+                        This mail was already sent to{' '}
+                        <span className="font-semibold">{log.recipient_count}</span> participant
+                        {log.recipient_count === 1 ? '' : 's'}
+                        {log.group_filter ? ` (${log.group_filter})` : ''} at{' '}
+                        <span className="font-semibold">{formatPortalDateTime(log.sent_at)}</span>
+                        {log.failed_count ? ` · ${log.failed_count} failed` : ''}.
+                      </p>
+                      <p className="text-[11px] text-gray-600 mt-1 truncate">
+                        Subject: {log.subject || '(no subject)'}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setExpandedLogId(openLog ? null : log.id)}
+                        className="mt-1 text-[11px] font-semibold text-indigo-700 hover:text-indigo-900"
+                      >
+                        {openLog ? 'Hide content' : 'Show content'}
+                      </button>
+                      {openLog ? (
+                        <pre className="mt-2 text-[11px] text-gray-700 whitespace-pre-wrap break-words bg-slate-50 border border-slate-100 rounded-lg p-2 max-h-40 overflow-y-auto">
+                          {log.message_body}
+                        </pre>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
 
             <p className="text-xs text-gray-600">
               {emailStats.withEmail} of {emailStats.total} will be emailed. A stored address is used when

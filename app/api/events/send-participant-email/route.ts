@@ -289,6 +289,36 @@ export async function POST(request: Request) {
       }
     }
 
+    let sendLog: {
+      id: string;
+      sent_at: string;
+      subject: string;
+      message_body: string;
+      recipient_count: number;
+      failed_count: number;
+      group_filter: string | null;
+    } | null = null;
+    if (sent > 0) {
+      const { data: logRow, error: logError } = await supabase
+        .from('event_participant_email_sends')
+        .insert({
+          event_id: eventId,
+          sent_by: user.id,
+          subject,
+          message_body: messageBody,
+          recipient_count: sent,
+          failed_count: failed,
+          group_filter: groupFilter && groupFilter !== 'all' ? groupFilter : null,
+        })
+        .select('id, sent_at, subject, message_body, recipient_count, failed_count, group_filter')
+        .single();
+      if (logError) {
+        console.error('[send-participant-email] log', logError.message);
+      } else {
+        sendLog = logRow;
+      }
+    }
+
     return NextResponse.json({
       success: true,
       sent,
@@ -297,6 +327,7 @@ export async function POST(request: Request) {
       sentToCampusRoll,
       totalRecipients: recipients.length,
       totalParticipants: rows.length,
+      log: sendLog,
       message: `Email sent to ${sent} of ${recipients.length} participant(s)${failed ? ` (${failed} failed)` : ''}.`,
     });
   } catch (err: unknown) {
