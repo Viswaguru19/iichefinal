@@ -12,6 +12,7 @@ import { formatPortalDate, formatPortalDateTime } from '@/lib/portal-date';
 import { LinkedText } from '@/components/LinkedText';
 import EventFeedbackSummary from '@/components/events/EventFeedbackSummary';
 import { mapProfileDisplayNames, profileDisplayName } from '@/lib/profile-display-names';
+import { imageFilesFromList, uploadEventPhotoFiles } from '@/lib/event-photos';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,9 +37,10 @@ export default function EventProgressPage() {
   const [eventToDelete, setEventToDelete] = useState<any>(null);
   const [showPhotoUpload, setShowPhotoUpload] = useState(false);
   const [eventPhotos, setEventPhotos] = useState<any[]>([]);
-  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoFiles, setPhotoFiles] = useState<File[]>([]);
   const [photoCaption, setPhotoCaption] = useState('');
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [photoUploadProgress, setPhotoUploadProgress] = useState('');
   const [viewingPhotos, setViewingPhotos] = useState(false);
   const [photoIndex, setPhotoIndex] = useState(0);
   const [showReportModal, setShowReportModal] = useState(false);
@@ -198,30 +200,36 @@ export default function EventProgressPage() {
     setExistingReport(data || null);
   }
 
+  function closePhotoUpload() {
+    setShowPhotoUpload(false);
+    setPhotoFiles([]);
+    setPhotoCaption('');
+    setPhotoUploadProgress('');
+  }
+
   async function uploadPhoto() {
-    if (!photoFile || !selectedEvent) return;
+    if (!photoFiles.length || !selectedEvent || !currentUser?.id) return;
     setUploadingPhoto(true);
+    setPhotoUploadProgress(`Uploading 0 of ${photoFiles.length}…`);
     try {
-      const ext = photoFile.name.split('.').pop();
-      const path = `${selectedEvent.id}/${Date.now()}.${ext}`;
-      const { error: upErr } = await supabase.storage.from('event-photos').upload(path, photoFile);
-      if (upErr) throw upErr;
-      const { error } = await supabase.from('event_photos').insert({
-        event_id: selectedEvent.id,
-        photo_url: path,
-        uploaded_by: currentUser.id,
-        caption: photoCaption || null,
+      const { uploaded, failed } = await uploadEventPhotoFiles(supabase, {
+        eventId: selectedEvent.id,
+        userId: currentUser.id,
+        files: photoFiles,
+        caption: photoCaption,
+        onProgress: (done, total) => setPhotoUploadProgress(`Uploading ${Math.min(done + 1, total)} of ${total}…`),
       });
-      if (error) throw error;
-      toast.success('Photo uploaded!');
-      setPhotoFile(null);
-      setPhotoCaption('');
-      setShowPhotoUpload(false);
-      await loadPhotos(selectedEvent.id);
+      if (uploaded) toast.success(uploaded === 1 ? 'Photo uploaded' : `${uploaded} photos uploaded`);
+      if (failed.length) toast.error(`${failed.length} photo${failed.length === 1 ? '' : 's'} failed`);
+      if (uploaded) {
+        closePhotoUpload();
+        await loadPhotos(selectedEvent.id);
+      }
     } catch (err: any) {
       toast.error(err.message || 'Upload failed');
     } finally {
       setUploadingPhoto(false);
+      setPhotoUploadProgress('');
     }
   }
 
@@ -931,31 +939,59 @@ ${reportAdditionalDetails ? `## Additional Details\n${reportAdditionalDetails}` 
       {/* Photo Upload Modal */}
       {showPhotoUpload && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl p-6 max-w-md w-full">
+          <div className="bg-white rounded-xl p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-bold text-gray-900">Upload Event Photo</h2>
-              <button onClick={() => { setShowPhotoUpload(false); setPhotoFile(null); setPhotoCaption(''); }} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+              <h2 className="text-xl font-bold text-gray-900">Upload Event Photos</h2>
+              <button onClick={closePhotoUpload} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
             </div>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Photo *</label>
-                <input type="file" accept="image/*" onChange={e => setPhotoFile(e.target.files?.[0] || null)}
-                  className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm" />
+                <label className="block text-sm font-medium text-gray-700 mb-2">Photos *</label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={(e) => {
+                    const extra = imageFilesFromList(e.target.files);
+                    if (extra.length) setPhotoFiles((prev) => [...prev, ...extra]);
+                    e.target.value = '';
+                  }}
+                  className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm"
+                />
+                <p className="text-xs text-gray-500 mt-1">Select several photos at once, or add more after the first pick.</p>
               </div>
-              {photoFile && (
-                <img src={URL.createObjectURL(photoFile)} alt="Preview" className="w-full h-40 object-cover rounded-lg" />
+              {photoFiles.length > 0 && (
+                <div className="grid grid-cols-3 gap-2">
+                  {photoFiles.map((file, i) => (
+                    <div key={`${file.name}-${file.size}-${i}`} className="relative">
+                      <img src={URL.createObjectURL(file)} alt="" className="h-20 w-full object-cover rounded-lg" />
+                      <button
+                        type="button"
+                        onClick={() => setPhotoFiles((prev) => prev.filter((_, idx) => idx !== i))}
+                        className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/70 text-white text-xs leading-5"
+                        aria-label="Remove photo"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
               )}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Caption (optional)</label>
                 <input type="text" value={photoCaption} onChange={e => setPhotoCaption(e.target.value)}
-                  placeholder="Describe this photo..." className="w-full border border-gray-300 rounded-lg px-4 py-2" />
+                  placeholder="Applied to all selected photos" className="w-full border border-gray-300 rounded-lg px-4 py-2" />
               </div>
               <div className="flex gap-3">
-                <button onClick={uploadPhoto} disabled={!photoFile || uploadingPhoto}
+                <button onClick={uploadPhoto} disabled={!photoFiles.length || uploadingPhoto}
                   className="flex-1 bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 disabled:opacity-50">
-                  {uploadingPhoto ? 'Uploading...' : 'Upload Photo'}
+                  {uploadingPhoto
+                    ? photoUploadProgress || 'Uploading…'
+                    : photoFiles.length > 1
+                      ? `Upload ${photoFiles.length} photos`
+                      : 'Upload Photo'}
                 </button>
-                <button onClick={() => { setShowPhotoUpload(false); setPhotoFile(null); setPhotoCaption(''); }}
+                <button onClick={closePhotoUpload}
                   className="flex-1 bg-gray-200 text-gray-900 px-4 py-2 rounded-lg hover:bg-gray-300">Cancel</button>
               </div>
             </div>
