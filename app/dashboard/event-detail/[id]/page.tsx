@@ -1958,6 +1958,8 @@ export default function EventDetailPage() {
                       <EventParticipantEmailPanel
                         eventId={event.id}
                         eventTitle={event.title}
+                        eventDate={event.event_date}
+                        location={event.location}
                         participants={participants}
                         canSend={canEmailParticipants}
                         posterUrl={posterUrl}

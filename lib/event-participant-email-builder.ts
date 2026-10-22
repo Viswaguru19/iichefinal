@@ -30,15 +30,22 @@ export function participantInvitePlainText(messageBody: string, recipientName: s
 export function draftParticipantInviteMessage(options: {
   eventTitle: string;
   extraNotes?: string;
+  eventDate?: string | null;
+  location?: string | null;
 }): string {
   const extra = String(options.extraNotes || '').trim();
-  const extraBlock = extra ? `\n${extra}\n\n` : '\n';
+  const extraBlock = extra ? `\n${extra}\n` : '';
+  const when = String(options.eventDate || '').trim();
+  const where = String(options.location || '').trim();
+  const whenLine = when ? `\nDate & time: ${formatPortalDateTime(when)}` : '';
+  const whereLine = where ? `\nVenue: ${where}` : '';
   return `Hi {{name}},
 
-We invite you to ${options.eventTitle}.
+We invite you to ${options.eventTitle}.${whenLine}${whereLine}
 
 The event poster is included in this email.
-${extraBlock}Use this QR code for attendance at the venue.
+${extraBlock}
+Use this QR code for attendance at the venue.
 
 Regards,
 IIChE AVVU SC`;

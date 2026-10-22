@@ -80,6 +80,7 @@ export async function POST(request: Request) {
     const body = await request.json();
     const eventId = String(body.eventId || '').trim();
     const extraNotes = String(body.extraNotes || '').trim();
+    const customBody = String(body.messageBody || '').trim();
     const groupFilter = body.groupFilter ? String(body.groupFilter).trim() : null;
 
     if (!eventId) {
@@ -87,6 +88,9 @@ export async function POST(request: Request) {
     }
     if (extraNotes.length > 4000) {
       return NextResponse.json({ error: 'Extra notes are too long (max 4,000 characters)' }, { status: 400 });
+    }
+    if (customBody.length > 8000) {
+      return NextResponse.json({ error: 'Message is too long (max 8,000 characters)' }, { status: 400 });
     }
 
     const { data: event, error: eventError } = await supabase
@@ -109,10 +113,14 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Subject is too long (max 200 characters)' }, { status: 400 });
     }
 
-    const messageBody = draftParticipantInviteMessage({
-      eventTitle: event.title,
-      extraNotes,
-    });
+    const messageBody =
+      customBody ||
+      draftParticipantInviteMessage({
+        eventTitle: event.title,
+        extraNotes,
+        eventDate: event.event_date,
+        location: event.location,
+      });
 
     const posterPublicUrl = event.poster_url ? publicEventDocumentUrl(event.poster_url) : '';
     let posterAttachment: { filename: string; content: Buffer; contentType: string } | null = null;

@@ -10,6 +10,8 @@ import { isValidParticipantEmail, resolveParticipantSendEmail } from '@/lib/even
 type Props = {
   eventId: string;
   eventTitle: string;
+  eventDate?: string | null;
+  location?: string | null;
   participants: any[];
   canSend: boolean;
   posterUrl?: string | null;
@@ -18,13 +20,15 @@ type Props = {
 export default function EventParticipantEmailPanel({
   eventId,
   eventTitle,
+  eventDate,
+  location,
   participants,
   canSend,
   posterUrl,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [subject, setSubject] = useState('');
-  const [extraNotes, setExtraNotes] = useState('');
+  const [messageBody, setMessageBody] = useState('');
   const [groupFilter, setGroupFilter] = useState('all');
   const [sending, setSending] = useState(false);
   const [checking, setChecking] = useState(false);
@@ -58,13 +62,14 @@ export default function EventParticipantEmailPanel({
     return { total: filtered.length, withEmail: emails.size, noEmail, fromRoll, rollExample };
   }, [participants, groupFilter]);
 
-  const preview = useMemo(
-    () => draftParticipantInviteMessage({ eventTitle, extraNotes }),
-    [eventTitle, extraNotes],
+  const automatedMessage = useMemo(
+    () => draftParticipantInviteMessage({ eventTitle, eventDate, location }),
+    [eventTitle, eventDate, location],
   );
 
   function openComposer() {
     setSubject(`You're invited: ${eventTitle}`);
+    setMessageBody(automatedMessage);
     setOpen(true);
   }
 
@@ -82,7 +87,7 @@ export default function EventParticipantEmailPanel({
         body: JSON.stringify({
           eventId,
           subject: subject.trim(),
-          extraNotes: extraNotes.trim(),
+          messageBody: messageBody.trim() || automatedMessage,
           previewTo: to,
         }),
       });
@@ -99,6 +104,10 @@ export default function EventParticipantEmailPanel({
   async function handleSend() {
     if (!subject.trim()) {
       toast.error('Enter a subject');
+      return;
+    }
+    if (!(messageBody.trim() || automatedMessage).trim()) {
+      toast.error('Enter a message');
       return;
     }
     if (emailStats.withEmail === 0) {
@@ -121,7 +130,7 @@ export default function EventParticipantEmailPanel({
         body: JSON.stringify({
           eventId,
           subject: subject.trim(),
-          extraNotes: extraNotes.trim(),
+          messageBody: messageBody.trim() || automatedMessage,
           groupFilter: groupFilter === 'all' ? undefined : groupFilter,
         }),
       });
@@ -129,7 +138,7 @@ export default function EventParticipantEmailPanel({
       if (!res.ok) throw new Error(data.error || 'Failed to send');
       toast.success(data.message || 'Emails sent');
       setOpen(false);
-      setExtraNotes('');
+      setMessageBody('');
       setGroupFilter('all');
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Failed to send emails');
@@ -163,7 +172,7 @@ export default function EventParticipantEmailPanel({
                 type="button"
                 onClick={() => {
                   setOpen(false);
-                  setExtraNotes('');
+                  setMessageBody('');
                 }}
                 className="text-gray-400 hover:text-gray-600"
                 aria-label="Close"
@@ -227,23 +236,26 @@ export default function EventParticipantEmailPanel({
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1">
-                Extra points (optional)
-              </label>
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <label className="block text-xs font-semibold text-gray-600">Message</label>
+                <button
+                  type="button"
+                  onClick={() => setMessageBody(automatedMessage)}
+                  className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800"
+                >
+                  Reset to automated message
+                </button>
+              </div>
               <textarea
-                value={extraNotes}
-                onChange={(e) => setExtraNotes(e.target.value)}
-                rows={3}
-                placeholder="Add any extra points for participants…"
+                value={messageBody}
+                onChange={(e) => setMessageBody(e.target.value)}
+                rows={10}
                 className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:ring-2 focus:ring-indigo-500"
               />
-            </div>
-
-            <div>
-              <p className="text-xs font-semibold text-gray-600 mb-1">Draft (name is filled per person)</p>
-              <pre className="text-xs text-gray-700 whitespace-pre-wrap break-words bg-indigo-50/70 border border-indigo-100 rounded-lg p-3">
-                {preview}
-              </pre>
+              <p className="text-[11px] text-gray-500 mt-1">
+                This starts as the automated invite. Edit it if you need to. Keep{' '}
+                <code className="text-[11px]">{'{{name}}'}</code> to insert each participant&apos;s name.
+              </p>
             </div>
 
             <div className="rounded-lg border border-violet-100 bg-violet-50/60 p-3 space-y-2">
@@ -303,7 +315,7 @@ export default function EventParticipantEmailPanel({
                 disabled={sending}
                 onClick={() => {
                   setOpen(false);
-                  setExtraNotes('');
+                  setMessageBody('');
                 }}
                 className="px-4 py-2 text-sm font-semibold text-gray-600 hover:text-gray-800"
               >

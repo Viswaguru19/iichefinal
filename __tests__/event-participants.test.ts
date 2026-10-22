@@ -153,6 +153,9 @@ describe('draftParticipantInviteMessage', () => {
     });
     expect(draft).toContain('Hi {{name}},');
     expect(draft).toContain('We invite you to ACE Orientation.');
+    expect(draftParticipantInviteMessage({ eventTitle: 'ACE Orientation', location: 'Amriteshwari Hall' })).toContain(
+      'Venue: Amriteshwari Hall',
+    );
     expect(draft).toContain('Bring your ID card.');
     expect(draft).toContain('Use this QR code for attendance');
   });
