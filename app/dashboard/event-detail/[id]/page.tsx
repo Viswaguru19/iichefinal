@@ -14,6 +14,7 @@ import StatusIndicator from '@/components/StatusIndicator';
 import EventReport from '@/components/EventReport';
 import QRCode from 'qrcode';
 import EventQrScanner, { type QrScanResult } from '@/components/events/EventQrScanner';
+import { unlockScanAudio } from '@/lib/scan-feedback-audio';
 import EventParticipantManager from '@/components/events/EventParticipantManager';
 import EventParticipantEmailPanel from '@/components/events/EventParticipantEmailPanel';
 import { isManualParticipantSource, participantDisplayGroup, participantSecondaryText, registrationSourceLabel } from '@/lib/event-participant-groups';
@@ -528,6 +529,9 @@ export default function EventDetailPage() {
 
         const payload = parsed.payload;
         const pid = payload.participant_id;
+        if (payload.dummy === true || String(pid) === 'preview') {
+          return { ok: false, message: 'Dummy QR — will not mark present' };
+        }
         if (pid == null || pid === '') {
           return { ok: false, message: 'Invalid participant QR' };
         }
@@ -2065,7 +2069,10 @@ export default function EventDetailPage() {
                 <p className="text-sm font-medium text-gray-800">Scan participant check-in QR</p>
                 <button
                   type="button"
-                  onClick={() => setScannerOpen(true)}
+                  onClick={() => {
+                    unlockScanAudio();
+                    setScannerOpen(true);
+                  }}
                   className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700"
                 >
                   Scan QR (Camera)

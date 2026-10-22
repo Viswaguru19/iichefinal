@@ -3,6 +3,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { CheckCircle2, XCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { playScanBuzz, playScanOk, unlockScanAudio } from '@/lib/scan-feedback-audio';
 
 export type QrScanResult = {
   ok: boolean;
@@ -17,7 +18,9 @@ interface EventQrScannerProps {
   continuous?: boolean;
 }
 
-const SCAN_COOLDOWN_MS = 2000;
+/** Same code only — different people can be scanned back-to-back. */
+const SAME_CODE_COOLDOWN_MS = 900;
+const FLASH_MS = 420;
 
 async function safelyStopScanner(scanner: { stop?: () => unknown; clear?: () => void } | null) {
   if (!scanner) return;
@@ -47,24 +50,41 @@ export default function EventQrScanner({
   const onScannedRef = useRef(onScanned);
   const lastPayloadRef = useRef('');
   const lastScanAtRef = useRef(0);
-  const busyRef = useRef(false);
+  const inflightRef = useRef(new Set<string>());
+  const flashTimerRef = useRef<number | null>(null);
   const [scanCount, setScanCount] = useState(0);
   const [lastResult, setLastResult] = useState<QrScanResult | null>(null);
-  const [processing, setProcessing] = useState(false);
+  const [flash, setFlash] = useState<'ok' | 'bad' | null>(null);
 
   onCloseRef.current = onClose;
   onScannedRef.current = onScanned;
+
+  function showFlash(kind: 'ok' | 'bad', feedback: QrScanResult) {
+    if (kind === 'ok') playScanOk();
+    else playScanBuzz();
+    setFlash(kind);
+    setLastResult(feedback);
+    if (kind === 'ok') setScanCount((c) => c + 1);
+    if (flashTimerRef.current) window.clearTimeout(flashTimerRef.current);
+    flashTimerRef.current = window.setTimeout(() => setFlash(null), FLASH_MS);
+  }
 
   useEffect(() => {
     if (!open) {
       setScanCount(0);
       setLastResult(null);
-      setProcessing(false);
+      setFlash(null);
       lastPayloadRef.current = '';
       lastScanAtRef.current = 0;
-      busyRef.current = false;
+      inflightRef.current.clear();
+      if (flashTimerRef.current) window.clearTimeout(flashTimerRef.current);
       return;
     }
+    unlockScanAudio();
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
 
     let mounted = true;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -89,18 +109,17 @@ export default function EventQrScanner({
 
         const onSuccess = (decodedText: string) => {
           const now = Date.now();
-          if (busyRef.current) return;
+          if (inflightRef.current.has(decodedText)) return;
           if (
             decodedText === lastPayloadRef.current &&
-            now - lastScanAtRef.current < SCAN_COOLDOWN_MS
+            now - lastScanAtRef.current < SAME_CODE_COOLDOWN_MS
           ) {
             return;
           }
 
           lastPayloadRef.current = decodedText;
           lastScanAtRef.current = now;
-          busyRef.current = true;
-          setProcessing(true);
+          inflightRef.current.add(decodedText);
 
           if (!continuous) {
             void safelyStopScanner(scanner);
@@ -114,19 +133,13 @@ export default function EventQrScanner({
                 ok: true,
                 message: 'Scan processed',
               };
-              setLastResult(feedback);
-              setScanCount((c) => c + 1);
-              if (!feedback.ok) {
-                toast.error(feedback.message, { duration: 2500 });
-              }
+              showFlash(feedback.ok ? 'ok' : 'bad', feedback);
             } catch (err) {
               console.error('QR scan callback failed:', err);
-              const msg = 'Failed to process QR';
-              setLastResult({ ok: false, message: msg });
-              toast.error(msg, { duration: 2500 });
+              if (!mounted) return;
+              showFlash('bad', { ok: false, message: 'Failed to process QR' });
             } finally {
-              busyRef.current = false;
-              if (mounted) setProcessing(false);
+              inflightRef.current.delete(decodedText);
               if (!continuous) onCloseRef.current();
             }
           })();
@@ -154,6 +167,8 @@ export default function EventQrScanner({
       mounted = false;
       void safelyStopScanner(scanner);
     };
+    // showFlash is stable enough for this mount cycle
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, readerId, continuous]);
 
   if (!open) return null;
@@ -164,7 +179,7 @@ export default function EventQrScanner({
         <div className="flex items-center justify-between mb-3 gap-2">
           <div>
             <h4 className="text-sm font-semibold text-gray-900">Scan check-in QR</h4>
-            <p className="text-[11px] text-gray-500">Continuous mode — keep scanning without closing</p>
+            <p className="text-[11px] text-gray-500">Camera stays open — scan, then the next person</p>
           </div>
           <button
             type="button"
@@ -175,15 +190,29 @@ export default function EventQrScanner({
           </button>
         </div>
 
-        <div id={readerId} className="w-full overflow-hidden rounded-xl border border-gray-200 bg-black min-h-[240px]" />
+        <div className="relative w-full overflow-hidden rounded-xl border border-gray-200 bg-black min-h-[240px]">
+          <div id={readerId} className="w-full min-h-[240px]" />
+          {flash && (
+            <div
+              className={`pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 ${
+                flash === 'ok' ? 'bg-emerald-500/55 scan-flash-ok' : 'bg-rose-600/60 scan-flash-bad'
+              }`}
+            >
+              {flash === 'ok' ? (
+                <CheckCircle2 className="w-16 h-16 text-white drop-shadow-lg" strokeWidth={2.4} />
+              ) : (
+                <XCircle className="w-16 h-16 text-white drop-shadow-lg" strokeWidth={2.4} />
+              )}
+              <p className="text-white text-sm font-bold px-4 text-center drop-shadow">
+                {lastResult?.message || (flash === 'ok' ? 'Present' : 'Wrong QR')}
+              </p>
+            </div>
+          )}
+        </div>
 
         <div className="mt-3 space-y-2">
-          <div className="flex items-center justify-between text-xs text-gray-600">
-            <span>{scanCount} scanned this session</span>
-            {processing && <span className="text-indigo-600 font-semibold animate-pulse">Processing…</span>}
-          </div>
-
-          {lastResult && (
+          <p className="text-xs text-gray-600">{scanCount} checked in this session</p>
+          {lastResult && !flash && (
             <div
               className={`flex items-start gap-2 rounded-lg px-3 py-2 text-sm ${
                 lastResult.ok
@@ -199,9 +228,8 @@ export default function EventQrScanner({
               <span>{lastResult.message}</span>
             </div>
           )}
-
           <p className="text-xs text-gray-500">
-            Point at each participant&apos;s check-in QR. Same code won&apos;t fire again for 2 seconds.
+            Green click = present. Buzz = wrong QR. Point at the next code as soon as you hear it.
           </p>
         </div>
       </div>

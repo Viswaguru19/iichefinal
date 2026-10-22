@@ -19,6 +19,28 @@
     text-wrap: balance;
   }
 
+  .scan-flash-ok {
+    animation: scanOkPop 0.42s ease-out;
+  }
+
+  .scan-flash-bad {
+    animation: scanBadShake 0.42s ease-out;
+  }
+
+  @keyframes scanOkPop {
+    0% { opacity: 0; transform: scale(0.92); }
+    18% { opacity: 1; transform: scale(1); }
+    100% { opacity: 0.88; transform: scale(1); }
+  }
+
+  @keyframes scanBadShake {
+    0%, 100% { transform: translateX(0); opacity: 1; }
+    20% { transform: translateX(-8px); }
+    40% { transform: translateX(8px); }
+    60% { transform: translateX(-5px); }
+    80% { transform: translateX(5px); }
+  }
+
   .premium-panel {
     background: rgba(255, 255, 255, 0.9);
     backdrop-filter: blur(18px);
