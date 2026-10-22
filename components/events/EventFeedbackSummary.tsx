@@ -3,13 +3,18 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
-import { EVENT_FEEDBACK_FORM_TYPE, summarizeFeedbackResponses } from '@/lib/event-feedback-form';
+import {
+  EVENT_FEEDBACK_FORM_TYPE,
+  matchRosterFeedback,
+  summarizeFeedbackResponses,
+} from '@/lib/event-feedback-form';
 import { publicFormUrl } from '@/lib/form-public-access';
 
 export default function EventFeedbackSummary({ eventId }: { eventId: string }) {
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState<{ id: string; title: string; fields?: any[] } | null>(null);
   const [summary, setSummary] = useState<ReturnType<typeof summarizeFeedbackResponses> | null>(null);
+  const [roster, setRoster] = useState<ReturnType<typeof matchRosterFeedback> | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -28,24 +33,29 @@ export default function EventFeedbackSummary({ eventId }: { eventId: string }) {
         if (!cancelled) {
           setForm(null);
           setSummary(null);
+          setRoster(null);
           setLoading(false);
         }
         return;
       }
-      const { data: responses } = await supabase
-        .from('form_responses')
-        .select('responses, created_at')
-        .eq('form_id', row.id)
-        .order('created_at', { ascending: false })
-        .limit(80);
+      const [{ data: responses }, { data: participants }] = await Promise.all([
+        supabase
+          .from('form_responses')
+          .select('responses, created_at')
+          .eq('form_id', row.id)
+          .order('created_at', { ascending: false })
+          .limit(200),
+        supabase
+          .from('event_participants')
+          .select('id, participant_name, participant_email, form_data')
+          .eq('event_id', eventId)
+          .order('participant_name', { ascending: true }),
+      ]);
       if (cancelled) return;
+      const fields = Array.isArray(row.fields) ? row.fields : [];
       setForm(row);
-      setSummary(
-        summarizeFeedbackResponses(
-          Array.isArray(row.fields) ? row.fields : [],
-          responses || [],
-        ),
-      );
+      setSummary(summarizeFeedbackResponses(fields, responses || []));
+      setRoster(matchRosterFeedback(participants || [], responses || [], fields));
       setLoading(false);
     }
     void load();
@@ -81,7 +91,11 @@ export default function EventFeedbackSummary({ eventId }: { eventId: string }) {
           <h3 className="text-sm font-semibold text-gray-900">Event feedback</h3>
           <p className="text-xs text-gray-500">{form.title}</p>
         </div>
-        <p className="text-sm font-semibold text-indigo-800">{summary?.count || 0} response{(summary?.count || 0) === 1 ? '' : 's'}</p>
+        <p className="text-sm font-semibold text-indigo-800">
+          {roster
+            ? `${roster.givenCount} of ${roster.givenCount + roster.pendingCount} participants`
+            : `${summary?.count || 0} response${(summary?.count || 0) === 1 ? '' : 's'}`}
+        </p>
       </div>
       {summary?.ratings.length ? (
         <ul className="space-y-1">
@@ -95,6 +109,53 @@ export default function EventFeedbackSummary({ eventId }: { eventId: string }) {
       ) : (
         <p className="text-sm text-gray-500">No ratings yet.</p>
       )}
+      {roster ? (
+        <div className="space-y-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+              Submitted ({roster.givenCount})
+            </p>
+            {roster.given.length ? (
+              <ul className="mt-2 space-y-2">
+                {roster.given.map((person) => (
+                  <li key={person.id} className="rounded-lg bg-slate-50 p-2">
+                    <p className="text-sm font-semibold text-gray-900">
+                      {person.name}
+                      {person.roll ? <span className="font-normal text-gray-500"> · {person.roll}</span> : null}
+                    </p>
+                    {person.answers.length ? (
+                      <ul className="mt-1 space-y-0.5">
+                        {person.answers.slice(0, 6).map((ans) => (
+                          <li key={`${person.id}-${ans.label}`} className="text-xs text-gray-600">
+                            <span className="text-gray-400">{ans.label}: </span>
+                            {ans.text}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-xs text-gray-500 mt-1">Submitted feedback.</p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-gray-500 mt-1">No one has submitted yet.</p>
+            )}
+          </div>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+              Not submitted ({roster.pendingCount})
+            </p>
+            {roster.pending.length ? (
+              <p className="text-sm text-gray-700 mt-1">
+                {roster.pending.map((p) => p.name).join(', ')}
+              </p>
+            ) : (
+              <p className="text-sm text-gray-500 mt-1">Everyone on the roster has submitted.</p>
+            )}
+          </div>
+        </div>
+      ) : null}
       {summary?.comments.length ? (
         <div className="space-y-2">
           <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Recent comments</p>

@@ -49,6 +49,7 @@ const FIELD_TYPES = [
     { value: 'date', label: 'Date', icon: Calendar },
     { value: 'number', label: 'Number', icon: Hash },
     { value: 'roll_no', label: 'Roll No (searchable)', icon: Hash },
+    { value: 'event_participant', label: 'Event participant (search name)', icon: Type },
     { value: 'mobile', label: 'Mobile Number', icon: Phone },
     { value: 'email', label: 'Email', icon: Mail },
 ];

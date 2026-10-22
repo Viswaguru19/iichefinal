@@ -2,6 +2,10 @@ import { nanoid } from 'nanoid';
 import { defaultOptionsForFieldType, defaultValidationForFieldType } from '@/lib/form-field-types';
 
 export const EVENT_FEEDBACK_FORM_TYPE = 'event_feedback';
+export const FEEDBACK_NAME_LABEL = 'Your name';
+export const FEEDBACK_ROLL_LABEL = 'Roll number';
+export const FEEDBACK_PARTICIPANT_META_KEY = '_participant_id';
+export const EVENT_PARTICIPANT_FIELD_TYPE = 'event_participant';
 
 export type FeedbackFieldSpec = {
   label: string;
@@ -12,6 +16,21 @@ export type FeedbackFieldSpec = {
 
 const RATING = ['1 — Poor', '2', '3', '4', '5 — Excellent'];
 
+export function isFeedbackNameField(
+  field: { field_type?: string; label?: string },
+  formType?: string | null,
+): boolean {
+  if (field.field_type === EVENT_PARTICIPANT_FIELD_TYPE) return true;
+  return formType === EVENT_FEEDBACK_FORM_TYPE && /^your name$/i.test(String(field.label || ''));
+}
+
+export function isFeedbackRollField(
+  field: { label?: string },
+  formType?: string | null,
+): boolean {
+  return formType === EVENT_FEEDBACK_FORM_TYPE && /^roll number/i.test(String(field.label || ''));
+}
+
 export function defaultEventFeedbackFields(event: {
   title?: string | null;
   guest_name?: string | null;
@@ -19,8 +38,8 @@ export function defaultEventFeedbackFields(event: {
 }): FeedbackFieldSpec[] {
   const speaker = String(event.guest_name || '').trim();
   const fields: FeedbackFieldSpec[] = [
-    { label: 'Your name', type: 'text', required: false },
-    { label: 'Roll number or email', type: 'text', required: true },
+    { label: FEEDBACK_NAME_LABEL, type: EVENT_PARTICIPANT_FIELD_TYPE, required: true },
+    { label: FEEDBACK_ROLL_LABEL, type: 'text', required: true },
     {
       label: `Overall, how would you rate ${event.title || 'this event'}?`,
       type: 'radio',
@@ -189,6 +208,99 @@ export function formatEventFeedbackDraftMarkdown(draft: EventFeedbackDraft): str
     .join('\n');
 }
 
+export function rosterRollDisplay(participant: {
+  participant_email?: string | null;
+  form_data?: unknown;
+}): string {
+  const stored = String(participant.participant_email || '').trim();
+  if (stored && !stored.includes('@')) return stored;
+  if (stored.includes('@')) {
+    const local = stored.split('@')[0].trim();
+    if (/^cb[.\-]/i.test(local)) return local;
+    return stored;
+  }
+  if (participant.form_data && typeof participant.form_data === 'object' && !Array.isArray(participant.form_data)) {
+    for (const [key, value] of Object.entries(participant.form_data as Record<string, unknown>)) {
+      if (!/roll|reg(?:istration)?\s*(no\.?|number)?/i.test(key)) continue;
+      const raw = String(value || '').trim();
+      if (raw && !raw.includes('@')) return raw;
+      if (raw.includes('@')) return raw.split('@')[0];
+    }
+  }
+  return stored;
+}
+
+export function responseAnswer(
+  responses: Record<string, unknown> | null | undefined,
+  field: { id?: string; label?: string },
+): string {
+  const row = responses || {};
+  const byId = field.id != null ? row[field.id] : undefined;
+  const byLabel = field.label ? row[field.label] : undefined;
+  return String(byId ?? byLabel ?? '').trim();
+}
+
+export function matchRosterFeedback(
+  participants: Array<{
+    id: string;
+    participant_name?: string | null;
+    participant_email?: string | null;
+    form_data?: unknown;
+  }>,
+  responses: Array<{ responses?: Record<string, unknown> | null; created_at?: string }>,
+  fields: Array<{ id?: string; label?: string; field_type?: string; options?: string[] }>,
+) {
+  const nameField = fields.find(
+    (f) => f.field_type === EVENT_PARTICIPANT_FIELD_TYPE || /^your name$/i.test(String(f.label || '')),
+  );
+  const rollField = fields.find((f) => /^roll number/i.test(String(f.label || '')));
+  const used = new Set<string>();
+  const given: Array<{
+    id: string;
+    name: string;
+    roll: string;
+    answers: Array<{ label: string; text: string }>;
+  }> = [];
+
+  for (const row of responses) {
+    const pid = String(row.responses?.[FEEDBACK_PARTICIPANT_META_KEY] || '').trim();
+    const answeredName = nameField ? responseAnswer(row.responses, nameField) : '';
+    const answeredRoll = rollField ? responseAnswer(row.responses, rollField) : '';
+    const hit =
+      participants.find((p) => p.id === pid) ||
+      participants.find((p) => {
+        const name = String(p.participant_name || '').trim().toLowerCase();
+        const roll = rosterRollDisplay(p).toLowerCase();
+        return (
+          (answeredName && name === answeredName.toLowerCase()) ||
+          (answeredRoll && roll && roll === answeredRoll.toLowerCase())
+        );
+      });
+    if (!hit || used.has(hit.id)) continue;
+    used.add(hit.id);
+    const answers = fields
+      .filter((f) => f.field_type !== EVENT_PARTICIPANT_FIELD_TYPE && !/^your name$/i.test(String(f.label || '')))
+      .map((f) => ({ label: String(f.label || ''), text: responseAnswer(row.responses, f) }))
+      .filter((a) => a.text && !/^roll number/i.test(a.label));
+    given.push({
+      id: hit.id,
+      name: String(hit.participant_name || 'Participant').trim() || 'Participant',
+      roll: rosterRollDisplay(hit),
+      answers,
+    });
+  }
+
+  const pending = participants
+    .filter((p) => !used.has(p.id))
+    .map((p) => ({
+      id: p.id,
+      name: String(p.participant_name || 'Participant').trim() || 'Participant',
+      roll: rosterRollDisplay(p),
+    }));
+
+  return { given, pending, givenCount: given.length, pendingCount: pending.length };
+}
+
 export function summarizeFeedbackResponses(
   fields: Array<{ id?: string; label?: string; field_type?: string; options?: string[] }>,
   responses: Array<{ responses?: Record<string, unknown> | null; created_at?: string }>,
@@ -197,10 +309,10 @@ export function summarizeFeedbackResponses(
   for (const field of fields) {
     const opts = field.options || [];
     const isRating = opts.some((o) => /^[1-5]\b/.test(String(o))) && opts.length >= 3;
-    if (!isRating || !field.id) continue;
+    if (!isRating) continue;
     const scores: number[] = [];
     for (const row of responses) {
-      const raw = row.responses?.[field.id];
+      const raw = responseAnswer(row.responses, field);
       const n = parseInt(String(raw || '').trim(), 10);
       if (n >= 1 && n <= 5) scores.push(n);
     }
@@ -212,11 +324,11 @@ export function summarizeFeedbackResponses(
       });
     }
   }
-  const commentFields = fields.filter((f) => f.field_type === 'textarea' && f.id);
+  const commentFields = fields.filter((f) => f.field_type === 'textarea');
   const comments: Array<{ label: string; text: string }> = [];
   for (const row of responses.slice(0, 12)) {
     for (const field of commentFields) {
-      const text = String(row.responses?.[field.id!] || '').trim();
+      const text = responseAnswer(row.responses, field);
       if (text) comments.push({ label: String(field.label || 'Comment'), text });
       if (comments.length >= 8) break;
     }

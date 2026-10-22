@@ -311,7 +311,7 @@ function allowedFieldType(type: string): string {
     phone: 'mobile',
   };
   const resolved = map[t] || t;
-  const ok = ['text', 'textarea', 'radio', 'checkbox', 'dropdown', 'date', 'number', 'email', 'mobile', 'file', 'roll_no'];
+  const ok = ['text', 'textarea', 'radio', 'checkbox', 'dropdown', 'date', 'number', 'email', 'mobile', 'file', 'roll_no', 'event_participant'];
   return ok.includes(resolved) ? resolved : 'text';
 }
 
@@ -1098,7 +1098,7 @@ export async function draftEventFeedbackForm(ctx: IicheAiToolCtx, args: Record<s
   let fields = specsFromArgs(args.fields);
   if (!fields.length) {
     fields =
-      previous?.eventId === event.id
+      previous && previous.eventId === event.id
         ? previous.fields
         : defaultEventFeedbackFields({ ...event, guest_name: speaker });
   }

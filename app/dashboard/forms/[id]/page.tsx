@@ -7,6 +7,15 @@ import { createClient } from '@/lib/supabase/client';
 import { ArrowLeft, Share2, Check, Lock, AlertTriangle, Upload, ExternalLink } from 'lucide-react';
 import { EXACT_TWO_HINT, isValidRollNo, rollCountFromValidation, excludedRollsFromValidation } from '@/lib/form-field-types';
 import SearchableRollSelect from '@/components/forms/SearchableRollSelect';
+import SearchableParticipantSelect, {
+  type FeedbackRosterPerson,
+} from '@/components/forms/SearchableParticipantSelect';
+import {
+  EVENT_FEEDBACK_FORM_TYPE,
+  FEEDBACK_PARTICIPANT_META_KEY,
+  isFeedbackNameField,
+  isFeedbackRollField,
+} from '@/lib/event-feedback-form';
 import { canViewFormResponses, shouldShowPersonalQrAfterSubmit, isFormCollecting, isFormTestMode, isFormBeforeStart, isFormPastDeadline, parseFormScheduleLocal } from '@/lib/form-access';
 import Link from 'next/link';
 import { useParams, usePathname } from 'next/navigation';
@@ -94,6 +103,9 @@ export default function FormSubmitPage() {
   const [currentPageId, setCurrentPageId] = useState<string | null>(null);
   const [continueRid, setContinueRid] = useState<string | null>(null);
   const [nextPageLink, setNextPageLink] = useState<{ href: string; label: string; title: string } | null>(null);
+  const [feedbackRoster, setFeedbackRoster] = useState<FeedbackRosterPerson[]>([]);
+  const [feedbackRosterLoading, setFeedbackRosterLoading] = useState(false);
+  const [selectedParticipantId, setSelectedParticipantId] = useState('');
   const params = useParams();
   const pathname = usePathname();
   const isPublicFormRoute = pathname?.startsWith('/forms/');
@@ -110,6 +122,33 @@ export default function FormSubmitPage() {
     void fetchForm();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- load once per form id
   }, [formId]);
+
+  useEffect(() => {
+    if (!formId || form?.form_type !== EVENT_FEEDBACK_FORM_TYPE) {
+      setFeedbackRoster([]);
+      return;
+    }
+    let cancelled = false;
+    setFeedbackRosterLoading(true);
+    void fetch(`/api/events/feedback-roster?formId=${encodeURIComponent(formId)}`)
+      .then(async (res) => {
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(body.error || 'Could not load participants');
+        if (!cancelled) setFeedbackRoster(Array.isArray(body.people) ? body.people : []);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setFeedbackRoster([]);
+          toast.error(err instanceof Error ? err.message : 'Could not load participants');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setFeedbackRosterLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [formId, form?.form_type]);
 
   async function refreshTakenRolls(formFields: FormField[], asTest = isTestMode) {
     const rollFields = formFields.filter((f) => f.field_type === 'roll_no' && f.label?.trim());
@@ -281,7 +320,7 @@ export default function FormSubmitPage() {
         }
       }
 
-      if (profileForPrefill && formFields.length > 0) {
+      if (profileForPrefill && formFields.length > 0 && formData.form_type !== EVENT_FEEDBACK_FORM_TYPE) {
         const nameField = pickNameField(formFields);
         const emailField = pickEmailField(formFields);
         const prefill: Record<string, string> = {};
@@ -356,6 +395,23 @@ export default function FormSubmitPage() {
     setErrors(prev => { const n = { ...prev }; delete n[fieldId]; return n; });
   }
 
+  function selectFeedbackParticipant(person: FeedbackRosterPerson) {
+    setSelectedParticipantId(person.id);
+    const nameField = fields.find((f) => isFeedbackNameField(f, form?.form_type));
+    const rollField = fields.find((f) => isFeedbackRollField(f, form?.form_type));
+    setAnswers((prev) => ({
+      ...prev,
+      ...(nameField ? { [nameField.id]: person.name } : {}),
+      ...(rollField ? { [rollField.id]: person.roll } : {}),
+    }));
+    setErrors((prev) => {
+      const next = { ...prev };
+      if (nameField) delete next[nameField.id];
+      if (rollField) delete next[rollField.id];
+      return next;
+    });
+  }
+
   function toggleCheckbox(fieldId: string, option: string, exactTwo = false) {
     setAnswers(prev => {
       const current: string[] = prev[fieldId] || [];
@@ -382,6 +438,10 @@ export default function FormSubmitPage() {
         if (selected.length !== 2) {
           newErrors[field.id] = EXACT_TWO_HINT;
         }
+        continue;
+      }
+      if (isFeedbackNameField(field, form?.form_type) && !selectedParticipantId) {
+        newErrors[field.id] = 'Select your name from the participant list';
         continue;
       }
       if (field.required && (!val || (Array.isArray(val) && val.length === 0))) { newErrors[field.id] = 'This field is required'; continue; }
@@ -436,6 +496,15 @@ export default function FormSubmitPage() {
         if (upErr) { toast.error(`Upload failed for "${field.label}"`); setSubmitting(false); return; }
         responses[field.label] = path;
       } else { responses[field.label] = val ?? null; }
+    }
+    if (form?.form_type === EVENT_FEEDBACK_FORM_TYPE && selectedParticipantId) {
+      const picked = feedbackRoster.find((p) => p.id === selectedParticipantId);
+      if (picked?.submitted) {
+        toast.error('This participant already submitted feedback.');
+        setSubmitting(false);
+        return;
+      }
+      responses[FEEDBACK_PARTICIPANT_META_KEY] = selectedParticipantId;
     }
 
     const emailVal = extractResponderEmail(responses, fields, profile, user);
@@ -814,7 +883,25 @@ export default function FormSubmitPage() {
                 </label>
                 {field.description && <p className="text-sm text-gray-400 mb-3">{field.description}</p>}
 
-                {field.field_type === 'text' && (
+                {isFeedbackNameField(field, form?.form_type) && (
+                  <SearchableParticipantSelect
+                    people={feedbackRoster}
+                    value={selectedParticipantId}
+                    onSelect={selectFeedbackParticipant}
+                    error={errors[field.id]}
+                    loading={feedbackRosterLoading}
+                  />
+                )}
+                {isFeedbackRollField(field, form?.form_type) && (
+                  <input
+                    type="text"
+                    readOnly
+                    value={answers[field.id] || ''}
+                    placeholder="Select your name first"
+                    className="w-full border-b-2 border-gray-200 outline-none py-2 text-gray-800 bg-transparent placeholder-gray-300"
+                  />
+                )}
+                {field.field_type === 'text' && !isFeedbackNameField(field, form?.form_type) && !isFeedbackRollField(field, form?.form_type) && (
                   <input type="text" value={answers[field.id] || ''} onChange={e => updateAnswer(field.id, e.target.value)} placeholder="Your answer" maxLength={field.validation?.maxLength}
                     className="w-full border-b-2 border-gray-200 focus:border-indigo-500 outline-none py-2 text-gray-800 bg-transparent transition-colors placeholder-gray-300" />
                 )}

@@ -3,7 +3,9 @@ import {
   applyFeedbackFieldEdits,
   defaultEventFeedbackFields,
   encodeEventFeedbackDraft,
+  FEEDBACK_PARTICIPANT_META_KEY,
   latestEventFeedbackDraft,
+  matchRosterFeedback,
 } from '@/lib/event-feedback-form';
 
 describe('event feedback form draft', () => {
@@ -37,5 +39,40 @@ describe('event feedback form draft', () => {
     ]);
     expect(draft?.eventId).toBe('e1');
     expect(draft?.fields[0].label).toBe('Rate it');
+  });
+
+  it('starts with a searchable participant name and auto-filled roll', () => {
+    const fields = defaultEventFeedbackFields({ title: 'Orientation' });
+    expect(fields[0]).toMatchObject({ label: 'Your name', type: 'event_participant', required: true });
+    expect(fields[1]).toMatchObject({ label: 'Roll number', type: 'text', required: true });
+  });
+
+  it('attributes submitted feedback to roster people and lists who did not', () => {
+    const fields = [
+      { id: 'n', label: 'Your name', field_type: 'event_participant' },
+      { id: 'r', label: 'Roll number', field_type: 'text' },
+      { id: 'c', label: 'What did you like most?', field_type: 'textarea' },
+    ];
+    const status = matchRosterFeedback(
+      [
+        { id: 'p1', participant_name: 'Asha', participant_email: 'CB.EN.U4CHE20001' },
+        { id: 'p2', participant_name: 'Bala', participant_email: 'CB.EN.U4CHE20002' },
+      ],
+      [
+        {
+          responses: {
+            [FEEDBACK_PARTICIPANT_META_KEY]: 'p1',
+            'Your name': 'Asha',
+            'Roll number': 'CB.EN.U4CHE20001',
+            'What did you like most?': 'The talk',
+          },
+        },
+      ],
+      fields,
+    );
+    expect(status.givenCount).toBe(1);
+    expect(status.given[0].name).toBe('Asha');
+    expect(status.given[0].answers[0].text).toBe('The talk');
+    expect(status.pending.map((p) => p.name)).toEqual(['Bala']);
   });
 });

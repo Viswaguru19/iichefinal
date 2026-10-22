@@ -40,7 +40,9 @@ export function pickNameField<T extends ResponderFieldLike>(fields: T[]): T | un
     (f) =>
       f.id === RESPONDER_FIELD_NAME_ID ||
       f.id === LEGACY_ER_FIELD_NAME_ID ||
-      (f.field_type === 'text' && /^name$/i.test((f.label || '').trim())),
+      f.field_type === 'event_participant' ||
+      (f.field_type === 'text' && /^name$/i.test((f.label || '').trim())) ||
+      /^your name$/i.test((f.label || '').trim()),
   );
 }
 

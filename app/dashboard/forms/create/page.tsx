@@ -53,6 +53,7 @@ const FIELD_TYPES = [
   { value: 'date', label: 'Date', icon: Calendar },
   { value: 'number', label: 'Number', icon: Hash },
   { value: 'roll_no', label: 'Roll No (searchable)', icon: Hash },
+  { value: 'event_participant', label: 'Event participant (search name)', icon: Type },
   { value: 'mobile', label: 'Mobile Number', icon: Phone },
   { value: 'email', label: 'Email', icon: Mail },
 ];
@@ -398,6 +399,11 @@ export default function CreateFormPage() {
               </p>
               {field.description && <p className="text-sm text-gray-400 mb-3">{field.description}</p>}
               {field.field_type === 'text' && <div className="border-b-2 border-gray-200 py-2 text-gray-300">Short answer text</div>}
+              {field.field_type === 'event_participant' && (
+                <div className="border-2 border-gray-200 rounded-xl p-2.5 text-gray-300 text-sm">
+                  Search & select name from this event’s participants
+                </div>
+              )}
               {field.field_type === 'textarea' && <div className="border-b-2 border-gray-200 py-2 text-gray-300 h-20">Long answer text</div>}
               {field.field_type === 'email' && <div className="border-b-2 border-gray-200 py-2 text-gray-300">email@example.com</div>}
               {field.field_type === 'number' && <div className="border-b-2 border-gray-200 py-2 text-gray-300">0</div>}
