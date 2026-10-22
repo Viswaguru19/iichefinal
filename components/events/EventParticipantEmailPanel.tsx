@@ -101,6 +101,11 @@ export default function EventParticipantEmailPanel({
     return { list: outlookAddressList(emails), count: new Set(emails).size, missing };
   }, [participants]);
 
+  const remainingOutlook = useMemo(() => remainingOutlookAddresses(sendLogs[0] || null, participants, sendLogs), [
+    sendLogs,
+    participants,
+  ]);
+
   const automatedMessage = useMemo(
     () => draftParticipantInviteMessage({ eventTitle, eventDate, location }),
     [eventTitle, eventDate, location],
@@ -150,6 +155,19 @@ export default function EventParticipantEmailPanel({
     ? remainingLog.failed_emails?.length || remainingLog.failed_count || 0
     : 0;
 
+  async function copyAddressList(list: string, count: number, emptyMessage: string) {
+    if (!list) {
+      toast.error(emptyMessage);
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(list);
+      toast.success(`Copied ${count} address${count === 1 ? '' : 'es'} for Outlook`);
+    } catch {
+      toast.error('Could not copy. Allow clipboard access and try again.');
+    }
+  }
+
   async function copyOutlookMails() {
     if (!outlookMail.list) {
       toast.error('No roll@cb.students.amrita.edu addresses to copy');
@@ -165,6 +183,19 @@ export default function EventParticipantEmailPanel({
     } catch {
       toast.error('Could not copy. Allow clipboard access and try again.');
     }
+  }
+
+  async function copyRemainingMails(log?: SendLog | null) {
+    const remaining = remainingOutlookAddresses(log || sendLogs[0] || null, participants, sendLogs);
+    if (remaining.unknown) {
+      toast.error('That send did not save who failed, so remaining addresses cannot be copied.');
+      return;
+    }
+    await copyAddressList(
+      remaining.list,
+      remaining.count,
+      'No remaining addresses to copy. Everyone recorded as delivered already got mail.',
+    );
   }
 
   function useLogAsDraft(log: SendLog) {
@@ -307,7 +338,7 @@ export default function EventParticipantEmailPanel({
               : `Sent ${sendCount} time${sendCount === 1 ? '' : 's'}. Anyone who can mail participants can open this tab and read the log.`}
           </p>
           <p className="text-xs text-gray-500 mt-1">
-            Copy all mails gives roll@cb.students.amrita.edu, separated with semicolons for Outlook Bcc.
+            Copy all mails or Copy remaining (people who did not get the last send), as roll@cb.students.amrita.edu for Outlook Bcc.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -319,6 +350,17 @@ export default function EventParticipantEmailPanel({
             <Copy className="w-4 h-4" />
             Copy all mails ({outlookMail.count})
           </button>
+          {remainingOutlook.count > 0 || remainingOutlook.unknown ? (
+            <button
+              type="button"
+              onClick={() => void copyRemainingMails(remainingLog)}
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-amber-200 bg-amber-50 text-amber-950 text-sm font-semibold hover:bg-amber-100"
+            >
+              <Copy className="w-4 h-4" />
+              Copy remaining
+              {remainingOutlook.count ? ` (${remainingOutlook.count})` : ''}
+            </button>
+          ) : null}
           <div className="inline-flex rounded-xl bg-slate-100 p-1">
           <button
             type="button"
@@ -350,6 +392,16 @@ export default function EventParticipantEmailPanel({
                 Latest send: {remainingCount} remaining participant{remainingCount === 1 ? '' : 's'} did
                 not get the mail.
               </p>
+              <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void copyRemainingMails(remainingLog)}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-amber-300 bg-white text-amber-950 text-sm font-semibold hover:bg-amber-50"
+              >
+                <Copy className="w-4 h-4" />
+                Copy remaining
+                {remainingOutlook.count ? ` (${remainingOutlook.count})` : ''}
+              </button>
               <button
                 type="button"
                 disabled={sending}
@@ -365,6 +417,7 @@ export default function EventParticipantEmailPanel({
                   <>Send to remaining ({remainingCount})</>
                 )}
               </button>
+              </div>
             </div>
           ) : null}
 
@@ -442,16 +495,25 @@ export default function EventParticipantEmailPanel({
                       Use as draft
                     </button>
                     {(log.failed_count || 0) > 0 ? (
-                      <button
-                        type="button"
-                        disabled={sending}
-                        onClick={() => void handleRetryFailed(log)}
-                        className="text-xs font-semibold text-amber-800 hover:text-amber-950 disabled:opacity-50"
-                      >
-                        {retryingLogId === log.id
-                          ? 'Sending remaining…'
-                          : `Send to remaining (${log.failed_count})`}
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => void copyRemainingMails(log)}
+                          className="text-xs font-semibold text-amber-800 hover:text-amber-950"
+                        >
+                          Copy remaining
+                        </button>
+                        <button
+                          type="button"
+                          disabled={sending}
+                          onClick={() => void handleRetryFailed(log)}
+                          className="text-xs font-semibold text-amber-800 hover:text-amber-950 disabled:opacity-50"
+                        >
+                          {retryingLogId === log.id
+                            ? 'Sending remaining…'
+                            : `Send to remaining (${log.failed_count})`}
+                        </button>
+                      </>
                     ) : null}
                   </div>
                   {openLog ? (
@@ -471,14 +533,23 @@ export default function EventParticipantEmailPanel({
               <p className="text-xs font-semibold text-amber-950">
                 {remainingCount} remaining from the latest send.
               </p>
-              <button
-                type="button"
-                disabled={sending}
-                onClick={() => void handleRetryFailed(remainingLog)}
-                className="text-xs font-semibold text-amber-800 hover:text-amber-950 disabled:opacity-50"
-              >
-                Send to remaining ({remainingCount})
-              </button>
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => void copyRemainingMails(remainingLog)}
+                  className="text-xs font-semibold text-amber-800 hover:text-amber-950"
+                >
+                  Copy remaining
+                </button>
+                <button
+                  type="button"
+                  disabled={sending}
+                  onClick={() => void handleRetryFailed(remainingLog)}
+                  className="text-xs font-semibold text-amber-800 hover:text-amber-950 disabled:opacity-50"
+                >
+                  Send to remaining ({remainingCount})
+                </button>
+              </div>
             </div>
           ) : null}
 
@@ -614,4 +685,50 @@ export default function EventParticipantEmailPanel({
       )}
     </div>
   );
+}
+
+function campusMailForAddress(address: string, participants: any[]): string {
+  const needle = String(address || '').trim().toLowerCase();
+  if (!needle) return '';
+  for (const participant of participants) {
+    const resolved = resolveParticipantSendEmail(participant).email;
+    const campus = participantCampusOutlookEmail(participant);
+    if (resolved === needle || campus === needle) return campus || resolved;
+  }
+  return needle;
+}
+
+function remainingOutlookAddresses(
+  log: SendLog | null,
+  participants: any[],
+  allLogs: SendLog[],
+): { list: string; count: number; unknown: boolean } {
+  if (!log) return { list: '', count: 0, unknown: false };
+
+  const failed = (log.failed_emails || [])
+    .map((email) => String(email || '').trim().toLowerCase())
+    .filter(Boolean);
+  if (failed.length) {
+    const emails = failed.map((email) => campusMailForAddress(email, participants) || email);
+    const list = outlookAddressList(emails);
+    return { list, count: list ? list.split('; ').length : 0, unknown: false };
+  }
+
+  const delivered = new Set(
+    allLogs.flatMap((row) => row.sent_emails || []).map((email) => String(email || '').trim().toLowerCase()).filter(Boolean),
+  );
+  if (delivered.size === 0) {
+    return { list: '', count: 0, unknown: (log.failed_count || 0) > 0 };
+  }
+
+  const emails: string[] = [];
+  for (const participant of participants) {
+    const resolved = resolveParticipantSendEmail(participant).email;
+    const campus = participantCampusOutlookEmail(participant);
+    if ((resolved && delivered.has(resolved)) || (campus && delivered.has(campus))) continue;
+    if (campus) emails.push(campus);
+    else if (resolved) emails.push(resolved);
+  }
+  const list = outlookAddressList(emails);
+  return { list, count: list ? list.split('; ').length : 0, unknown: false };
 }
