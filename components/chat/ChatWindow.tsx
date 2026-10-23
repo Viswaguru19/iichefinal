@@ -2,13 +2,14 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { Send, Smile, Paperclip, BarChart3, Users, Check, CheckCheck, ArrowLeft, Trash2, Mic, Square, Image as ImageIcon, X, Camera } from 'lucide-react';
+import { Send, Smile, Paperclip, BarChart3, Users, Check, CheckCheck, ArrowLeft, Trash2, Mic, Square, Image as ImageIcon, X, Camera, Sticker } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
 import DynamicLogo from '@/components/DynamicLogo';
 import GroupInfoPanel from '@/components/chat/GroupInfoPanel';
 import type { ChatItem, UserProfile } from '@/components/chat/types';
 import { attachmentLabel, isAudioUrl, isImageFile, isImageUrl } from '@/lib/chat-media';
+import { notifyChatRecipients } from '@/lib/chat-notify';
 import { formatPortalDate, formatPortalDateTime } from '@/lib/portal-date';
 
 interface Props {
@@ -25,6 +26,7 @@ interface Props {
 }
 
 const EMOJIS = ['😀', '😂', '😊', '😍', '🤝', '👍', '🔥', '🙌', '🙏', '🎉', '❤️', '😎', '🤔', '😢', '😡', '🥳', '💯', '👏', '🫡', '✨', '😅', '🥰', '😤', '🤩', '😴', '🤗', '😇', '🤣', '💪', '🎊'];
+const STICKERS = ['😀', '😂', '😍', '🥰', '😎', '🤔', '😴', '🥳', '😭', '😡', '👍', '👎', '🙏', '👏', '💪', '🔥', '❤️', '💯', '🎉', '🤝', '🫡', '🤗', '😅', '🤩', '😢', '😇', '🤣', '✨', '🙌', '🎊'];
 
 /** WhatsApp-style group receipts from per-member last_read_at vs message time */
 type GroupReceiptLevel = 'sent' | 'delivered' | 'read';
@@ -44,9 +46,8 @@ function groupReceiptLevel(
         const lr = memberLastRead[id];
         if (lr && new Date(lr).getTime() >= msgT) readBy += 1;
     }
-    if (readBy === 0) return 'sent';
-    if (readBy < otherIds.length) return 'delivered';
-    return 'read';
+    if (readBy >= otherIds.length) return 'read';
+    return 'delivered';
 }
 
 function memberViewedMessage(
@@ -59,7 +60,16 @@ function memberViewedMessage(
 
 type ViewerRow = { id: string; name: string; avatar: string | null; viewed: boolean; viewedAt: string | null };
 
-function ReceiptTicks({ viewed, title, onOpen }: { viewed: boolean; title: string; onOpen: () => void }) {
+function ReceiptTicks({
+    level,
+    title,
+    onOpen,
+}: {
+    level: GroupReceiptLevel;
+    title: string;
+    onOpen: () => void;
+}) {
+    const color = level === 'read' ? 'text-[#53bdeb]' : 'text-[#8696a0]';
     return (
         <button
             type="button"
@@ -71,7 +81,11 @@ function ReceiptTicks({ viewed, title, onOpen }: { viewed: boolean; title: strin
             className="inline-flex items-center gap-0.5 p-0.5 -mr-0.5 rounded hover:bg-white/10 transition-colors"
             aria-label={title}
         >
-            <CheckCheck className={`w-3.5 h-3.5 shrink-0 ${viewed ? 'text-amber-400' : 'text-red-400'}`} />
+            {level === 'sent' ? (
+                <Check className={`w-3.5 h-3.5 shrink-0 ${color}`} />
+            ) : (
+                <CheckCheck className={`w-3.5 h-3.5 shrink-0 ${color}`} />
+            )}
         </button>
     );
 }
@@ -92,6 +106,7 @@ export default function ChatWindow({
     const [newMessage, setNewMessage] = useState('');
     const [loading, setLoading] = useState(true);
     const [showEmoji, setShowEmoji] = useState(false);
+    const [showStickers, setShowStickers] = useState(false);
     const [showPoll, setShowPoll] = useState(false);
     const [showAttach, setShowAttach] = useState(false);
     const [pollQ, setPollQ] = useState('');
@@ -127,6 +142,7 @@ export default function ChatWindow({
         setViewInfoMsg(null);
         setShowAttach(false);
         setShowEmoji(false);
+        setShowStickers(false);
     }, [chat.id, chat.type]);
 
     useEffect(() => {
@@ -485,12 +501,26 @@ export default function ChatWindow({
         channelRef.current?.send({ type: 'broadcast', event: 'typing', payload: { user_id: currentUser.id, name: currentUser.name } });
     }
 
-    async function sendMessage(e?: React.FormEvent) {
+    function notifyAfterSend(preview: string) {
+        void notifyChatRecipients(supabase, {
+            senderId: currentUser.id,
+            senderName: currentUser.name,
+            preview,
+            isDirect,
+            otherUserId: isDirect ? chat.id : undefined,
+            groupId: isDirect ? undefined : chat.id,
+            groupName: chat.name,
+            participantGroupId: chat.participantGroupId,
+        });
+    }
+
+    async function sendMessage(e?: React.FormEvent, overrideText?: string) {
         e?.preventDefault();
-        if (!newMessage.trim()) return;
-        const text = newMessage.trim();
+        const text = (overrideText ?? newMessage).trim();
+        if (!text) return;
         setNewMessage('');
         setShowEmoji(false);
+        setShowStickers(false);
         isSendingRef.current = true;
 
         // Optimistic update — show message immediately
@@ -524,6 +554,7 @@ export default function ChatWindow({
                     broadcastNewMessage(inserted);
                 }
             }
+            notifyAfterSend(text);
             try {
                 onMessageSent(text);
             } catch (patchErr: any) {
@@ -595,6 +626,7 @@ export default function ChatWindow({
                     broadcastNewMessage(inserted);
                 }
             }
+            notifyAfterSend(text);
             onMessageSent(text);
         } catch (err: any) {
             toast.error(err?.message || 'Failed to send');
@@ -640,6 +672,7 @@ export default function ChatWindow({
                 if (error) throw error;
                 if (inserted) { setMessages((prev) => prev.map((m) => m.id === tempId ? { ...inserted, sender: tempMsg.sender } : m)); broadcastNewMessage(inserted); }
             }
+            notifyAfterSend(text);
             onMessageSent(text);
         } catch (err: any) {
             toast.error(err?.message || 'Failed to send poll');
@@ -813,9 +846,13 @@ export default function ChatWindow({
                                         </div>
                                     )}
                                     <div
-                                        className={`flex ${isSent ? 'justify-end' : 'justify-start'} mb-0.5 group/msg relative`}
+                                        className={`flex w-full ${isSent ? 'justify-end' : 'justify-start'} mb-0.5 group/msg relative`}
                                     >
-                                        <div className={`w-fit max-w-[85%] sm:max-w-[65%] px-3 py-1.5 rounded-lg shadow-sm relative overflow-hidden touch-manipulation active:opacity-90 ${isSent ? 'bg-[#005c4b]' : 'bg-[#202c33]'}`}
+                                        <div className={`w-fit max-w-[85%] sm:max-w-[65%] px-2.5 py-1.5 shadow-sm relative touch-manipulation active:opacity-90 ${
+                                            isSent
+                                                ? 'bg-[#005c4b] rounded-lg rounded-tr-none'
+                                                : 'bg-[#202c33] rounded-lg rounded-tl-none'
+                                        }`}
                                             onClick={() => isSent && setMenuMsgId(menuMsgId === msg.id ? null : msg.id)}>
                                             {showName && <p className="text-[12px] font-semibold text-emerald-400 mb-0.5">{msg.sender?.name}</p>}
 
@@ -838,34 +875,36 @@ export default function ChatWindow({
                                                     <Paperclip className="w-4 h-4" />
                                                     <span className="underline">{msg.message?.replace(/^📎\s*/, '') || 'Download File'}</span>
                                                 </a>
+                                            ) : STICKERS.includes(String(msg.message || '').trim()) && !msg.file_url ? (
+                                                <p className="text-5xl leading-none py-1">{msg.message}</p>
                                             ) : (
                                                 <p className="text-[15px] text-gray-100 break-words whitespace-pre-wrap leading-[22px]">{msg.message}</p>
                                             )}
 
                                             <div className="flex items-center justify-end gap-1 -mb-0.5 mt-0.5">
-                                                <span className="text-[10.5px] text-gray-500">{new Date(msg.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
+                                                <span className={`text-[10.5px] ${isSent ? 'text-white/55' : 'text-gray-500'}`}>{new Date(msg.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
                                                 {isSent && (() => {
+                                                    const isTemp = String(msg.id).startsWith('temp-');
                                                     if (isDirect) {
-                                                        const viewed = msg.read === true;
+                                                        const lvl: GroupReceiptLevel = isTemp ? 'sent' : msg.read === true ? 'read' : 'delivered';
                                                         return (
                                                             <ReceiptTicks
-                                                                viewed={viewed}
-                                                                title={viewed ? 'Viewed — tap for details' : 'Not viewed — tap for details'}
+                                                                level={lvl}
+                                                                title={lvl === 'read' ? 'Read — tap for details' : lvl === 'delivered' ? 'Delivered — tap for details' : 'Sent'}
                                                                 onOpen={() => void openMessageViewInfo(msg)}
                                                             />
                                                         );
                                                     }
-                                                    const lvl = groupReceiptLevel(msg, groupMemberLastRead, currentUser.id);
-                                                    const viewed = lvl === 'delivered' || lvl === 'read';
+                                                    const lvl = isTemp ? 'sent' : groupReceiptLevel(msg, groupMemberLastRead, currentUser.id);
                                                     const title =
                                                         lvl === 'read'
-                                                            ? 'Viewed by everyone — tap for details'
+                                                            ? 'Read by everyone — tap for details'
                                                             : lvl === 'delivered'
-                                                              ? 'Viewed by some — tap for details'
-                                                              : 'Not viewed yet — tap for details';
+                                                              ? 'Delivered — tap who has read'
+                                                              : 'Sent';
                                                     return (
                                                         <ReceiptTicks
-                                                            viewed={viewed}
+                                                            level={lvl}
                                                             title={title}
                                                             onOpen={() => void openMessageViewInfo(msg)}
                                                         />
@@ -880,7 +919,7 @@ export default function ChatWindow({
                                                 >
                                                     <button onClick={(e) => { e.stopPropagation(); void openMessageViewInfo(msg); }}
                                                         className="flex items-center gap-2 px-4 py-2.5 text-gray-200 active:bg-[#2a3942] text-xs font-medium whitespace-nowrap w-full touch-manipulation">
-                                                        <CheckCheck className="w-3.5 h-3.5 text-amber-400" /> Viewed by
+                                                        <CheckCheck className="w-3.5 h-3.5 text-[#53bdeb]" /> Read by
                                                     </button>
                                                     <button onClick={(e) => { e.stopPropagation(); deleteMessage(msg.id); }}
                                                         className="flex items-center gap-2 px-4 py-2.5 text-red-400 active:bg-[#2a3942] text-xs font-medium whitespace-nowrap w-full touch-manipulation">
@@ -924,8 +963,8 @@ export default function ChatWindow({
                                 </button>
                             </div>
                             <div className="overflow-y-auto flex-1 px-2 py-2">
-                                <p className="px-2 pt-1 pb-2 text-[11px] uppercase tracking-wide text-amber-400/90 font-semibold flex items-center gap-1.5">
-                                    <CheckCheck className="w-3.5 h-3.5 text-amber-400" /> Viewed
+                                <p className="px-2 pt-1 pb-2 text-[11px] uppercase tracking-wide text-[#53bdeb] font-semibold flex items-center gap-1.5">
+                                    <CheckCheck className="w-3.5 h-3.5 text-[#53bdeb]" /> Read
                                 </p>
                                 {viewedList.length === 0 ? (
                                     <p className="px-3 pb-3 text-xs text-gray-500">Nobody has viewed this yet</p>
@@ -944,13 +983,13 @@ export default function ChatWindow({
                                                         </p>
                                                     )}
                                                 </div>
-                                                <CheckCheck className="w-4 h-4 text-amber-400 flex-shrink-0" />
+                                                <CheckCheck className="w-4 h-4 text-[#53bdeb] flex-shrink-0" />
                                             </li>
                                         ))}
                                     </ul>
                                 )}
-                                <p className="px-2 pt-1 pb-2 text-[11px] uppercase tracking-wide text-red-400/90 font-semibold flex items-center gap-1.5">
-                                    <CheckCheck className="w-3.5 h-3.5 text-red-400" /> Not viewed
+                                <p className="px-2 pt-1 pb-2 text-[11px] uppercase tracking-wide text-[#8696a0] font-semibold flex items-center gap-1.5">
+                                    <Check className="w-3.5 h-3.5 text-[#8696a0]" /> Not read
                                 </p>
                                 {pendingList.length === 0 ? (
                                     <p className="px-3 pb-3 text-xs text-gray-500">Everyone has viewed this</p>
@@ -964,7 +1003,7 @@ export default function ChatWindow({
                                                 <div className="min-w-0 flex-1">
                                                     <p className="text-sm text-gray-100 truncate">{v.name}</p>
                                                 </div>
-                                                <CheckCheck className="w-4 h-4 text-red-400 flex-shrink-0" />
+                                                <Check className="w-4 h-4 text-[#8696a0] flex-shrink-0" />
                                             </li>
                                         ))}
                                     </ul>
@@ -1004,7 +1043,7 @@ export default function ChatWindow({
                 )}
                 <form onSubmit={sendMessage} className="flex items-center gap-0.5 sm:gap-2 min-w-0">
                 <div className="relative shrink-0">
-                    <button type="button" onClick={() => { setShowEmoji(v => !v); setShowAttach(false); }} className="p-1.5 sm:p-2 text-gray-400 hover:text-white active:opacity-70 touch-manipulation" aria-label="Emoji">
+                    <button type="button" onClick={() => { setShowEmoji(v => !v); setShowAttach(false); setShowStickers(false); }} className="p-1.5 sm:p-2 text-gray-400 hover:text-white active:opacity-70 touch-manipulation" aria-label="Emoji">
                         <Smile className="w-5 h-5 sm:w-6 sm:h-6" />
                     </button>
                     <AnimatePresence>
@@ -1023,7 +1062,7 @@ export default function ChatWindow({
                 <div className="relative shrink-0">
                     <button
                         type="button"
-                        onClick={() => { setShowAttach(v => !v); setShowEmoji(false); }}
+                        onClick={() => { setShowAttach(v => !v); setShowEmoji(false); setShowStickers(false); }}
                         className="p-1.5 sm:p-2 text-gray-400 hover:text-white active:opacity-70 touch-manipulation"
                         title="Attach"
                         aria-label="Attach"
@@ -1063,6 +1102,29 @@ export default function ChatWindow({
                                 >
                                     <BarChart3 className="w-4 h-4 text-[#00a884]" /> Poll
                                 </button>
+                                <button
+                                    type="button"
+                                    onClick={() => { setShowAttach(false); setShowStickers(true); }}
+                                    className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-gray-100 active:bg-[#2a3942] text-left touch-manipulation"
+                                >
+                                    <Sticker className="w-4 h-4 text-[#00a884]" /> Stickers
+                                </button>
+                            </div>
+                        )}
+                    </AnimatePresence>
+                    <AnimatePresence>
+                        {showStickers && (
+                            <div className="absolute bottom-12 left-0 bg-[#233138] rounded-2xl shadow-2xl p-3 grid grid-cols-6 gap-1.5 z-50 border border-[#2a3942] w-[min(280px,calc(100vw-1rem))]">
+                                {STICKERS.map((s) => (
+                                    <button
+                                        key={s}
+                                        type="button"
+                                        onClick={() => void sendMessage(undefined, s)}
+                                        className="text-3xl active:bg-[#2a3942] rounded-lg p-1.5 flex items-center justify-center touch-manipulation"
+                                    >
+                                        {s}
+                                    </button>
+                                ))}
                             </div>
                         )}
                     </AnimatePresence>

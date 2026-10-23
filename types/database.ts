@@ -62,8 +62,10 @@ export type ChatType =
   | 'committee'
   | 'organization'
   | 'executive'
+  | 'heads'
   | 'coheads'
-  | 'custom_group';
+  | 'custom_group'
+  | 'unofficial';
 
 export type MeetingType = 'online' | 'offline';
 

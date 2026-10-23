@@ -22,10 +22,24 @@ const WHOLE_ORG_CHAT_GROUP_ID = '00000000-0000-0000-0000-000000000001';
 const DEFAULT_BASE = '/chat';
 
 function displayGroupName(g: { name?: string | null; chat_type: string | null }) {
-  if (g.chat_type === 'organization') return 'IIChE AVVU SC';
-  if (g.chat_type === 'executive') return 'Executive Committee';
+  if (g.chat_type === 'organization') return 'Official';
+  if (g.chat_type === 'unofficial') return 'Unofficial';
+  if (g.chat_type === 'executive') return 'Office bearers (EC)';
+  if (g.chat_type === 'heads') return 'Heads';
+  if (g.chat_type === 'coheads') return 'Co-heads';
   const n = g.name?.trim();
   return n || 'Group';
+}
+
+function defaultGroupRank(c: ChatItem) {
+  const t = c.groupChatType;
+  if (t === 'organization') return 0;
+  if (t === 'unofficial') return 1;
+  if (t === 'executive') return 2;
+  if (t === 'heads') return 3;
+  if (t === 'coheads') return 4;
+  if (t === 'committee') return 5;
+  return 20;
 }
 
 function previewFromMessageRow(msg: {
@@ -407,15 +421,10 @@ function ChatAppInner({ basePath = DEFAULT_BASE, chatOnly = true }: { basePath?:
 
     setChats((prev) => {
       const newChats = [...directChats, ...groupChats];
-      const orgName = 'IIChE AVVU SC';
-      const ecName = 'Executive Committee';
       newChats.sort((a, b) => {
-        if (a.type === 'group' && a.name === orgName && !(b.type === 'group' && b.name === orgName)) return -1;
-        if (b.type === 'group' && b.name === orgName && !(a.type === 'group' && a.name === orgName)) return 1;
-        if (a.type === 'group' && a.name === ecName && !(b.type === 'group' && b.name === ecName) && !(b.type === 'group' && b.name === orgName))
-          return -1;
-        if (b.type === 'group' && b.name === ecName && !(a.type === 'group' && a.name === ecName) && !(a.type === 'group' && a.name === orgName))
-          return 1;
+        const ra = defaultGroupRank(a);
+        const rb = defaultGroupRank(b);
+        if (ra !== rb && (ra < 20 || rb < 20)) return ra - rb;
         return new Date(b.time).getTime() - new Date(a.time).getTime();
       });
       const active = activeChatRef.current;

@@ -266,7 +266,7 @@ export function canUpdateMeeting(profile: UserProfile, meetingCreatorId: string)
 // CHAT PERMISSIONS
 // ============================================
 
-export type ChatType = 'personal' | 'committee' | 'organization' | 'executive' | 'coheads' | 'custom_group';
+export type ChatType = 'personal' | 'committee' | 'organization' | 'executive' | 'heads' | 'coheads' | 'custom_group' | 'unofficial';
 
 export function canAccessChat(profile: UserProfile, chatType: ChatType, chatCommitteeId?: string): boolean {
     switch (chatType) {
@@ -279,8 +279,14 @@ export function canAccessChat(profile: UserProfile, chatType: ChatType, chatComm
         case 'organization':
             return true; // All authenticated users can access org chat
 
+        case 'unofficial':
+            return !profile.is_faculty;
+
         case 'executive':
             return isECMember(profile) || isAdmin(profile);
+
+        case 'heads':
+            return isCommitteeHead(profile) || isAdmin(profile);
 
         case 'coheads':
             return isCommitteeCoHead(profile) || isAdmin(profile);
