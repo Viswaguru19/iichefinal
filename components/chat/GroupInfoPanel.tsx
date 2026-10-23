@@ -6,6 +6,8 @@ import { motion } from 'framer-motion';
 import { Camera, Check, LogOut, Pencil, Plus, Search, Shield, ShieldOff, Trash2, Users, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { ChatItem, UserProfile } from '@/components/chat/types';
+import { resolveChatGroupId } from '@/lib/chat-ids';
+import { chatPublicImageUrl } from '@/lib/chat-avatar';
 
 type ParticipantRow = { id: string; name: string; avatar_url: string | null; is_group_admin: boolean };
 
@@ -48,7 +50,14 @@ export default function GroupInfoPanel({
   const [roleBusyId, setRoleBusyId] = useState<string | null>(null);
   const [avatarBusy, setAvatarBusy] = useState(false);
 
-  const canManage = chat.groupChatType === 'custom_group' && iAmAdmin;
+  const groupId = resolveChatGroupId(chat);
+  const groupPhoto = chatPublicImageUrl(
+    supabase,
+    chat.avatar,
+    String(chat.avatar || '').includes('chat-avatars') ? 'documents' : 'avatars',
+  );
+  const canManage = Boolean(groupId);
+  const canDelete = canManage && chat.groupChatType === 'custom_group';
   const adminCount = participants.filter((p) => p.is_group_admin).length;
   const memberIds = new Set(participants.map((p) => p.id));
   const addCandidates = allUsers.filter(
@@ -58,28 +67,51 @@ export default function GroupInfoPanel({
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      if (!chat.participantGroupId) return;
+      if (!groupId) {
+        setLoading(false);
+        return;
+      }
       setLoading(true);
-      const { data: rows } = await supabase
-        .from('chat_participants')
-        .select('user_id, is_admin')
-        .eq('group_id', chat.participantGroupId);
-      const adminMap = Object.fromEntries((rows || []).map((r: { user_id: string; is_admin: boolean }) => [r.user_id, r.is_admin]));
-      const myAdmin = !!(rows || []).find((r: { user_id: string }) => r.user_id === currentUser.id && adminMap[r.user_id]);
-      const ids = [...new Set((rows || []).map((r: { user_id: string }) => r.user_id))];
-      const { data: profs } = ids.length
-        ? await supabase.from('profiles').select('id, name, avatar_url').in('id', ids)
-        : { data: [] as { id: string; name: string; avatar_url: string | null }[] };
-      const list: ParticipantRow[] = (profs || [])
-        .map((p) => ({
+      const { data: rpcRows, error: rpcErr } = await supabase.rpc('list_chat_group_members', {
+        p_group_id: groupId,
+      });
+      let list: ParticipantRow[] = [];
+      if (!rpcErr && rpcRows?.length) {
+        list = (rpcRows as { user_id: string; name: string; avatar_url: string | null; is_group_admin: boolean }[]).map(
+          (r) => ({
+            id: r.user_id,
+            name: r.name,
+            avatar_url: chatPublicImageUrl(supabase, r.avatar_url),
+            is_group_admin: !!r.is_group_admin,
+          }),
+        );
+      } else {
+        const { data: rows } = await supabase
+          .from('chat_participants')
+          .select('user_id, is_admin')
+          .eq('group_id', groupId);
+        const adminMap = Object.fromEntries(
+          (rows || []).map((r: { user_id: string; is_admin: boolean }) => [r.user_id, r.is_admin]),
+        );
+        const ids = [...new Set((rows || []).map((r: { user_id: string }) => r.user_id))];
+        const { data: profs } = ids.length
+          ? await supabase.from('profiles').select('id, name, avatar_url').in('id', ids)
+          : { data: [] as { id: string; name: string; avatar_url: string | null }[] };
+        list = (profs || []).map((p) => ({
           id: p.id,
           name: p.name,
-          avatar_url: p.avatar_url,
+          avatar_url: chatPublicImageUrl(supabase, p.avatar_url),
           is_group_admin: !!adminMap[p.id],
-        }))
-        .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+        }));
+      }
+      list.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+      const myAdmin =
+        list.find((p) => p.id === currentUser.id)?.is_group_admin ||
+        currentUser.is_admin === true ||
+        currentUser.is_faculty === true ||
+        Boolean(currentUser.executive_role);
       if (!cancelled) {
-        setIAmAdmin(myAdmin);
+        setIAmAdmin(!!myAdmin);
         setParticipants(list);
         setLoading(false);
       }
@@ -87,10 +119,10 @@ export default function GroupInfoPanel({
     return () => {
       cancelled = true;
     };
-  }, [chat.participantGroupId, currentUser.id]);
+  }, [groupId, currentUser.id, currentUser.is_admin, currentUser.is_faculty, currentUser.executive_role]);
 
   async function saveName() {
-    if (!chat.participantGroupId || !canManage) return;
+    if (!groupId || !canManage) return;
     const trimmed = groupName.trim();
     if (!trimmed) {
       toast.error('Group name cannot be empty');
@@ -100,7 +132,7 @@ export default function GroupInfoPanel({
     const { error } = await supabase
       .from('chat_groups')
       .update({ name: trimmed })
-      .eq('id', chat.participantGroupId);
+      .eq('id', groupId);
     setSavingName(false);
     if (error) {
       toast.error(error.message || 'Could not rename group');
@@ -112,12 +144,12 @@ export default function GroupInfoPanel({
   }
 
   async function saveDescription() {
-    if (!chat.participantGroupId || !canManage) return;
+    if (!groupId || !canManage) return;
     setSavingDesc(true);
     const { error } = await supabase
       .from('chat_groups')
       .update({ description: description.trim() || null })
-      .eq('id', chat.participantGroupId);
+      .eq('id', groupId);
     setSavingDesc(false);
     if (error) {
       toast.error(error.message || 'Could not save description');
@@ -128,14 +160,14 @@ export default function GroupInfoPanel({
   }
 
   async function uploadAvatar(file: File) {
-    if (!chat.participantGroupId || !canManage) return;
+    if (!groupId || !canManage) return;
     if (file.size > 5 * 1024 * 1024) {
       toast.error('Max 5MB for group photo');
       return;
     }
     setAvatarBusy(true);
     const ext = file.name.split('.').pop() || 'jpg';
-    const path = `chat-avatars/${chat.participantGroupId}-${Date.now()}.${ext}`;
+    const path = `chat-avatars/${groupId}-${Date.now()}.${ext}`;
     const { error: upErr } = await supabase.storage.from('documents').upload(path, file);
     if (upErr) {
       setAvatarBusy(false);
@@ -143,7 +175,7 @@ export default function GroupInfoPanel({
       return;
     }
     const { data } = supabase.storage.from('documents').getPublicUrl(path);
-    const { error } = await supabase.from('chat_groups').update({ avatar_url: data.publicUrl }).eq('id', chat.participantGroupId);
+    const { error } = await supabase.from('chat_groups').update({ avatar_url: data.publicUrl }).eq('id', groupId);
     setAvatarBusy(false);
     if (error) {
       toast.error(error.message);
@@ -154,9 +186,9 @@ export default function GroupInfoPanel({
   }
 
   async function addMember(userId: string) {
-    if (!chat.participantGroupId || !canManage) return;
+    if (!groupId || !canManage) return;
     const { error } = await supabase.from('chat_participants').insert({
-      group_id: chat.participantGroupId,
+      group_id: groupId,
       user_id: userId,
       is_admin: false,
     });
@@ -167,7 +199,7 @@ export default function GroupInfoPanel({
     const user = allUsers.find((u) => u.id === userId);
     if (user) {
       setParticipants((prev) =>
-        [...prev, { id: user.id, name: user.name, avatar_url: user.avatar_url, is_group_admin: false }].sort((a, b) =>
+        [...prev, { id: user.id, name: user.name, avatar_url: chatPublicImageUrl(supabase, user.avatar_url), is_group_admin: false }].sort((a, b) =>
           (a.name || '').localeCompare(b.name || ''),
         ),
       );
@@ -176,12 +208,12 @@ export default function GroupInfoPanel({
   }
 
   async function removeMember(userId: string) {
-    if (!chat.participantGroupId || userId === currentUser.id) return;
+    if (!groupId || userId === currentUser.id) return;
     setRemovingId(userId);
     const { data, error } = await supabase
       .from('chat_participants')
       .delete()
-      .eq('group_id', chat.participantGroupId)
+      .eq('group_id', groupId)
       .eq('user_id', userId)
       .select('user_id');
     setRemovingId(null);
@@ -194,7 +226,7 @@ export default function GroupInfoPanel({
   }
 
   async function setMemberAdmin(userId: string, makeAdmin: boolean) {
-    if (!chat.participantGroupId || !canManage || userId === currentUser.id) return;
+    if (!groupId || !canManage || userId === currentUser.id) return;
     if (!makeAdmin && adminCount <= 1) {
       toast.error('Promote someone else before dismissing the last admin');
       return;
@@ -203,7 +235,7 @@ export default function GroupInfoPanel({
     const { data, error } = await supabase
       .from('chat_participants')
       .update({ is_admin: makeAdmin })
-      .eq('group_id', chat.participantGroupId)
+      .eq('group_id', groupId)
       .eq('user_id', userId)
       .select('user_id');
     setRoleBusyId(null);
@@ -218,7 +250,7 @@ export default function GroupInfoPanel({
   }
 
   async function leaveGroup() {
-    if (!chat.participantGroupId) return;
+    if (!groupId) return;
     if (iAmAdmin && adminCount <= 1 && participants.length > 1) {
       toast.error('Promote another admin before leaving');
       return;
@@ -227,7 +259,7 @@ export default function GroupInfoPanel({
     const { error } = await supabase
       .from('chat_participants')
       .delete()
-      .eq('group_id', chat.participantGroupId)
+      .eq('group_id', groupId)
       .eq('user_id', currentUser.id);
     if (error) {
       toast.error(error.message || 'Could not leave');
@@ -238,9 +270,9 @@ export default function GroupInfoPanel({
   }
 
   async function deleteGroup() {
-    if (!chat.participantGroupId || !canManage) return;
+    if (!groupId || !canDelete) return;
     if (!confirm('Delete this group for everyone?')) return;
-    const { error } = await supabase.from('chat_groups').delete().eq('id', chat.participantGroupId);
+    const { error } = await supabase.from('chat_groups').delete().eq('id', groupId);
     if (error) {
       toast.error(error.message || 'Could not delete group');
       return;
@@ -275,10 +307,10 @@ export default function GroupInfoPanel({
         <div className="overflow-y-auto flex-1 p-4 space-y-5">
           <div className="flex flex-col items-center text-center">
             <div className="relative mb-3">
-              {chat.avatar ? (
-                <img src={chat.avatar} alt="" className="w-24 h-24 rounded-full object-cover" />
+              {groupPhoto ? (
+                <img src={groupPhoto} alt="" className="w-24 h-24 rounded-full object-cover" />
               ) : (
-                <div className="w-24 h-24 rounded-full bg-[#00a884] flex items-center justify-center text-white">
+                <div className="w-24 h-24 rounded-full bg-gradient-to-br from-indigo-500 to-cyan-400 flex items-center justify-center text-white shadow-lg shadow-indigo-500/30">
                   <Users className="w-10 h-10" />
                 </div>
               )}
@@ -287,7 +319,7 @@ export default function GroupInfoPanel({
                   type="button"
                   disabled={avatarBusy}
                   onClick={() => fileRef.current?.click()}
-                  className="absolute bottom-0 right-0 w-9 h-9 rounded-full bg-[#00a884] text-white flex items-center justify-center shadow-lg disabled:opacity-50"
+                  className="absolute bottom-0 right-0 w-9 h-9 rounded-full bg-gradient-to-br from-indigo-500 to-cyan-400 text-white flex items-center justify-center shadow-lg disabled:opacity-50"
                   title="Change group photo"
                 >
                   <Camera className="w-4 h-4" />
@@ -359,9 +391,7 @@ export default function GroupInfoPanel({
               </div>
             )}
             <p className="text-xs text-gray-500 mt-1">{participants.length} participants</p>
-            {chat.groupChatType === 'custom_group' && !iAmAdmin && !loading && (
-              <p className="text-[10px] text-gray-500 mt-0.5">Only group admins can edit the name, photo and description.</p>
-            )}
+            <p className="text-[10px] text-gray-500 mt-0.5">Tap the camera or pencil to edit this group.</p>
           </div>
 
           <div>
@@ -450,7 +480,14 @@ export default function GroupInfoPanel({
                       }}
                     >
                       {p.avatar_url ? (
-                        <img src={p.avatar_url} alt="" className="w-9 h-9 rounded-full object-cover shrink-0" />
+                        <img
+                          src={p.avatar_url}
+                          alt=""
+                          className="w-9 h-9 rounded-full object-cover shrink-0"
+                          onError={(e) => {
+                            e.currentTarget.style.display = 'none';
+                          }}
+                        />
                       ) : (
                         <div className="w-9 h-9 rounded-full bg-[#00a884] flex items-center justify-center text-white text-xs font-semibold shrink-0">
                           {(p.name || '?')[0]?.toUpperCase()}
@@ -502,16 +539,14 @@ export default function GroupInfoPanel({
           </div>
 
           <div className="space-y-2 pt-2 border-t border-[#2a3942]">
-            {chat.groupChatType === 'custom_group' && (
-              <button
-                type="button"
-                onClick={() => void leaveGroup()}
-                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-red-400 bg-[#202c33] hover:bg-[#2a3942] text-sm font-semibold"
-              >
-                <LogOut className="w-4 h-4" /> Leave group
-              </button>
-            )}
-            {canManage && (
+            <button
+              type="button"
+              onClick={() => void leaveGroup()}
+              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-red-400 bg-[#202c33] hover:bg-[#2a3942] text-sm font-semibold"
+            >
+              <LogOut className="w-4 h-4" /> Leave group
+            </button>
+            {canDelete && (
               <button
                 type="button"
                 onClick={() => void deleteGroup()}
@@ -519,11 +554,6 @@ export default function GroupInfoPanel({
               >
                 <Trash2 className="w-4 h-4" /> Delete group
               </button>
-            )}
-            {chat.groupChatType !== 'custom_group' && (
-              <p className="text-[11px] text-gray-500 text-center">
-                Organization / committee chats are managed automatically.
-              </p>
             )}
           </div>
         </div>

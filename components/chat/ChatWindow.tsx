@@ -10,6 +10,7 @@ import GroupInfoPanel from '@/components/chat/GroupInfoPanel';
 import type { ChatItem, UserProfile } from '@/components/chat/types';
 import { attachmentLabel, isAudioUrl, isImageFile, isImageUrl } from '@/lib/chat-media';
 import { notifyChatRecipients } from '@/lib/chat-notify';
+import { resolveChatGroupId } from '@/lib/chat-ids';
 import { formatPortalDate, formatPortalDateTime } from '@/lib/portal-date';
 
 interface Props {
@@ -48,6 +49,25 @@ function groupReceiptLevel(
     }
     if (readBy >= otherIds.length) return 'read';
     return 'delivered';
+}
+
+function mergeLoadedMessages(prev: any[], incoming: any[]) {
+    const map = new Map<string, any>();
+    for (const m of incoming) map.set(String(m.id), m);
+    for (const m of prev) {
+        const id = String(m.id);
+        if (id.startsWith('temp-')) {
+            const matched = incoming.find(
+                (e) => e.sender_id === m.sender_id && String(e.message || '') === String(m.message || ''),
+            );
+            if (!matched) map.set(id, m);
+        } else if (!map.has(id)) {
+            map.set(id, m);
+        }
+    }
+    return [...map.values()].sort(
+        (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+    );
 }
 
 function memberViewedMessage(
@@ -132,6 +152,7 @@ export default function ChatWindow({
     const isSendingRef = useRef(false);
 
     const isDirect = chat.type === 'direct';
+    const groupId = resolveChatGroupId(chat);
     const isOnline = showOnlinePresence && isDirect && onlineUsers.has(chat.id);
 
     useEffect(() => {
@@ -231,11 +252,11 @@ export default function ChatWindow({
     }
 
     async function loadGroupMemberReads() {
-        if (!chat.participantGroupId || isDirect) return;
+        if (!groupId || isDirect) return;
         const { data, error } = await supabase
             .from('chat_participants')
             .select('user_id, last_read_at')
-            .eq('group_id', chat.participantGroupId);
+            .eq('group_id', groupId);
         if (error) {
             console.error('Group member reads load error:', error);
             return;
@@ -315,7 +336,7 @@ export default function ChatWindow({
                         : { name: chat.name, avatar_url: chat.avatar }
                 }));
                 if (enriched.length > 0 || (!e1 && !e2)) {
-                    setMessages(enriched);
+                    setMessages((prev) => mergeLoadedMessages(prev, enriched));
                 }
             }
 
@@ -327,13 +348,12 @@ export default function ChatWindow({
                     .eq('sender_id', chat.id);
                 if (markErr) console.error('DM read update error:', markErr);
                 else broadcastReadReceipt();
-                onMessageSent();
             }
         } else {
             const { data, error } = await supabase
                 .from('group_messages')
                 .select('*')
-                .eq('group_id', chat.id)
+                .eq('group_id', groupId || chat.id)
                 .order('created_at', { ascending: true });
             if (error) { console.error('Group msg load error:', error); setLoading(false); return; }
             const senderIds = [...new Set((data || []).map((m: any) => m.sender_id))];
@@ -346,18 +366,17 @@ export default function ChatWindow({
                 ...m,
                 sender: senderMap[m.sender_id] || { name: 'Unknown', avatar_url: null }
             }));
-            setMessages(enriched);
-            if (chat.participantGroupId) {
+            setMessages((prev) => mergeLoadedMessages(prev, enriched));
+            if (groupId) {
                 const { error: lrErr } = await supabase
                     .from('chat_participants')
                     .update({ last_read_at: new Date().toISOString() })
-                    .eq('group_id', chat.participantGroupId)
+                    .eq('group_id', groupId)
                     .eq('user_id', currentUser.id)
                     .select('group_id');
                 if (lrErr) console.error('last_read_at update:', lrErr);
                 else {
                     broadcastReadReceipt();
-                    onMessageSent();
                 }
                 await loadGroupMemberReads();
             }
@@ -394,8 +413,9 @@ export default function ChatWindow({
             const msg = payload.new as { id: string; sender_id: string; receiver_id?: string; group_id?: string };
             if (msg.sender_id === currentUser.id && isSendingRef.current) return;
             const isRelevant = isDirect
-                ? msg.sender_id === chat.id && msg.receiver_id === currentUser.id
-                : msg.group_id === chat.id;
+                ? (msg.sender_id === chat.id && msg.receiver_id === currentUser.id) ||
+                  (msg.sender_id === currentUser.id && msg.receiver_id === chat.id)
+                : msg.group_id === chat.id || msg.group_id === groupId;
             if (!isRelevant) return;
 
             const enriched = await enrichIncoming(payload.new);
@@ -410,11 +430,11 @@ export default function ChatWindow({
                 await supabase.from('direct_messages').update({ read: true } as any).eq('id', msg.id);
                 broadcastReadReceipt();
                 onMessageSent();
-            } else if (chat.participantGroupId) {
+            } else if (groupId) {
                 await supabase
                     .from('chat_participants')
                     .update({ last_read_at: new Date().toISOString() })
-                    .eq('group_id', chat.participantGroupId)
+                    .eq('group_id', groupId)
                     .eq('user_id', currentUser.id);
                 broadcastReadReceipt();
                 onMessageSent();
@@ -444,8 +464,9 @@ export default function ChatWindow({
             const msg = payload as { id: string; sender_id: string; receiver_id?: string; group_id?: string };
             if (msg.sender_id === currentUser.id) return;
             const isRelevant = isDirect
-                ? msg.sender_id === chat.id && msg.receiver_id === currentUser.id
-                : msg.group_id === chat.id;
+                ? (msg.sender_id === chat.id && msg.receiver_id === currentUser.id) ||
+                  (msg.sender_id === currentUser.id && msg.receiver_id === chat.id)
+                : msg.group_id === chat.id || msg.group_id === groupId;
             if (!isRelevant) return;
             const enriched = await enrichIncoming(payload);
             setMessages((prev) => {
@@ -458,11 +479,11 @@ export default function ChatWindow({
                 await supabase.from('direct_messages').update({ read: true } as any).eq('id', msg.id);
                 broadcastReadReceipt();
                 onMessageSent();
-            } else if (chat.participantGroupId) {
+            } else if (groupId) {
                 await supabase
                     .from('chat_participants')
                     .update({ last_read_at: new Date().toISOString() })
-                    .eq('group_id', chat.participantGroupId)
+                    .eq('group_id', groupId)
                     .eq('user_id', currentUser.id);
                 broadcastReadReceipt();
                 onMessageSent();
@@ -477,18 +498,18 @@ export default function ChatWindow({
                 );
                 return;
             }
-            if (payload.chat_id === chat.id || payload.chat_id === chat.participantGroupId) {
+            if (payload.chat_id === chat.id || payload.chat_id === groupId) {
                 void loadGroupMemberReads();
             }
         });
-        if (!isDirect && chat.participantGroupId) {
+        if (!isDirect && groupId) {
             ch.on(
                 'postgres_changes',
                 {
                     event: 'UPDATE',
                     schema: 'public',
                     table: 'chat_participants',
-                    filter: `group_id=eq.${chat.participantGroupId}`,
+                    filter: `group_id=eq.${groupId}`,
                 },
                 () => { void loadGroupMemberReads(); },
             );
@@ -510,7 +531,7 @@ export default function ChatWindow({
             otherUserId: isDirect ? chat.id : undefined,
             groupId: isDirect ? undefined : chat.id,
             groupName: chat.name,
-            participantGroupId: chat.participantGroupId,
+            participantGroupId: groupId,
         });
     }
 
@@ -531,7 +552,7 @@ export default function ChatWindow({
             created_at: new Date().toISOString(),
             read: false,
             sender: { name: currentUser.name, avatar_url: currentUser.avatar_url },
-            ...(isDirect ? { receiver_id: chat.id } : { group_id: chat.id }),
+            ...(isDirect ? { receiver_id: chat.id } : { group_id: groupId || chat.id }),
         };
         setMessages(prev => [...prev, tempMsg]);
 
@@ -546,7 +567,7 @@ export default function ChatWindow({
                     broadcastNewMessage(inserted);
                 }
             } else {
-                const { data: inserted, error } = await supabase.from('group_messages').insert({ group_id: chat.id, sender_id: currentUser.id, message: text } as any).select().single();
+                const { data: inserted, error } = await supabase.from('group_messages').insert({ group_id: groupId || chat.id, sender_id: currentUser.id, message: text } as any).select().single();
                 if (error) { console.error('Group msg insert error:', error); toast.error('Failed to send: ' + error.message); setMessages(prev => prev.filter(m => m.id !== tempMsg.id)); setNewMessage(text); return; }
                 if (inserted) {
                     const realMsg = { ...inserted, sender: { name: currentUser.name, avatar_url: currentUser.avatar_url } };
@@ -577,7 +598,7 @@ export default function ChatWindow({
             file_url: previewUrl,
             created_at: new Date().toISOString(),
             sender: { name: currentUser.name, avatar_url: currentUser.avatar_url },
-            ...(isDirect ? { receiver_id: chat.id } : { group_id: chat.id }),
+            ...(isDirect ? { receiver_id: chat.id } : { group_id: groupId || chat.id }),
             _pending: true,
         };
         setMessages((prev) => [...prev, tempMsg]);
@@ -611,7 +632,7 @@ export default function ChatWindow({
             } else {
                 const { data: inserted, error } = await supabase
                     .from('group_messages')
-                    .insert({ group_id: chat.id, sender_id: currentUser.id, message: text, file_url: data.publicUrl } as any)
+                    .insert({ group_id: groupId || chat.id, sender_id: currentUser.id, message: text, file_url: data.publicUrl } as any)
                     .select()
                     .single();
                 if (error) throw error;
@@ -649,7 +670,7 @@ export default function ChatWindow({
             poll_data: pollData,
             created_at: new Date().toISOString(),
             sender: { name: currentUser.name, avatar_url: currentUser.avatar_url },
-            ...(isDirect ? { receiver_id: chat.id } : { group_id: chat.id }),
+            ...(isDirect ? { receiver_id: chat.id } : { group_id: groupId || chat.id }),
         };
         setMessages((prev) => [...prev, tempMsg]);
         setShowPoll(false); setPollQ(''); setPollOpts(['', '']); setPollMultiple(false);
@@ -666,7 +687,7 @@ export default function ChatWindow({
             } else {
                 const { data: inserted, error } = await supabase
                     .from('group_messages')
-                    .insert({ group_id: chat.id, sender_id: currentUser.id, message: text, poll_data: pollData } as any)
+                    .insert({ group_id: groupId || chat.id, sender_id: currentUser.id, message: text, poll_data: pollData } as any)
                     .select()
                     .single();
                 if (error) throw error;
@@ -758,34 +779,46 @@ export default function ChatWindow({
     return (
         <div className="flex-1 flex flex-col h-full min-h-0 w-full overflow-hidden bg-[#0b141a]">
             {/* Header */}
-            <div className="shrink-0 px-2 sm:px-4 py-2 pt-[max(0.5rem,env(safe-area-inset-top))] bg-[#202c33] flex items-center gap-2 sm:gap-3 border-b border-[#2a3942]">
+            <div className="shrink-0 px-2 sm:px-4 py-2 pt-[max(0.5rem,env(safe-area-inset-top))] chat-glass flex items-center gap-2 sm:gap-3 border-b border-[#2a3942]">
                 {onBack && (
-                    <button type="button" onClick={onBack} className="md:hidden text-gray-400 hover:text-white p-1.5 -ml-0.5 shrink-0 active:opacity-70 touch-manipulation" aria-label="Back">
-                        <ArrowLeft className="w-5 h-5" />
+                    <button
+                        type="button"
+                        onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            onBack();
+                        }}
+                        className="md:hidden relative z-20 text-gray-400 hover:text-white p-1.5 -ml-0.5 shrink-0 active:opacity-70 touch-manipulation"
+                        aria-label="Back"
+                    >
+                        <ArrowLeft className="w-5 h-5 pointer-events-none" />
                     </button>
                 )}
                 <div
                     className="flex items-center gap-2.5 sm:gap-3 flex-1 cursor-pointer min-w-0"
                     onClick={() => {
                         if (isDirect) onOpenProfile(chat.id);
-                        else if (chat.participantGroupId) setShowGroupInfo(true);
+                        else if (groupId) setShowGroupInfo(true);
                     }}
                 >
                     <div className="relative shrink-0">
                         {chat.avatar ? (
-                            <img src={chat.avatar} alt="" className="w-9 h-9 sm:w-10 sm:h-10 rounded-full object-cover" />
+                            <img src={chat.avatar} alt="" className="w-9 h-9 sm:w-10 sm:h-10 rounded-full object-cover ring-2 ring-indigo-400/30" />
                         ) : (
-                            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-[#00a884] flex items-center justify-center text-white font-semibold text-sm">
+                            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-gradient-to-br from-indigo-500 to-cyan-400 flex items-center justify-center text-white font-semibold text-sm shadow-md shadow-indigo-500/30">
                                 {chat.type === 'group' ? <Users className="w-5 h-5" /> : (chat.name || '?')[0]?.toUpperCase()}
                             </div>
                         )}
-                        {isOnline && <div className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 rounded-full border-2 border-[#202c33]" />}
+                        {isOnline && <div className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 rounded-full border-2 border-[#202c33] chat-online-dot" />}
                     </div>
                     <div className="flex-1 min-w-0">
                         <h2 className="font-semibold text-white text-[15px] sm:text-base truncate leading-tight">{chat.name || 'Chat'}</h2>
                         <p className="text-[11px] sm:text-xs text-gray-400 truncate">
                             {typing ? (
-                                <span className="text-emerald-400 italic">{typing} is typing...</span>
+                                <span className="text-cyan-300 italic inline-flex items-center gap-1.5">
+                                    {typing} is typing
+                                    <span className="chat-typing-dots" aria-hidden><i /><i /><i /></span>
+                                </span>
                             ) : isDirect ? (
                                 showOnlinePresence ? (isOnline ? 'Online' : 'Offline') : 'Tap for contact info'
                             ) : (
@@ -794,7 +827,7 @@ export default function ChatWindow({
                         </p>
                     </div>
                 </div>
-                {!isDirect && chat.participantGroupId && (
+                {!isDirect && groupId && (
                     <button
                         type="button"
                         onClick={() => setShowGroupInfo(true)}
@@ -810,7 +843,7 @@ export default function ChatWindow({
             <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain px-2.5 sm:px-4 py-2 sm:py-3 space-y-1 relative">
                 {/* IIChE Logo Watermark - fixed center */}
                 <div className="pointer-events-none absolute inset-0 flex items-center justify-center z-0 overflow-hidden" aria-hidden>
-                    <div className="opacity-[0.12] w-[min(220px,55vw)] h-[min(220px,55vw)]">
+                    <div className="opacity-[0.1] w-[min(220px,55vw)] h-[min(220px,55vw)] chat-logo-breathe">
                         <DynamicLogo width={220} height={220} />
                     </div>
                 </div>
@@ -824,11 +857,7 @@ export default function ChatWindow({
                                 </div>
                             ))}
                         </div>
-                    ) : messages.length === 0 ? (
-                        <div className="flex items-center justify-center h-full">
-                            <p className="bg-[#202c33] px-4 py-2 rounded-lg text-base text-gray-400 shadow-sm">No messages yet. Say hello! 👋</p>
-                        </div>
-                    ) : (
+                    ) : messages.length === 0 ? null : (
                         messages.map((msg, idx) => {
                             const isSent = msg.sender_id === currentUser.id;
                             const showName = !isDirect && !isSent;
@@ -840,7 +869,7 @@ export default function ChatWindow({
                                 <div key={msg.id}>
                                     {showDate && (
                                         <div className="flex justify-center my-3">
-                                            <span className="bg-[#182229] text-gray-400 text-[11px] px-3 py-1 rounded-lg shadow-sm font-medium">
+                                            <span className="bg-[#182229]/80 backdrop-blur text-gray-300 text-[11px] px-3 py-1 rounded-full shadow-sm font-medium border border-indigo-500/15">
                                                 {formatPortalDate(msg.created_at)}
                                             </span>
                                         </div>
@@ -848,10 +877,10 @@ export default function ChatWindow({
                                     <div
                                         className={`flex w-full ${isSent ? 'justify-end' : 'justify-start'} mb-0.5 group/msg relative`}
                                     >
-                                        <div className={`w-fit max-w-[85%] sm:max-w-[65%] px-2.5 py-1.5 shadow-sm relative touch-manipulation active:opacity-90 ${
+                                        <div className={`${idx === messages.length - 1 ? 'chat-bubble-in' : ''} w-fit max-w-[85%] sm:max-w-[65%] px-2.5 py-1.5 relative touch-manipulation active:opacity-90 ${
                                             isSent
-                                                ? 'bg-[#005c4b] rounded-lg rounded-tr-none'
-                                                : 'bg-[#202c33] rounded-lg rounded-tl-none'
+                                                ? 'bg-gradient-to-br from-indigo-600 via-violet-600 to-indigo-700 rounded-2xl rounded-tr-md shadow-lg shadow-indigo-900/40'
+                                                : 'bg-[#202c33]/90 backdrop-blur-sm rounded-2xl rounded-tl-md shadow-md shadow-black/20 border border-white/5'
                                         }`}
                                             onClick={() => isSent && setMenuMsgId(menuMsgId === msg.id ? null : msg.id)}>
                                             {showName && <p className="text-[12px] font-semibold text-emerald-400 mb-0.5">{msg.sender?.name}</p>}
@@ -1015,7 +1044,7 @@ export default function ChatWindow({
             })()}
 
             {/* Input */}
-            <div className="shrink-0 px-1.5 sm:px-3 py-1.5 sm:py-2 bg-[#202c33] relative pb-[max(0.4rem,env(safe-area-inset-bottom))]">
+            <div className="shrink-0 px-1.5 sm:px-3 py-1.5 sm:py-2 chat-glass relative pb-[max(0.4rem,env(safe-area-inset-bottom))]">
                 {pendingPreview && (
                     <div className="mb-2 flex items-center gap-3 bg-[#111b21] rounded-xl p-2 border border-[#2a3942]">
                         <img src={pendingPreview.url} alt="" className="w-16 h-16 rounded-lg object-cover" />
@@ -1150,17 +1179,17 @@ export default function ChatWindow({
                     e.target.value = '';
                 }} />
                 <input type="text" value={newMessage} onChange={e => { setNewMessage(e.target.value); handleTyping(); }} placeholder="Message"
-                    className="flex-1 min-w-0 px-3 py-2 sm:py-2.5 bg-[#2a3942] rounded-full sm:rounded-lg text-[15px] sm:text-base text-white placeholder-gray-500 outline-none focus:ring-1 focus:ring-emerald-500/30 transition-all" />
+                    className="chat-composer-input flex-1 min-w-0 px-3 py-2 sm:py-2.5 bg-[#2a3942] rounded-full sm:rounded-lg text-[15px] sm:text-base text-white placeholder-gray-500 outline-none" />
                 {newMessage.trim() ? (
                     <button type="submit"
-                        className="w-10 h-10 rounded-full bg-[#00a884] flex items-center justify-center text-white shadow-md shrink-0 active:scale-95 touch-manipulation">
+                        className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-cyan-400 flex items-center justify-center text-white shadow-md shadow-indigo-500/40 shrink-0 active:scale-95 hover:scale-105 transition-transform touch-manipulation">
                         <Send className="w-4 h-4" />
                     </button>
                 ) : (
                     <button
                         type="button"
                         onClick={() => (recording ? stopVoice() : void startVoice())}
-                        className={`w-10 h-10 rounded-full flex items-center justify-center text-white shadow-md shrink-0 active:scale-95 touch-manipulation ${recording ? 'bg-red-500 animate-pulse' : 'bg-[#00a884]'}`}
+                        className={`w-10 h-10 rounded-full flex items-center justify-center text-white shadow-md shrink-0 active:scale-95 touch-manipulation ${recording ? 'bg-red-500 animate-pulse' : 'bg-gradient-to-br from-indigo-500 to-cyan-400 shadow-indigo-500/40'}`}
                         title={recording ? 'Stop recording' : 'Voice message'}
                     >
                         {recording ? <Square className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
@@ -1174,7 +1203,7 @@ export default function ChatWindow({
                 {showPoll && (
                     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => { setShowPoll(false); setPollQ(''); setPollOpts(['', '']); setPollMultiple(false); }}>
                         <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
-                            <div className="bg-[#00a884] px-5 py-4">
+                            <div className="bg-gradient-to-r from-indigo-600 to-cyan-500 px-5 py-4">
                                 <h2 className="text-white font-bold text-lg">Create poll</h2>
                             </div>
                             <div className="p-5 space-y-4">
@@ -1217,7 +1246,7 @@ export default function ChatWindow({
             </AnimatePresence>
 
             <AnimatePresence>
-                {showGroupInfo && !isDirect && chat.participantGroupId && (
+                {showGroupInfo && !isDirect && groupId && (
                     <GroupInfoPanel
                         chat={chat}
                         currentUser={currentUser}

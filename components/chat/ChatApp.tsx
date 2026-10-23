@@ -1,9 +1,9 @@
 'use client';
 
 import PortalLoadingScreen from '@/components/PortalLoadingScreen';
-import { Suspense, useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import ChatSidebar from '@/components/chat/ChatSidebar';
 import ChatWindow from '@/components/chat/ChatWindow';
 import ProfilePanel from '@/components/chat/ProfilePanel';
@@ -12,14 +12,40 @@ import DynamicLogo from '@/components/DynamicLogo';
 import { AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
 import { groupMessagesChannelId } from '@/lib/chat-group-keys';
+import {
+  CHAT_OFFICIAL_GROUP_ID,
+  CHAT_UNOFFICIAL_GROUP_ID,
+  LEGACY_UNOFFICIAL_GROUP_ID,
+  WHOLE_ORG_CHAT_GROUP_ID,
+} from '@/lib/chat-ids';
 import { usePortalPresence } from '@/components/dashboard/PortalPresenceContext';
 import type { ChatItem, UserProfile } from '@/components/chat/types';
 import { chatPinKey, loadPinnedChatKeys, togglePinnedChatKey } from '@/lib/chat-pins';
 
 export type { ChatItem, UserProfile };
 
-const WHOLE_ORG_CHAT_GROUP_ID = '00000000-0000-0000-0000-000000000001';
 const DEFAULT_BASE = '/chat';
+
+function chatListKey(c: ChatItem) {
+  if (c.type !== 'group') return `d:${c.id}`;
+  if (c.groupChatType === 'unofficial' || c.name === 'Unofficial') return 'g:unofficial';
+  if (c.groupChatType && !['custom_group', 'committee'].includes(c.groupChatType)) {
+    return `g:${c.groupChatType}`;
+  }
+  return `g:${c.participantGroupId || c.id}`;
+}
+
+function dedupeChats(chats: ChatItem[]) {
+  const seen = new Set<string>();
+  const out: ChatItem[] = [];
+  for (const c of chats) {
+    const k = chatListKey(c);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(c);
+  }
+  return out;
+}
 
 function displayGroupName(g: { name?: string | null; chat_type: string | null }) {
   if (g.chat_type === 'organization') return 'Official';
@@ -129,10 +155,10 @@ function ChatAppInner({ basePath = DEFAULT_BASE, chatOnly = true }: { basePath?:
       return next;
     });
   }, []);
-  const searchParams = useSearchParams();
   const userIdRef = useRef<string | null>(null);
   const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const deepLinkRef = useRef<string | null>(null);
+  const skipDeepLinkOpenRef = useRef(false);
   const activeChatRef = useRef<ChatItem | null>(null);
 
   useEffect(() => {
@@ -159,17 +185,20 @@ function ChatAppInner({ basePath = DEFAULT_BASE, chatOnly = true }: { basePath?:
 
   const syncChatUrl = useCallback(
     (chat: ChatItem | null) => {
-      if (!chat) {
-        router.replace(basePath, { scroll: false });
-        return;
-      }
-      const q =
-        chat.type === 'direct'
-          ? `?user=${encodeURIComponent(chat.id)}`
-          : `?group=${encodeURIComponent(chat.id)}`;
-      router.replace(`${basePath}${q}`, { scroll: false });
+      if (typeof window === 'undefined') return;
+      const next =
+        !chat
+          ? basePath
+          : chat.type === 'direct'
+            ? `${basePath}?user=${encodeURIComponent(chat.id)}`
+            : `${basePath}?group=${encodeURIComponent(chat.id)}`;
+      const current = `${window.location.pathname}${window.location.search}`;
+      if (current === next) return;
+      // replaceState avoids Next.js search-param navigation, which remounts this
+      // screen (and wipes the message draft) via the Suspense boundary.
+      window.history.replaceState(window.history.state, '', next);
     },
-    [router, basePath],
+    [basePath],
   );
 
   useEffect(() => {
@@ -225,19 +254,13 @@ function ChatAppInner({ basePath = DEFAULT_BASE, chatOnly = true }: { basePath?:
       const ch = supabase
         .channel('chat-live')
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'direct_messages' }, () => scheduleReloadChats())
-        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'direct_messages' }, () => scheduleReloadChats())
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'group_messages' }, () => scheduleReloadChats())
-        .on(
-          'postgres_changes',
-          { event: 'UPDATE', schema: 'public', table: 'chat_participants', filter: `user_id=eq.${user.id}` },
-          () => scheduleReloadChats(),
-        )
         .subscribe();
 
       // Fallback: refresh the list on an interval in case DB realtime is unavailable.
       pollTimer = window.setInterval(() => {
         if (document.visibilityState === 'visible') void loadChats(user.id);
-      }, 5000);
+      }, 20000);
 
       removeRealtime = () => {
         supabase.removeChannel(ch);
@@ -318,6 +341,9 @@ function ChatAppInner({ basePath = DEFAULT_BASE, chatOnly = true }: { basePath?:
       if (!again.error) partRows = again.data;
     }
 
+    partRows = (partRows || []).filter(
+      (r: { group_id: string }) => String(r.group_id) !== LEGACY_UNOFFICIAL_GROUP_ID,
+    );
     const groupIds = [...new Set((partRows || []).map((r: { group_id: string }) => String(r.group_id)))];
     const groupMeta: Record<
       string,
@@ -361,11 +387,14 @@ function ChatAppInner({ basePath = DEFAULT_BASE, chatOnly = true }: { basePath?:
     };
 
     const groupRows: GroupChatRow[] = [];
+    const seenGroups = new Set<string>();
     for (const r of partRows || []) {
       const group = groupMeta[String((r as { group_id: string }).group_id)];
-      if (group) {
-        groupRows.push({ last_read_at: (r as { last_read_at: string | null }).last_read_at, group });
-      }
+      if (!group) continue;
+      const gid = String(group.id);
+      if (seenGroups.has(gid)) continue;
+      seenGroups.add(gid);
+      groupRows.push({ last_read_at: (r as { last_read_at: string | null }).last_read_at, group });
     }
 
     const messageChannelIds = [...new Set(groupRows.map((r) => groupMessagesChannelId(r.group)))];
@@ -402,43 +431,45 @@ function ChatAppInner({ basePath = DEFAULT_BASE, chatOnly = true }: { basePath?:
       }),
     );
 
-    const groupChats: ChatItem[] = groupRows.map((r) => {
-      const chId = groupMessagesChannelId(r.group);
-      const latest = latestByChannel[chId];
-      return {
-        id: chId,
-        participantGroupId: String(r.group.id),
-        groupChatType: r.group.chat_type,
-        name: displayGroupName(r.group),
-        avatar: r.group.avatar_url || null,
-        description: r.group.description || null,
-        lastMessage: latest?.message ?? 'No messages yet',
-        time: latest?.created_at ?? new Date().toISOString(),
-        type: 'group' as const,
-        unreadCount: unreadByChannel[chId] ?? 0,
-      };
-    });
+    const groupChats: ChatItem[] = dedupeChats(
+      groupRows.map((r) => {
+        const isUnofficial = r.group.chat_type === 'unofficial';
+        const chId = isUnofficial ? CHAT_UNOFFICIAL_GROUP_ID : groupMessagesChannelId(r.group);
+        const latest = latestByChannel[groupMessagesChannelId(r.group)] || latestByChannel[chId];
+        return {
+          id: chId,
+          participantGroupId: isUnofficial ? CHAT_UNOFFICIAL_GROUP_ID : String(r.group.id),
+          groupChatType: r.group.chat_type,
+          name: displayGroupName(r.group),
+          avatar: r.group.avatar_url || null,
+          description: r.group.description || null,
+          lastMessage: latest?.message ?? 'No messages yet',
+          time: latest?.created_at ?? '',
+          type: 'group' as const,
+          unreadCount: unreadByChannel[chId] ?? unreadByChannel[groupMessagesChannelId(r.group)] ?? 0,
+        };
+      }),
+    );
 
     setChats((prev) => {
-      const newChats = [...directChats, ...groupChats];
+      const newChats = dedupeChats([...directChats, ...groupChats]);
       newChats.sort((a, b) => {
-        const ra = defaultGroupRank(a);
-        const rb = defaultGroupRank(b);
-        if (ra !== rb && (ra < 20 || rb < 20)) return ra - rb;
-        return new Date(b.time).getTime() - new Date(a.time).getTime();
+        const tb = new Date(b.time || 0).getTime();
+        const ta = new Date(a.time || 0).getTime();
+        if (tb !== ta) return tb - ta;
+        return defaultGroupRank(a) - defaultGroupRank(b);
       });
       const active = activeChatRef.current;
-      if (active && !newChats.find((c) => c.id === active.id && c.type === active.type)) {
-        const existing = prev.find((c) => c.id === active.id && c.type === active.type);
-        const orphanDirect = existing?.type === 'direct' && !profileMap[active.id];
-        if (existing && !orphanDirect) newChats.unshift(existing);
+      if (active?.type === 'direct' && !newChats.find((c) => c.id === active.id && c.type === 'direct')) {
+        const existing = prev.find((c) => c.id === active.id && c.type === 'direct') || active;
+        newChats.unshift(existing);
       }
       return clearUnreadForActive(newChats);
     });
 
     setActiveChat((prev) => {
-      if (prev?.type === 'direct' && !profileMap[prev.id]) return null;
-      if (prev) return { ...prev, unreadCount: 0 };
+      if (!prev) return prev;
+      if (prev.unreadCount) return { ...prev, unreadCount: 0 };
       return prev;
     });
   }
@@ -494,9 +525,16 @@ function ChatAppInner({ basePath = DEFAULT_BASE, chatOnly = true }: { basePath?:
   }
 
   async function openChat(chat: ChatItem) {
-    setActiveChat({ ...chat, unreadCount: 0 });
-    setShowProfile(false);
-    syncChatUrl(chat);
+    skipDeepLinkOpenRef.current = false;
+    const already =
+      activeChatRef.current &&
+      activeChatRef.current.id === chat.id &&
+      activeChatRef.current.type === chat.type;
+    if (!already) {
+      setActiveChat({ ...chat, unreadCount: 0 });
+      setShowProfile(false);
+      syncChatUrl(chat);
+    }
 
     let uid = currentUser?.id ?? userIdRef.current;
     if (!uid) {
@@ -621,6 +659,8 @@ function ChatAppInner({ basePath = DEFAULT_BASE, chatOnly = true }: { basePath?:
       await supabase.from('direct_messages').delete().eq('sender_id', chat.id).eq('receiver_id', uid);
       setChats((prev) => prev.filter((c) => !(c.id === chat.id && c.type === 'direct')));
       if (activeChat?.id === chat.id && activeChat.type === 'direct') {
+        skipDeepLinkOpenRef.current = true;
+        deepLinkRef.current = null;
         setActiveChat(null);
         syncChatUrl(null);
       }
@@ -638,6 +678,8 @@ function ChatAppInner({ basePath = DEFAULT_BASE, chatOnly = true }: { basePath?:
       }
       setChats((prev) => prev.filter((c) => !(c.id === chat.id && c.type === 'group')));
       if (activeChat?.id === chat.id && activeChat.type === 'group') {
+        skipDeepLinkOpenRef.current = true;
+        deepLinkRef.current = null;
         setActiveChat(null);
         syncChatUrl(null);
       }
@@ -653,17 +695,22 @@ function ChatAppInner({ basePath = DEFAULT_BASE, chatOnly = true }: { basePath?:
   }
 
   useEffect(() => {
-    if (loading || !currentUser) return;
+    if (loading || !currentUser || skipDeepLinkOpenRef.current) return;
+    if (typeof window === 'undefined') return;
 
-    const userParam = searchParams.get('user');
-    const groupParam = searchParams.get('group');
+    const params = new URLSearchParams(window.location.search);
+    const userParam = params.get('user');
+    const groupParam = params.get('group');
     const key = userParam ? `u:${userParam}` : groupParam ? `g:${groupParam}` : null;
     if (!key) return;
 
+    const active = activeChatRef.current;
     if (
-      activeChat &&
-      ((userParam && activeChat.type === 'direct' && activeChat.id === userParam) ||
-        (groupParam && activeChat.type === 'group' && activeChat.id === groupParam))
+      active &&
+      ((userParam && active.type === 'direct' && active.id === userParam) ||
+        (groupParam &&
+          active.type === 'group' &&
+          (active.id === groupParam || active.participantGroupId === groupParam)))
     ) {
       deepLinkRef.current = key;
       return;
@@ -686,15 +733,26 @@ function ChatAppInner({ basePath = DEFAULT_BASE, chatOnly = true }: { basePath?:
     }
 
     if (groupParam) {
-      const existing = chats.find((c) => c.type === 'group' && c.id === groupParam);
+      const resolvedParam =
+        groupParam === LEGACY_UNOFFICIAL_GROUP_ID ? CHAT_UNOFFICIAL_GROUP_ID : groupParam;
+      const existing = chats.find(
+        (c) =>
+          c.type === 'group' &&
+          (c.id === resolvedParam ||
+            c.participantGroupId === resolvedParam ||
+            c.id === groupParam ||
+            c.participantGroupId === groupParam),
+      );
       if (existing) {
         deepLinkRef.current = key;
         void openChat(existing);
       }
     }
-  }, [loading, currentUser, chats, allUsers, searchParams, activeChat]);
+  }, [loading, currentUser, chats, allUsers]);
 
   function handleBackFromChat() {
+    skipDeepLinkOpenRef.current = true;
+    deepLinkRef.current = null;
     setActiveChat(null);
     syncChatUrl(null);
   }
@@ -706,11 +764,14 @@ function ChatAppInner({ basePath = DEFAULT_BASE, chatOnly = true }: { basePath?:
     setPinnedKeys(next);
   }
 
-  const sortedChats = [...chats].sort((a, b) => {
+  const sortedChats = dedupeChats([...chats]).sort((a, b) => {
     const aPin = pinnedKeys.includes(chatPinKey(a.type, a.id));
     const bPin = pinnedKeys.includes(chatPinKey(b.type, b.id));
     if (aPin !== bPin) return aPin ? -1 : 1;
-    return new Date(b.time || 0).getTime() - new Date(a.time || 0).getTime();
+    const tb = new Date(b.time || 0).getTime();
+    const ta = new Date(a.time || 0).getTime();
+    if (tb !== ta) return tb - ta;
+    return defaultGroupRank(a) - defaultGroupRank(b);
   });
 
   if (loading) {
@@ -720,8 +781,13 @@ function ChatAppInner({ basePath = DEFAULT_BASE, chatOnly = true }: { basePath?:
   return (
     <div
       data-chat-theme={chatTheme}
-      className="chat-shell fixed inset-0 z-40 flex w-full bg-[#0b141a] overflow-hidden overscroll-none"
+      className="chat-shell chat-theme-iiche fixed inset-0 z-40 flex w-full bg-[#0b141a] overflow-hidden overscroll-none"
     >
+      <div className="chat-aurora" aria-hidden>
+        <span />
+        <span />
+        <span />
+      </div>
       {/* Chat list — full screen on phone until a conversation is open */}
       <div
         className={`${
@@ -757,39 +823,41 @@ function ChatAppInner({ basePath = DEFAULT_BASE, chatOnly = true }: { basePath?:
         } min-w-0 min-h-0 h-full overflow-hidden`}
       >
         {activeChat ? (
-          <ChatWindow
-            chat={activeChat}
-            currentUser={currentUser!}
-            allUsers={allUsers}
-            onlineUsers={onlineUserIds}
-            showOnlinePresence={showOnlinePresence}
-            onOpenProfile={openProfile}
-            onMessageSent={patchActiveChat}
-            onBack={handleBackFromChat}
-            onChatMetaUpdate={applyChatMeta}
-            onLeaveOrDeleteChat={() => {
-              if (!activeChat) return;
-              setChats((prev) => prev.filter((c) => !(c.id === activeChat.id && c.type === activeChat.type)));
-              setActiveChat(null);
-              syncChatUrl(null);
-            }}
-          />
-        ) : (
-          <div className="flex-1 bg-[#0b141a] flex flex-col items-center justify-center px-6 relative overflow-hidden">
-            <div
-              className="absolute inset-0 opacity-[0.06] pointer-events-none"
-              style={{
-                backgroundImage:
-                  'url("data:image/svg+xml,%3Csvg width=\'60\' height=\'60\' viewBox=\'0 0 60 60\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cg fill=\'none\' fill-rule=\'evenodd\'%3E%3Cg fill=\'%23ffffff\' fill-opacity=\'1\'%3E%3Cpath d=\'M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z\'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")',
+          <div className="flex-1 flex min-h-0 min-w-0 h-full chat-pane-in">
+            <ChatWindow
+              chat={activeChat}
+              currentUser={currentUser!}
+              allUsers={allUsers}
+              onlineUsers={onlineUserIds}
+              showOnlinePresence={showOnlinePresence}
+              onOpenProfile={openProfile}
+              onMessageSent={patchActiveChat}
+              onBack={handleBackFromChat}
+              onChatMetaUpdate={applyChatMeta}
+              onLeaveOrDeleteChat={() => {
+                if (!activeChat) return;
+                skipDeepLinkOpenRef.current = true;
+                deepLinkRef.current = null;
+                setChats((prev) => prev.filter((c) => !(c.id === activeChat.id && c.type === activeChat.type)));
+                setActiveChat(null);
+                syncChatUrl(null);
               }}
             />
+          </div>
+        ) : (
+          <div className="flex-1 bg-transparent flex flex-col items-center justify-center px-6 relative overflow-hidden">
             <div className="text-center max-w-md relative z-10">
-              <div className="w-28 h-28 mx-auto mb-6 rounded-full bg-[#202c33] shadow-sm flex items-center justify-center overflow-hidden ring-2 ring-[#00a884]/30">
-                <DynamicLogo width={88} height={88} />
+              <div className="relative w-32 h-32 mx-auto mb-7">
+                <div className="absolute inset-0 rounded-full bg-gradient-to-br from-indigo-500/40 via-violet-500/20 to-cyan-400/30 blur-xl chat-logo-breathe" />
+                <div className="relative w-28 h-28 mx-auto mt-2 rounded-full bg-[#202c33]/80 backdrop-blur-md flex items-center justify-center overflow-hidden ring-2 ring-indigo-400/40 shadow-[0_0_40px_rgba(99,102,241,0.35)]">
+                  <DynamicLogo width={88} height={88} />
+                </div>
               </div>
-              <h2 className="text-2xl font-light text-gray-200 mb-2">IIChE Chat</h2>
-              <p className="text-gray-500 text-sm leading-relaxed">
-                Send messages, create groups, share files and polls — like WhatsApp, with your IIChE logo.
+              <h2 className="text-2xl font-semibold bg-gradient-to-r from-white via-indigo-100 to-cyan-200 bg-clip-text text-transparent mb-2 tracking-tight">
+                IIChE Chat
+              </h2>
+              <p className="text-gray-400 text-sm leading-relaxed">
+                Official chapter messaging — groups, files, polls, and read receipts for portal members.
               </p>
             </div>
           </div>
@@ -812,9 +880,5 @@ function ChatAppInner({ basePath = DEFAULT_BASE, chatOnly = true }: { basePath?:
 }
 
 export default function ChatApp({ basePath = DEFAULT_BASE, chatOnly = true }: { basePath?: string; chatOnly?: boolean }) {
-  return (
-    <Suspense fallback={<PortalLoadingScreen message="Loading chats…" variant="community" />}>
-      <ChatAppInner basePath={basePath} chatOnly={chatOnly} />
-    </Suspense>
-  );
+  return <ChatAppInner basePath={basePath} chatOnly={chatOnly} />;
 }

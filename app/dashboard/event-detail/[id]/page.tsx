@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
-import { Calendar, MapPin, CheckCircle, Clock, Edit, Check, X, Palette, ImageIcon, AlertCircle, Camera, ChevronLeft, ChevronRight, Users, QrCode, FileText, MessageSquare, Paperclip, ChevronDown, Mail } from 'lucide-react';
+import { Calendar, MapPin, CheckCircle, Clock, Edit, Check, X, Palette, ImageIcon, AlertCircle, Camera, ChevronLeft, ChevronRight, Users, QrCode, FileText, MessageSquare, Paperclip, ChevronDown, Mail, Link2, Copy } from 'lucide-react';
 import { LinkedText } from '@/components/LinkedText';
 import EventApprovalTrail from '@/components/events/EventApprovalTrail';
 import toast from 'react-hot-toast';
@@ -20,6 +20,7 @@ import EventParticipantEmailPanel from '@/components/events/EventParticipantEmai
 import { isManualParticipantSource, participantDisplayGroup, participantSecondaryText, registrationSourceLabel } from '@/lib/event-participant-groups';
 import { participantCheckInPayload } from '@/lib/event-participant-qr';
 import { imageFilesFromList, uploadEventPhotoFiles } from '@/lib/event-photos';
+import { eventPhotoShareUrl } from '@/lib/event-photo-share';
 import EventPhotosDropZone from '@/components/events/EventPhotosDropZone';
 import { isPortalAdmin } from '@/lib/permissions';
 import { canSendEventParticipantEmail } from '@/lib/member-profile-edit';
@@ -239,6 +240,8 @@ export default function EventDetailPage() {
   const [photoUploadProgress, setPhotoUploadProgress] = useState('');
   const [viewingPhotos, setViewingPhotos] = useState(false);
   const [photoIndex, setPhotoIndex] = useState(0);
+  const [photoShareToken, setPhotoShareToken] = useState<string | null>(null);
+  const [photoShareBusy, setPhotoShareBusy] = useState(false);
   const searchParams = useSearchParams();
   const tabFromUrl = searchParams.get('tab');
   const [activeTab, setActiveTab] = useState<'info' | 'participants' | 'attendance' | 'email'>(
@@ -845,6 +848,12 @@ export default function EventDetailPage() {
           return { ...p, photo_url: urlData.publicUrl };
         });
         setEventPhotos(photosWithUrls);
+        const { data: share } = await supabase
+          .from('event_photo_shares')
+          .select('token')
+          .eq('event_id', params.id)
+          .maybeSingle();
+        setPhotoShareToken(share?.token || null);
       }
     } catch (err) {
       console.error('Error loading event details:', err);
@@ -958,6 +967,35 @@ export default function EventDetailPage() {
     setPhotoFiles([]);
     setPhotoCaption('');
     setPhotoUploadProgress('');
+  }
+
+  async function copyPhotoShareLink(token: string) {
+    const url = eventPhotoShareUrl(token);
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success('Photo link copied');
+    } catch {
+      toast.error('Could not copy — select the link and copy it');
+    }
+  }
+
+  async function createOrRotatePhotoShare(rotate: boolean) {
+    if (!event || photoShareBusy) return;
+    if (rotate && !confirm('This will replace the current link. The old link will stop working. Continue?')) return;
+    setPhotoShareBusy(true);
+    try {
+      const { data, error } = await supabase.rpc(rotate ? 'rotate_event_photo_share' : 'create_event_photo_share', {
+        p_event_id: event.id,
+      });
+      if (error || !data) throw error || new Error('Could not create link');
+      const token = String(data);
+      setPhotoShareToken(token);
+      await copyPhotoShareLink(token);
+    } catch (err: any) {
+      toast.error(err.message || 'Could not create photo link');
+    } finally {
+      setPhotoShareBusy(false);
+    }
   }
 
   async function ingestEventPhotos(files: File[], caption = '') {
@@ -1417,15 +1455,52 @@ export default function EventDetailPage() {
           hint="Drop all selected photos here"
           onFiles={(files) => void ingestEventPhotos(files)}
         >
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between mb-4 gap-2 flex-wrap">
             <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
               <Camera className="w-6 h-6" /> Event Photos
             </h3>
-            <button onClick={() => setShowPhotoUpload(true)}
-              className="flex items-center gap-2 bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 text-sm font-semibold">
-              <Camera className="w-4 h-4" /> Upload Photos
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void createOrRotatePhotoShare(false)}
+                disabled={photoShareBusy}
+                className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 text-sm font-semibold disabled:opacity-60"
+              >
+                <Link2 className="w-4 h-4" />
+                {photoShareToken ? 'Copy share link' : 'Create share link'}
+              </button>
+              <button onClick={() => setShowPhotoUpload(true)}
+                className="flex items-center gap-2 bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 text-sm font-semibold">
+                <Camera className="w-4 h-4" /> Upload Photos
+              </button>
+            </div>
           </div>
+          {photoShareToken && (
+            <div className="mb-4 flex flex-col sm:flex-row gap-2 items-stretch sm:items-center bg-indigo-50 border border-indigo-100 rounded-xl p-3">
+              <input
+                readOnly
+                value={eventPhotoShareUrl(photoShareToken)}
+                className="flex-1 min-w-0 text-xs sm:text-sm bg-white border border-indigo-100 rounded-lg px-3 py-2 text-gray-700"
+              />
+              <div className="flex gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => void copyPhotoShareLink(photoShareToken)}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white border border-indigo-200 text-indigo-700 text-sm font-medium"
+                >
+                  <Copy className="w-4 h-4" /> Copy
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void createOrRotatePhotoShare(true)}
+                  disabled={photoShareBusy}
+                  className="px-3 py-2 rounded-lg text-sm text-gray-600 hover:bg-white disabled:opacity-60"
+                >
+                  New link
+                </button>
+              </div>
+            </div>
+          )}
           {eventPhotos.length > 0 ? (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
               {eventPhotos.map((photo: any, idx: number) => (

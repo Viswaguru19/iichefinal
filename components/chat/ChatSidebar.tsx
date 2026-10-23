@@ -72,7 +72,7 @@ export default function ChatSidebar({
 
   return (
     <div className="w-full md:w-[420px] md:min-w-[320px] relative flex flex-col border-r border-[#2a3942] bg-[#111b21] h-full min-h-0 overflow-hidden text-gray-100">
-      <div className="px-3 sm:px-4 py-3 bg-[#202c33] flex items-center justify-between gap-2 pt-[max(0.75rem,env(safe-area-inset-top))]">
+      <div className="px-3 sm:px-4 py-3 chat-glass flex items-center justify-between gap-2 pt-[max(0.75rem,env(safe-area-inset-top))]">
         <div className="flex items-center gap-2.5 min-w-0">
           {!chatOnly && (
             <button type="button" onClick={onBack} className="text-gray-400 hover:text-white transition-colors p-1 shrink-0" aria-label="Back">
@@ -113,7 +113,7 @@ export default function ChatSidebar({
           <button
             type="button"
             onClick={() => setShowCreateGroup(true)}
-            className="w-9 h-9 rounded-full bg-[#00a884] flex items-center justify-center text-white active:scale-95 touch-manipulation"
+            className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-500 to-cyan-400 flex items-center justify-center text-white active:scale-95 hover:scale-105 transition-transform touch-manipulation shadow-md shadow-indigo-500/30"
             title="Create Group"
           >
             <Users className="w-4 h-4" />
@@ -121,7 +121,7 @@ export default function ChatSidebar({
           <button
             type="button"
             onClick={() => setShowNewChat(true)}
-            className="w-9 h-9 rounded-full bg-[#00a884] flex items-center justify-center text-white active:scale-95 touch-manipulation"
+            className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-500 to-cyan-400 flex items-center justify-center text-white active:scale-95 hover:scale-105 transition-transform touch-manipulation shadow-md shadow-indigo-500/30"
             title="New chat"
           >
             <Plus className="w-5 h-5" />
@@ -137,7 +137,7 @@ export default function ChatSidebar({
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search or start new chat"
-            className="w-full pl-10 pr-4 py-2 bg-[#202c33] rounded-lg text-sm text-white placeholder-gray-500 outline-none focus:ring-1 focus:ring-emerald-500/40"
+            className="w-full pl-10 pr-4 py-2 bg-[#202c33] rounded-full text-sm text-white placeholder-gray-500 outline-none chat-composer-input"
           />
         </div>
       </div>
@@ -148,8 +148,8 @@ export default function ChatSidebar({
             key={f}
             type="button"
             onClick={() => setFilter(f)}
-            className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap shrink-0 touch-manipulation active:scale-95 ${
-              filter === f ? 'bg-[#00a884] text-white' : 'bg-[#202c33] text-gray-400 active:bg-[#2a3942]'
+            className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap shrink-0 touch-manipulation active:scale-95 transition-all duration-200 ${
+              filter === f ? 'bg-gradient-to-r from-indigo-500 to-cyan-400 text-white shadow-sm shadow-indigo-500/30 scale-[1.03]' : 'bg-[#202c33] text-gray-400 active:bg-[#2a3942]'
             }`}
           >
             {f === 'all' ? 'All' : f === 'unread' ? 'Unread' : 'Groups'}
@@ -215,9 +215,11 @@ export default function ChatSidebar({
             const isPinned = pinnedKeys.includes(chatPinKey(chat.type, chat.id));
             return (
               <div
-                key={`${chat.type}-${chat.id}`}
-                className={`group flex items-center gap-0.5 px-1 sm:px-2 border-b border-[#1a242b] ${
-                  isActive ? 'bg-[#2a3942]' : 'active:bg-[#202c33]'
+                key={`${chat.type}-${chat.participantGroupId || chat.id}`}
+                className={`chat-row group flex items-center gap-0.5 px-1 sm:px-2 border-b border-[#1a242b] hover:translate-x-0.5 ${
+                  isActive
+                    ? 'bg-gradient-to-r from-indigo-500/20 via-[#2a3942] to-transparent'
+                    : 'hover:bg-[#202c33] active:bg-[#202c33]'
                 }`}
               >
                 <button
@@ -229,11 +231,11 @@ export default function ChatSidebar({
                     {chat.avatar ? (
                       <img src={chat.avatar} alt="" className="w-12 h-12 rounded-full object-cover" />
                     ) : (
-                      <div className="w-12 h-12 rounded-full bg-[#00a884] flex items-center justify-center text-white font-semibold text-sm">
+                      <div className="w-12 h-12 rounded-full bg-gradient-to-br from-indigo-500 to-cyan-400 flex items-center justify-center text-white font-semibold text-sm shadow-md shadow-indigo-500/20">
                         {chat.type === 'group' ? <Users className="w-5 h-5" /> : (chat.name || '?')[0]?.toUpperCase()}
                       </div>
                     )}
-                    {isOnline && <div className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-500 rounded-full border-2 border-[#111b21]" />}
+                    {isOnline && <div className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-emerald-500 rounded-full border-2 border-[#111b21] chat-online-dot" />}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-2">
@@ -248,7 +250,7 @@ export default function ChatSidebar({
                     <div className="flex items-center justify-between mt-0.5 gap-2">
                       <p className="text-xs text-gray-400 truncate">{chat.lastMessage}</p>
                       {chat.unreadCount > 0 && (
-                        <span className="ml-1 min-w-[20px] h-5 bg-[#00a884] rounded-full flex items-center justify-center text-white text-[10px] font-bold px-1.5 shrink-0">
+                        <span className="ml-1 min-w-[20px] h-5 bg-gradient-to-r from-indigo-500 to-cyan-400 rounded-full flex items-center justify-center text-white text-[10px] font-bold px-1.5 shrink-0 shadow-sm">
                           {chat.unreadCount}
                         </span>
                       )}
@@ -296,7 +298,7 @@ export default function ChatSidebar({
             initial={{ x: '100%' }}
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
-            transition={{ duration: 0.15, ease: 'easeOut' }}
+            transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
             className="absolute inset-0 bg-[#111b21] z-20 flex flex-col"
           >
             <div className="px-4 py-3 bg-[#202c33] flex items-center gap-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
@@ -358,10 +360,10 @@ export default function ChatSidebar({
             initial={{ x: '100%' }}
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
-            transition={{ duration: 0.15, ease: 'easeOut' }}
+            transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
             className="absolute inset-0 bg-[#111b21] z-30 flex flex-col"
           >
-            <div className="px-4 py-3 bg-[#00a884] flex items-center gap-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
+            <div className="px-4 py-3 bg-gradient-to-r from-indigo-600 via-violet-600 to-cyan-500 flex items-center gap-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
               <button
                 type="button"
                 onClick={() => {
@@ -463,7 +465,7 @@ export default function ChatSidebar({
                   setSelectedMembers([]);
                 }}
                 disabled={!groupName.trim() || selectedMembers.length === 0 || creatingGroup}
-                className="w-full bg-[#00a884] text-white py-2.5 rounded-xl font-semibold text-sm disabled:opacity-50"
+                className="w-full bg-gradient-to-r from-indigo-500 to-cyan-400 text-white py-2.5 rounded-xl font-semibold text-sm disabled:opacity-50 shadow-lg shadow-indigo-500/25 active:scale-[0.98] transition-transform"
               >
                 {creatingGroup ? 'Creating...' : `Create Group (${selectedMembers.length} members)`}
               </button>
