@@ -28,6 +28,7 @@ import PortalLoadingScreen from '@/components/PortalLoadingScreen';
 import { insertPortalNotifications } from '@/lib/portal-notifications-client';
 import { formatPortalDate, formatPortalDateTime } from '@/lib/portal-date';
 import { notifyAllPortalUsers } from '@/lib/portal-notify-helpers';
+import { findCommitteeIdByName, indexPortalDocument } from '@/lib/portal-document-index';
 import { computeEventOverallProgress, eventProgressTasks } from '@/lib/event-progress';
 import WavyEventProgressBar, { buildEventProgressMarks } from '@/components/events/WavyEventProgressBar';
 import { mapProfileDisplayNames, profileDisplayName } from '@/lib/profile-display-names';
@@ -1101,6 +1102,18 @@ export default function EventDetailPage() {
       toast.success('Poster uploaded and published — visible to everyone.');
     }
 
+    const graphicsId = await findCommitteeIdByName(supabase, 'graphics');
+    void indexPortalDocument(supabase, {
+      title: `Poster: ${event.title}`,
+      fileUrl: filePath,
+      sourceKey: `poster:${event.id}`,
+      documentType: 'other',
+      committeeId: graphicsId || event.committee_id,
+      eventId: event.id,
+      uploadedBy: user?.id,
+      metadata: { kind: 'poster', event_title: event.title },
+    });
+
     loadEventDetails();
   }
 
@@ -1254,7 +1267,7 @@ export default function EventDetailPage() {
 
   return (
     <div className="min-h-screen bg-mesh relative overflow-hidden">
-      <DashboardAtmosphere subtitle="Poster, participants, attendance, and reports." />
+      <DashboardAtmosphere />
       <PageHeader title="Event Details" gradientTitle />
 
       <div className="max-w-7xl mx-auto px-4 py-8 relative z-10">

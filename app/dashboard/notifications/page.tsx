@@ -207,7 +207,7 @@ export default function NotificationsPage() {
 
     return (
         <div className="min-h-screen bg-mesh relative overflow-hidden">
-            <DashboardAtmosphere subtitle="Stay up to date with portal activity." />
+            <DashboardAtmosphere />
             <PageHeader title="Notifications" gradientTitle />
 
             <div className="max-w-4xl mx-auto px-4 py-8 relative z-10">

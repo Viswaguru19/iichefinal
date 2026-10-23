@@ -196,7 +196,7 @@ export default function MeetingsPage() {
 
   return (
     <div className="min-h-screen bg-mesh relative overflow-hidden">
-      <DashboardAtmosphere subtitle="Schedule, join, and manage chapter meetings." />
+      <DashboardAtmosphere />
 
       {/* Header */}
       <PageHeader

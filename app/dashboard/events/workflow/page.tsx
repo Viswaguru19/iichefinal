@@ -271,7 +271,7 @@ export default function EventWorkflowPage() {
 
   return (
     <div className="min-h-screen bg-mesh relative overflow-hidden">
-      <DashboardAtmosphere subtitle="Track head, EC, and faculty approval stages." />
+      <DashboardAtmosphere />
       <PageHeader title="Approval Workflow" gradientTitle />
 
       <div className="max-w-7xl mx-auto px-4 py-8 relative z-10">

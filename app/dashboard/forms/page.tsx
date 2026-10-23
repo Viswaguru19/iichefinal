@@ -12,7 +12,6 @@ import PageHeader from '@/components/PageHeader';
 import { canManageForm, canViewFormResponses, isFormTestMode, isFormBeforeStart, isFormPastDeadline } from '@/lib/form-access';
 import { withTimeout } from '@/lib/with-timeout';
 import GradientMesh from '@/components/react-bits/GradientMesh';
-import GsapText from '@/components/react-bits/GsapText';
 
 const container = {
   hidden: { opacity: 0 },
@@ -453,17 +452,6 @@ export default function FormsPage() {
       />
 
       <div className="max-w-7xl mx-auto relative z-10 mt-6">
-        <div className="mb-6">
-          <GsapText
-            text="Create, collect, and review responses."
-            as="p"
-            className="text-sm text-gray-500"
-            split="words"
-            delay={0.12}
-            stagger={0.04}
-          />
-        </div>
-
         {/* Filter Tabs */}
         <motion.div
           initial={{ opacity: 0, y: 12 }}

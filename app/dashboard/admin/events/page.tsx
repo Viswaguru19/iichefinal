@@ -136,7 +136,7 @@ export default function AdminEventsPage() {
 
     return (
         <div className="min-h-screen bg-mesh relative overflow-hidden">
-            <DashboardAtmosphere subtitle="View, edit, and delete events across the portal." />
+            <DashboardAtmosphere />
             <PageHeader title="Admin - All Events" gradientTitle />
 
             <div className="max-w-7xl mx-auto px-4 py-8 relative z-10">

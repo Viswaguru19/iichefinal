@@ -493,7 +493,7 @@ ${reportAdditionalDetails ? `## Additional Details\n${reportAdditionalDetails}` 
 
   return (
     <div className="min-h-screen bg-mesh relative overflow-hidden">
-      <DashboardAtmosphere subtitle="Track tasks and progress for active events." />
+      <DashboardAtmosphere />
       <PageHeader title="Event Progress" gradientTitle />
 
       <div className="max-w-7xl mx-auto px-4 py-8 relative z-10">

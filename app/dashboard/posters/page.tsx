@@ -11,6 +11,7 @@ import toast from 'react-hot-toast';
 import Link from 'next/link';
 import { isPortalAdmin } from '@/lib/permissions';
 import { insertPortalNotifications } from '@/lib/portal-notifications-client';
+import { findCommitteeIdByName, indexPortalDocument } from '@/lib/portal-document-index';
 
 export default function PostersPage() {
   const [events, setEvents] = useState<any[]>([]);
@@ -79,7 +80,7 @@ export default function PostersPage() {
       const { data: { user } } = await supabase.auth.getUser();
       const autoApprove = isAdmin;
 
-      const { data: ev } = await supabase.from('events').select('id, title').eq('id', selectedEvent).single();
+      const { data: ev } = await supabase.from('events').select('id, title, committee_id').eq('id', selectedEvent).single();
       if (!ev) throw new Error('Event not found');
 
       const fileExt = posterFile.name.includes('.') ? posterFile.name.split('.').pop()! : 'jpg';
@@ -111,6 +112,19 @@ export default function PostersPage() {
         .eq('id', selectedEvent);
 
       if (updateError) throw updateError;
+
+      const graphicsId = await findCommitteeIdByName(supabase, 'graphics');
+      void indexPortalDocument(supabase, {
+        title: `Poster: ${ev.title}`,
+        fileUrl: filePath,
+        sourceKey: `poster:${selectedEvent}`,
+        documentType: 'other',
+        committeeId: graphicsId || ev.committee_id,
+        eventId: selectedEvent,
+        uploadedBy: user?.id,
+        fileType: posterFile.type,
+        metadata: { kind: 'poster', event_title: ev.title },
+      });
 
       if (!autoApprove) {
         const { data: facultyMembers } = await supabase.from('profiles').select('id').eq('is_faculty', true);
@@ -160,7 +174,7 @@ export default function PostersPage() {
 
   return (
     <div className="min-h-screen bg-mesh relative overflow-hidden">
-      <DashboardAtmosphere subtitle="Submit posters for faculty review and publish." />
+      <DashboardAtmosphere />
       <PageHeader title="Upload event posters" gradientTitle />
 
       <div className="max-w-3xl mx-auto px-4 py-8 relative z-10">

@@ -4,7 +4,6 @@ import PortalLoadingScreen from '@/components/PortalLoadingScreen';
 import ProfileAppSettings from '@/components/ProfileAppSettings';
 import PageHeader from '@/components/PageHeader';
 import DashboardAtmosphere from '@/components/react-bits/DashboardAtmosphere';
-import GsapText from '@/components/react-bits/GsapText';
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
@@ -149,17 +148,6 @@ export default function ProfilePage() {
       <PageHeader title="Edit Profile" gradientTitle />
 
       <div className="max-w-2xl mx-auto px-4 py-8 relative z-10">
-        <div className="mb-6">
-          <GsapText
-            text="Update your photo, bio, theme, and account details."
-            as="p"
-            className="text-sm text-gray-500"
-            split="words"
-            delay={0.12}
-            stagger={0.04}
-          />
-        </div>
-
         <div className="premium-panel rounded-2xl p-6 sm:p-8 shadow-lg">
           <div className="flex flex-col items-center mb-8">
             <div className="relative">

@@ -186,7 +186,7 @@ export default function DashboardHiringPage() {
 
   return (
     <div className="min-h-screen bg-mesh relative overflow-hidden">
-      <DashboardAtmosphere subtitle="Open hiring, review applications, and place co-heads." />
+      <DashboardAtmosphere />
       <nav className="premium-panel shadow-sm relative z-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <h1 className="text-xl font-bold flex items-center gap-2">

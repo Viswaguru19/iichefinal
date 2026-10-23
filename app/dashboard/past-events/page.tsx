@@ -93,7 +93,7 @@ export default function PastEventsPage() {
 
     return (
         <div className="min-h-screen bg-mesh relative overflow-hidden">
-            <DashboardAtmosphere subtitle="Completed events, archives, and restore to active." />
+            <DashboardAtmosphere />
             <PageHeader title="Past Events" gradientTitle />
             {restoreTarget && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">

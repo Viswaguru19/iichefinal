@@ -12,6 +12,7 @@ import {
   notifyEC,
   notifyFaculty,
 } from '@/lib/portal-notify-helpers';
+import { indexPortalDocument } from '@/lib/portal-document-index';
 
 export default function ProposeEventPage() {
   const [title, setTitle] = useState('');
@@ -127,6 +128,18 @@ export default function ProposeEventPage() {
       if (error) throw error;
 
       if (inserted?.id) {
+        for (const d of uploadedDocs) {
+          void indexPortalDocument(supabase, {
+            title: d.name || 'Proposal document',
+            fileUrl: d.url,
+            sourceKey: `event_doc:${inserted.id}:${String(d.url).slice(0, 180)}`,
+            documentType: 'proposal',
+            committeeId: inserted.committee_id,
+            eventId: inserted.id,
+            uploadedBy: user.id,
+            metadata: { kind: 'event_proposal', event_title: inserted.title },
+          });
+        }
         if (initialStatus === 'pending_head_approval' && inserted.committee_id) {
           await notifyCommitteeHeads(supabase, inserted.committee_id, {
             type: 'proposal',

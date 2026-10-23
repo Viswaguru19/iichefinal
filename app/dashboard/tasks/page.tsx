@@ -9,6 +9,7 @@ import toast from 'react-hot-toast';
 import PageHeader from '@/components/PageHeader';
 import DashboardAtmosphere from '@/components/react-bits/DashboardAtmosphere';
 import { formatPortalDate, formatPortalDateTime } from '@/lib/portal-date';
+import { indexPortalDocument } from '@/lib/portal-document-index';
 
 export default function TasksPage() {
   const EC_COMMITTEE_ID = '00000000-0000-0000-0000-000000000001';
@@ -345,7 +346,7 @@ export default function TasksPage() {
         if (uploadError) throw uploadError;
 
         // Save document reference
-        const { error: docError } = await supabase
+        const { data: savedDoc, error: docError } = await supabase
           .from('task_documents')
           .insert({
             task_id: selectedTask.id,
@@ -355,10 +356,25 @@ export default function TasksPage() {
             file_size: updateDoc.size,
             file_type: updateDoc.type,
             uploaded_by: user?.id
-          });
+          })
+          .select('id')
+          .single();
 
         if (docError) throw docError;
         docUrl = uploadData.path;
+        void indexPortalDocument(supabase, {
+          title: updateDoc.name,
+          fileUrl: uploadData.path,
+          sourceKey: savedDoc?.id ? `task_doc:${savedDoc.id}` : `task_doc:${selectedTask.id}:${uploadData.path}`,
+          documentType: 'other',
+          committeeId: selectedTask.assigned_to_committee || selectedTask.assigned_to || null,
+          eventId: selectedTask.event_id,
+          taskId: selectedTask.id,
+          uploadedBy: user?.id,
+          fileType: updateDoc.type,
+          fileSize: updateDoc.size,
+          metadata: { kind: 'task_document', event_title: selectedTask.events?.title || selectedTask.event?.title },
+        });
       }
 
       // Post update
@@ -410,7 +426,7 @@ export default function TasksPage() {
 
   return (
     <div className="min-h-screen bg-mesh relative overflow-hidden">
-      <DashboardAtmosphere subtitle="Assign work and track committee progress." />
+      <DashboardAtmosphere />
       {pageLoading && <PortalLoadingScreen message="Loading tasks…" variant="home" />}
       {!pageLoading && (
         <>

@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { X, Save } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { indexPortalDocument } from '@/lib/portal-document-index';
 
 interface EditEventModalProps {
     event: any;
@@ -96,6 +97,19 @@ export default function EditEventModal({ event, onClose, onSuccess, resubmitToSt
                 .eq('id', event.id);
 
             if (error) throw error;
+
+            for (const d of uploadedDocs) {
+              void indexPortalDocument(supabase, {
+                title: d.name || 'Proposal document',
+                fileUrl: d.url,
+                sourceKey: `event_doc:${event.id}:${String(d.url).slice(0, 180)}`,
+                documentType: 'proposal',
+                committeeId: event.committee_id,
+                eventId: event.id,
+                uploadedBy: user?.id,
+                metadata: { kind: 'event_proposal', event_title: event.title },
+              });
+            }
 
             toast.success('Event updated successfully');
             onSuccess();

@@ -60,7 +60,7 @@ BEGIN
     RETURN tok;
   END IF;
 
-  tok := replace(gen_random_uuid()::text, '-', '') || encode(gen_random_bytes(8), 'hex');
+  tok := replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', '');
   INSERT INTO event_photo_shares (event_id, token, created_by)
   VALUES (p_event_id, tok, auth.uid());
   RETURN tok;
@@ -84,7 +84,7 @@ BEGIN
   END IF;
 
   DELETE FROM event_photo_shares WHERE event_id = p_event_id;
-  tok := replace(gen_random_uuid()::text, '-', '') || encode(gen_random_bytes(8), 'hex');
+  tok := replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', '');
   INSERT INTO event_photo_shares (event_id, token, created_by)
   VALUES (p_event_id, tok, auth.uid());
   RETURN tok;

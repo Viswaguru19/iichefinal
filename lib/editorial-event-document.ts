@@ -29,7 +29,7 @@ export async function upsertEditorialEventReportDocument(
     title,
     file_url: '',
     file_type: 'event_report',
-    document_type: 'event_document' as const,
+    document_type: 'report' as const,
     committee_id: editComm.id,
     event_id: opts.eventId,
     uploaded_by: opts.uploadedBy,

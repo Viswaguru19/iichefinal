@@ -13,6 +13,7 @@ import {
 import { participantGroupLabel } from '@/lib/event-participant-groups';
 import { notifyCommittee } from '@/lib/portal-notify-helpers';
 import { upsertEditorialEventReportDocument } from '@/lib/editorial-event-document';
+import { indexCompletedEventAttendanceReport } from '@/lib/portal-document-index';
 import { formatPortalDate, formatPortalDateTime } from '@/lib/portal-date';
 
 interface EventReportProps {
@@ -233,6 +234,12 @@ export default function EventReport({ event, tasks, eventPhotos = [], canEdit }:
 
             // Mark event as completed
             await supabase.from('events').update({ status: 'completed' }).eq('id', event.id);
+
+            void indexCompletedEventAttendanceReport(supabase, {
+              eventId: event.id,
+              eventTitle: event.title,
+              uploadedBy: userId,
+            });
 
             // Save / refresh Editorial Committee document (title = event name)
             const docRes = await upsertEditorialEventReportDocument(supabase, {

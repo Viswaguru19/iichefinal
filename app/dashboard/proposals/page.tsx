@@ -403,7 +403,7 @@ function ProposalsPageClient() {
 
   return (
     <div className="min-h-screen bg-mesh relative overflow-hidden">
-      <DashboardAtmosphere subtitle="Review, approve, and track event proposals." />
+      <DashboardAtmosphere />
       <PageHeader title="Event Proposals" gradientTitle />
 
       <div className="max-w-7xl mx-auto px-4 py-8 relative z-10">
