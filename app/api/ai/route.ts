@@ -46,7 +46,7 @@ async function textFromAttachment(att: { filename?: string; mime?: string; data?
 function trimHistory(raw: unknown): IicheAiMessage[] {
   if (!Array.isArray(raw)) return [];
   const out: IicheAiMessage[] = [];
-  for (const row of raw.slice(-10)) {
+  for (const row of raw.slice(-16)) {
     const role = row?.role === 'assistant' ? 'assistant' : row?.role === 'user' ? 'user' : null;
     const content = String(row?.content || '').trim();
     if (!role || !content) continue;

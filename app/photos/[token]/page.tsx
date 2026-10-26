@@ -129,8 +129,15 @@ export default function SharedEventPhotosPage() {
       </main>
 
       {current && index != null && (
-        <div className="fixed inset-0 z-40 bg-black/92 flex items-center justify-center">
-          <button type="button" onClick={() => setIndex(null)} className="absolute top-4 right-4 text-white p-2" aria-label="Close">
+        <div className="fixed inset-0 z-40 flex items-center justify-center overflow-hidden">
+          <img
+            src={current.url}
+            alt=""
+            aria-hidden
+            className="pointer-events-none absolute inset-0 h-full w-full scale-125 object-cover blur-3xl brightness-[0.35]"
+          />
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-2xl" />
+          <button type="button" onClick={() => setIndex(null)} className="absolute top-4 right-4 z-10 text-white p-2" aria-label="Close">
             <X className="w-7 h-7" />
           </button>
           {photos.length > 1 && (
@@ -138,7 +145,7 @@ export default function SharedEventPhotosPage() {
               <button
                 type="button"
                 onClick={() => setIndex((index - 1 + photos.length) % photos.length)}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-white bg-white/10 p-2 rounded-full"
+                className="absolute left-3 top-1/2 z-10 -translate-y-1/2 text-white bg-black/35 p-2 rounded-full"
                 aria-label="Previous"
               >
                 <ChevronLeft className="w-8 h-8" />
@@ -146,15 +153,15 @@ export default function SharedEventPhotosPage() {
               <button
                 type="button"
                 onClick={() => setIndex((index + 1) % photos.length)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-white bg-white/10 p-2 rounded-full"
+                className="absolute right-3 top-1/2 z-10 -translate-y-1/2 text-white bg-black/35 p-2 rounded-full"
                 aria-label="Next"
               >
                 <ChevronRight className="w-8 h-8" />
               </button>
             </>
           )}
-          <div className="max-w-5xl w-full px-4 flex flex-col items-center">
-            <img src={current.url} alt="" className="max-h-[75vh] max-w-full object-contain rounded-lg" />
+          <div className="relative z-10 max-w-5xl w-full px-4 flex flex-col items-center">
+            <img src={current.url} alt="" className="max-h-[75vh] max-w-full object-contain rounded-lg shadow-2xl" />
             <div className="mt-3 flex items-center gap-3 text-sm text-indigo-100">
               <span>
                 {index + 1}/{photos.length}

@@ -24,7 +24,6 @@ import { eventPhotoShareUrl } from '@/lib/event-photo-share';
 import EventPhotosDropZone from '@/components/events/EventPhotosDropZone';
 import { isPortalAdmin } from '@/lib/permissions';
 import { canSendEventParticipantEmail } from '@/lib/member-profile-edit';
-import PortalLoadingScreen from '@/components/PortalLoadingScreen';
 import { insertPortalNotifications } from '@/lib/portal-notifications-client';
 import { formatPortalDate, formatPortalDateTime } from '@/lib/portal-date';
 import { notifyAllPortalUsers } from '@/lib/portal-notify-helpers';
@@ -1214,7 +1213,18 @@ export default function EventDetailPage() {
     }
   }
 
-  if (loading) return <PortalLoadingScreen message="Loading event…" variant="events" />;
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-mesh relative overflow-hidden">
+        <DashboardAtmosphere />
+        <PageHeader title="Event Details" gradientTitle />
+        <div className="max-w-7xl mx-auto px-4 py-8 relative z-10">
+          <div className="premium-card rounded-2xl h-12 mb-6 animate-pulse" />
+          <div className="premium-panel rounded-2xl h-72 animate-pulse" />
+        </div>
+      </div>
+    );
+  }
 
   if (!event) {
     return <div className="min-h-screen bg-mesh flex items-center justify-center">
@@ -1606,14 +1616,21 @@ export default function EventDetailPage() {
 
         {/* Photo Viewer Modal */}
         {viewingPhotos && eventPhotos.length > 0 && (
-          <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-50">
+          <div className="fixed inset-0 z-50 flex items-center justify-center overflow-hidden">
+            <img
+              src={eventPhotos[photoIndex].photo_url}
+              alt=""
+              aria-hidden
+              className="pointer-events-none absolute inset-0 h-full w-full scale-125 object-cover blur-3xl brightness-[0.35]"
+            />
+            <div className="absolute inset-0 bg-black/60 backdrop-blur-2xl" />
             <button onClick={() => setViewingPhotos(false)} className="absolute top-4 right-4 text-white hover:text-gray-300 z-10 text-2xl">✕</button>
             {eventPhotos.length > 1 && <>
-              <button onClick={() => setPhotoIndex((photoIndex - 1 + eventPhotos.length) % eventPhotos.length)} className="absolute left-4 top-1/2 -translate-y-1/2 text-white bg-black/30 p-2 rounded-full"><ChevronLeft className="w-8 h-8" /></button>
-              <button onClick={() => setPhotoIndex((photoIndex + 1) % eventPhotos.length)} className="absolute right-4 top-1/2 -translate-y-1/2 text-white bg-black/30 p-2 rounded-full"><ChevronRight className="w-8 h-8" /></button>
+              <button onClick={() => setPhotoIndex((photoIndex - 1 + eventPhotos.length) % eventPhotos.length)} className="absolute left-4 top-1/2 z-10 -translate-y-1/2 text-white bg-black/35 p-2 rounded-full"><ChevronLeft className="w-8 h-8" /></button>
+              <button onClick={() => setPhotoIndex((photoIndex + 1) % eventPhotos.length)} className="absolute right-4 top-1/2 z-10 -translate-y-1/2 text-white bg-black/35 p-2 rounded-full"><ChevronRight className="w-8 h-8" /></button>
             </>}
-            <div className="max-w-4xl max-h-[80vh] flex flex-col items-center">
-              <img src={eventPhotos[photoIndex].photo_url} alt="" className="max-w-full max-h-[70vh] object-contain rounded-lg" />
+            <div className="relative z-10 max-w-4xl max-h-[80vh] flex flex-col items-center">
+              <img src={eventPhotos[photoIndex].photo_url} alt="" className="max-w-full max-h-[70vh] object-contain rounded-lg shadow-2xl" />
               <div className="mt-3 text-center text-white">
                 {eventPhotos[photoIndex].caption && <p className="text-lg">{eventPhotos[photoIndex].caption}</p>}
                 <p className="text-sm text-gray-400 mt-1">By {eventPhotos[photoIndex].uploader?.name || 'Unknown'} · {photoIndex + 1}/{eventPhotos.length}</p>

@@ -1019,15 +1019,22 @@ ${reportAdditionalDetails ? `## Additional Details\n${reportAdditionalDetails}` 
 
       {/* Photo Viewer Modal */}
       {viewingPhotos && eventPhotos.length > 0 && (
-        <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-50">
-          <button onClick={() => setViewingPhotos(false)} className="absolute top-4 right-4 text-white hover:text-gray-300 z-10"><X className="w-8 h-8" /></button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-hidden">
+          <img
+            src={eventPhotos[photoIndex].photo_url}
+            alt=""
+            aria-hidden
+            className="pointer-events-none absolute inset-0 h-full w-full scale-125 object-cover blur-3xl brightness-[0.35]"
+          />
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-2xl" />
+          <button onClick={() => setViewingPhotos(false)} className="absolute top-4 right-4 z-10 text-white hover:text-gray-300"><X className="w-8 h-8" /></button>
           <button onClick={() => setPhotoIndex((photoIndex - 1 + eventPhotos.length) % eventPhotos.length)}
-            className="absolute left-4 top-1/2 -translate-y-1/2 text-white hover:text-gray-300 bg-black/30 p-2 rounded-full"><ChevronLeft className="w-8 h-8" /></button>
+            className="absolute left-4 top-1/2 z-10 -translate-y-1/2 text-white hover:text-gray-300 bg-black/35 p-2 rounded-full"><ChevronLeft className="w-8 h-8" /></button>
           <button onClick={() => setPhotoIndex((photoIndex + 1) % eventPhotos.length)}
-            className="absolute right-4 top-1/2 -translate-y-1/2 text-white hover:text-gray-300 bg-black/30 p-2 rounded-full"><ChevronRight className="w-8 h-8" /></button>
-          <div className="max-w-4xl max-h-[80vh] flex flex-col items-center">
+            className="absolute right-4 top-1/2 z-10 -translate-y-1/2 text-white hover:text-gray-300 bg-black/35 p-2 rounded-full"><ChevronRight className="w-8 h-8" /></button>
+          <div className="relative z-10 max-w-4xl max-h-[80vh] flex flex-col items-center">
             <img src={eventPhotos[photoIndex].photo_url} alt={eventPhotos[photoIndex].caption || 'Event photo'}
-              className="max-w-full max-h-[70vh] object-contain rounded-lg" />
+              className="max-w-full max-h-[70vh] object-contain rounded-lg shadow-2xl" />
             <div className="mt-3 text-center text-white">
               {eventPhotos[photoIndex].caption && <p className="text-lg">{eventPhotos[photoIndex].caption}</p>}
               <p className="text-sm text-gray-400 mt-1">

@@ -209,6 +209,14 @@ export default function IicheAiChat({ compact = false }: { compact?: boolean }) 
     const file = attachment;
     setAttachment(null);
     setBusy(true);
+    const participantFlow =
+      !!participantDraft ||
+      /\b(add|import|enroll|participant|students?|roster)\b/i.test(message) ||
+      turns.some(
+        (t) =>
+          t.role === 'assistant' &&
+          /\b(student list|group name|add .*participants|paste the names)\b/i.test(t.content),
+      );
     try {
       const res = await fetch('/api/ai', {
         method: 'POST',
@@ -217,10 +225,12 @@ export default function IicheAiChat({ compact = false }: { compact?: boolean }) 
           message:
             message ||
             (file
-              ? `Add these students as participants of this event from the attached ${file.filename}`
+              ? participantFlow
+                ? `Add these students as participants of this event from the attached ${file.filename}`
+                : `Please use the attached ${file.filename} to answer my question.`
               : ''),
           currentEventId,
-          history: nextTurns.slice(-10).map((t) => ({ role: t.role, content: t.content.slice(0, 20000) })),
+          history: nextTurns.slice(-16).map((t) => ({ role: t.role, content: t.content.slice(0, 20000) })),
           attachment: file,
           participantDraft,
           posterDraft: posterDraft
@@ -376,7 +386,7 @@ export default function IicheAiChat({ compact = false }: { compact?: boolean }) 
               void ask(draft);
             }
           }}
-          placeholder="Ask anything, or paste one name per line…"
+          placeholder="Ask a question, or continue this chat…"
           className="iiche-ai-input flex-1 rounded-xl px-3 py-2.5 text-sm"
           rows={1}
           maxLength={20000}

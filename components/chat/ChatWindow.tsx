@@ -1267,10 +1267,17 @@ export default function ChatWindow({
             <AnimatePresence>
                 {lightbox && (
                     <div
-                        className="fixed inset-0 z-[70] bg-black/90 flex items-center justify-center p-4"
+                        className="fixed inset-0 z-[70] flex items-center justify-center overflow-hidden p-4"
                         onClick={() => setLightbox(null)}
                     >
-                        <img src={lightbox} alt="" className="max-w-full max-h-full object-contain rounded-lg" />
+                        <img
+                            src={lightbox}
+                            alt=""
+                            aria-hidden
+                            className="pointer-events-none absolute inset-0 h-full w-full scale-125 object-cover blur-3xl brightness-[0.35]"
+                        />
+                        <div className="absolute inset-0 bg-black/60 backdrop-blur-2xl" />
+                        <img src={lightbox} alt="" className="relative z-10 max-w-full max-h-full object-contain rounded-lg shadow-2xl" />
                     </div>
                 )}
             </AnimatePresence>

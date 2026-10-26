@@ -11,6 +11,10 @@ const nextConfig = {
   serverExternalPackages: ['unpdf'],
   experimental: {
     optimizePackageImports: ['lucide-react', 'framer-motion', 'date-fns', 'html5-qrcode'],
+    staleTimes: {
+      dynamic: 30,
+      static: 180,
+    },
   },
   compiler: {
     removeConsole:

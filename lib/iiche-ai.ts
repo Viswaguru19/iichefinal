@@ -146,15 +146,28 @@ function guideKeyMatches(lower: string, key: string): boolean {
   return new RegExp(`\\b${escapeRegExp(k)}\\b`, 'i').test(lower);
 }
 
-export function fallbackIicheAiReply(message: string): string {
+export function fallbackIicheAiReply(
+  message: string,
+  history: IicheAiMessage[] = [],
+): string {
   const lower = message.toLowerCase();
+  const hadAssistant = history.some((m) => m.role === 'assistant' && m.content.trim().length > 12);
   if (ACADEMIC.test(lower)) {
     return 'I could not reach the live model just now. Ask again in a moment and I will walk through the full answer with steps.';
+  }
+  if (hadAssistant && !rowKeysStealFollowUp(lower)) {
+    return 'I still have our earlier messages. The live model dropped for a moment — send that follow-up once more and I will continue from there instead of starting a new command.';
   }
   for (const row of GUIDE) {
     if (row.keys.some((key) => guideKeyMatches(lower, key))) return row.reply;
   }
   return GUIDE.find((row) => row.keys.includes('hello'))?.reply || GUIDE[0].reply;
+}
+
+function rowKeysStealFollowUp(lower: string): boolean {
+  return ['propose an event', 'propose event', 'election', 'kickoff', 'forms page', 'meetings page'].some((key) =>
+    lower.includes(key),
+  );
 }
 
 function env(name: string): string {
@@ -566,7 +579,7 @@ export async function answerIicheAi(
 ): Promise<IicheAiAnswer> {
   const last = [...history].reverse().find((m) => m.role === 'user');
   const userMessage = last?.content || '';
-  const fallback = fallbackIicheAiReply(userMessage);
+  const fallback = fallbackIicheAiReply(userMessage, history);
   try {
     if (runTool && userMessage) {
       const { maybeHeuristicTool } = await import('@/lib/iiche-ai-actions');

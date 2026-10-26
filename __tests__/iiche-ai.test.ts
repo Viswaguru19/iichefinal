@@ -97,12 +97,17 @@ describe('IIChE AI tool heuristics', () => {
     expect(String(hit?.args.event_title).toLowerCase()).toContain('ace');
     expect(hit?.args.group_name).toBe('');
     expect(extractStandaloneGroupName('1st years')).toBe('1st years');
-    expect(maybeHeuristicTool('group is Volunteers')?.name).toBe('add_event_participants');
+    const afterAsk = [
+      { role: 'user', content: 'I need to add participants' },
+      { role: 'assistant', content: 'What group should I put them in? Send the student list.' },
+    ];
+    expect(maybeHeuristicTool('group is Volunteers', afterAsk)?.name).toBe('add_event_participants');
     expect(
       maybeHeuristicTool('viswaguru,cb.en.u4che24063\nrahul,cb.en.u4che24001')?.name,
     ).toBe('add_event_participants');
-    expect(maybeHeuristicTool('CHE A')?.args).toEqual({ group_name: 'CHE A', event_title: '' });
-    expect(maybeHeuristicTool('group is Volunteers')?.args.participants_text).toBeUndefined();
+    expect(maybeHeuristicTool('CHE A')).toBeNull();
+    expect(maybeHeuristicTool('CHE A', afterAsk)?.args).toEqual({ group_name: 'CHE A', event_title: '' });
+    expect(maybeHeuristicTool('group is Volunteers', afterAsk)?.args.participants_text).toBeUndefined();
     expect(extractStandaloneGroupName('I need to add participant')).toBeNull();
     expect(maybeHeuristicTool('I need to add participant')?.name).toBe('add_event_participants');
     expect(maybeHeuristicTool('I need to add participant')?.args.group_name).toBe('');
@@ -144,6 +149,19 @@ describe('IIChE AI tool heuristics', () => {
     expect(maybeHeuristicTool('summarise events from last year')?.name).toBe('get_event_archive');
     expect(maybeHeuristicTool('what work did this committee do')?.name).toBe('get_event_archive');
     expect(maybeHeuristicTool('show photos from ACE orientation')?.name).toBe('get_event_archive');
+  });
+
+  it('does not add event participants from ordinary chat follow-ups', () => {
+    const history = [
+      { role: 'user', content: 'Explain McCabe-Thiele briefly' },
+      { role: 'assistant', content: 'Start with the operating line, then step off stages between equilibrium and operating lines.' },
+    ];
+    expect(maybeHeuristicTool('do this', history)).toBeNull();
+    expect(maybeHeuristicTool('what does that mean', history)).toBeNull();
+    expect(maybeHeuristicTool('explain that a bit more', history)).toBeNull();
+    expect(maybeHeuristicTool('I need to add participant')).toEqual(
+      expect.objectContaining({ name: 'add_event_participants' }),
+    );
   });
 
   it('does not treat research or idea questions as portal writes', () => {

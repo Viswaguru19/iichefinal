@@ -91,7 +91,7 @@ export default function WavyEventProgressBar({
         {marks.map((mark) => (
           <span
             key={`${mark.key}-tick`}
-            className="absolute top-0 z-[1] h-full w-px bg-white/80"
+            className="progress-tick absolute top-0 z-[1] h-full w-px bg-white/80"
             style={{ left: `${clampPct(mark.at)}%` }}
           />
         ))}

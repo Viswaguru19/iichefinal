@@ -1,5 +1,6 @@
 import PortalPresenceProvider from '@/components/dashboard/PortalPresenceProvider';
 import PortalLogoProvider from '@/components/dashboard/PortalLogoProvider';
+import PrefetchPortalRoutes from '@/components/dashboard/PrefetchPortalRoutes';
 import ServiceWorkerRegistrar from '@/components/ServiceWorkerRegistrar';
 import InstallAppPrompt from '@/components/InstallAppPrompt';
 import DemoModeBanner from '@/components/DemoModeBanner';
@@ -14,6 +15,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   return (
     <PortalLogoProvider>
       <ServiceWorkerRegistrar />
+      <PrefetchPortalRoutes />
       <PortalPresenceProvider>
         <DemoModeBanner />
         {children}

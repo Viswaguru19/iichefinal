@@ -1849,6 +1849,31 @@ export function extractStandaloneGroupName(message: string): string | null {
   return null;
 }
 
+export function isConversationalFollowUp(
+  message: string,
+  history?: Array<{ role: string; content: string }>,
+): boolean {
+  if (!history?.some((msg) => msg.role === 'assistant' && String(msg.content || '').trim().length > 12)) {
+    return false;
+  }
+  const lower = message.trim().toLowerCase();
+  if (lower.length < 2) return false;
+  if (/\b(add|import|enroll)\b/.test(lower) && /\b(participants?|students?|roster|attendees)\b/.test(lower)) {
+    return false;
+  }
+  if (/\b(open|go to|take me|create|make|design poster|upload poster|propose)\b/.test(lower)) {
+    return false;
+  }
+  if (/^(yes|yeah|yep|ok|okay|sure|please|do (this|that)|go ahead|thanks|thank you)[.!?]*$/i.test(message.trim())) {
+    return true;
+  }
+  const anaphora =
+    /\b(that|this|it|those|these|them|your answer|your reply|the last one|continue|more detail|explain|clarify|what do you mean|related)\b/.test(
+      lower,
+    );
+  return anaphora && lower.split(/\s+/).length <= 36;
+}
+
 function pendingParticipantFollowUp(history?: Array<{ role: string; content: string }>): boolean {
   if (!history?.length) return false;
   const recent = history.slice(-8);
@@ -1883,6 +1908,14 @@ export function maybeHeuristicTool(
     (/\bmy (name|role|committees?|position)\b/.test(lower) && /\b(what|who|tell|show)\b/.test(lower))
   ) {
     return { name: 'get_my_identity', args: {} };
+  }
+  const pendingImportEarly = pendingParticipantFollowUp(history);
+  const looksRoster = looksLikeParticipantRoster(m);
+  const wantsParticipantEarly =
+    (/\b(add|import|enroll|extract)\b/.test(lower) &&
+      /\b(participants?|students?|roster|attendees|roll\s*no)\b/.test(lower));
+  if (isConversationalFollowUp(m, history) && !pendingImportEarly && !looksRoster && !wantsParticipantEarly) {
+    return null;
   }
   const wantsCreate = /\b(create|ceate|make|add|new|schedule|write|save)\b/.test(lower);
   const askingHow =
@@ -2009,8 +2042,17 @@ export function maybeHeuristicTool(
   const wantsParticipantImport =
     (/\b(add|import|enroll|extract)\b/.test(lower) &&
       /\b(participants?|students?|roster|attendees|roll\s*no)\b/.test(lower)) ||
-    attachedRoster;
+    (attachedRoster &&
+      (/\b(participants?|students?|roster|attendees|event)\b/.test(lower) || pendingParticipantFollowUp(history)));
   const pendingImport = pendingParticipantFollowUp(history);
+  if (
+    isConversationalFollowUp(m, history) &&
+    !pendingImport &&
+    !wantsParticipantImport &&
+    !looksLikeParticipantRoster(m)
+  ) {
+    return null;
+  }
   const followUpLooksUnrelated =
     /\b(who|what|how|why|explain|calculate|research|ideas?)\b/i.test(lower) && !/\bgroup\b/i.test(lower);
   if (!askingHow && (wantsParticipantImport || looksLikeParticipantRoster(m))) {
@@ -2025,7 +2067,7 @@ export function maybeHeuristicTool(
     };
   }
   const groupOnly = extractStandaloneGroupName(m);
-  if (groupOnly && !looksLikeParticipantRoster(m) && !/\n/.test(m)) {
+  if (pendingImport && groupOnly && !looksLikeParticipantRoster(m) && !/\n/.test(m)) {
     return { name: 'add_event_participants', args: { group_name: groupOnly, event_title: '' } };
   }
   if (pendingImport && !askingHow && !followUpLooksUnrelated) {

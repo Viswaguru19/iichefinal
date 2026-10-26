@@ -25,7 +25,7 @@ const item = {
 export default function FormsPage() {
   const [forms, setForms] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<'all' | 'active' | 'draft' | 'closed'>('all');
+  const [filter, setFilter] = useState<'all' | 'active' | 'draft' | 'closed'>('active');
   const [deleting, setDeleting] = useState<string | null>(null);
   const [toggling, setToggling] = useState<string | null>(null);
   const [togglingTest, setTogglingTest] = useState<string | null>(null);
@@ -43,7 +43,6 @@ export default function FormsPage() {
     }
 
     async function init() {
-      setLoading(true);
       let resolved = false;
 
       const markLoaded = async (user: { id: string }) => {
@@ -53,24 +52,18 @@ export default function FormsPage() {
         await loadForUser(user);
       };
 
-      // Prefer cookie session (no network). Retry a few times — Auth lock can lag after middleware.
-      for (let i = 0; i < 4; i++) {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (cancelled) return;
-        if (session?.user) {
-          await markLoaded(session.user);
-          return;
-        }
-        await new Promise((r) => setTimeout(r, 200 + i * 150));
+      const { data: { session } } = await supabase.auth.getSession();
+      if (cancelled) return;
+      if (session?.user) {
+        await markLoaded(session.user);
+        return;
       }
 
-      // Wait for client Auth hydration
-      const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-        if (session?.user) void markLoaded(session.user);
+      const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, next) => {
+        if (next?.user) void markLoaded(next.user);
       });
       unsub = () => subscription.unsubscribe();
 
-      // Network check — do not short-timeout (that falsely looked signed-out)
       const { data: { user } } = await supabase.auth.getUser();
       if (cancelled) return;
       if (user) {
@@ -78,7 +71,6 @@ export default function FormsPage() {
         return;
       }
 
-      await new Promise((r) => setTimeout(r, 2000));
       if (cancelled || resolved) return;
       unsub?.();
       toast.error('Please sign in to view forms');
