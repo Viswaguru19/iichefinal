@@ -16,7 +16,7 @@ import {
   getResponderDedupeKey,
 } from '@/lib/form-responder-fields';
 import SimplePieChart, { pieColors } from '@/components/forms/SimplePieChart';
-import { generateAvailableRollOptions, rollCountFromValidation, excludedRollsFromValidation } from '@/lib/form-field-types';
+import { generateAvailableRollOptions, rollCountFromValidation, excludedRollsFromValidation, optionMaxFromValidation } from '@/lib/form-field-types';
 import { canViewFormResponses } from '@/lib/form-access';
 import { FORM_PAGES_META_KEY } from '@/lib/form-pages';
 import { withTimeout } from '@/lib/with-timeout';
@@ -26,7 +26,7 @@ interface FormField {
   field_type: string;
   label: string;
   options?: string[];
-  validation?: { maxValue?: number; minValue?: number; excludedRolls?: string[] };
+  validation?: { maxValue?: number; minValue?: number; excludedRolls?: string[]; optionMax?: number[] };
 }
 
 const PAGE_SIZE = 1000;
@@ -188,7 +188,7 @@ export default function FormResponsesPage() {
       });
       return { type: 'choice' as const, counts, total: vals.length };
     }
-    if (['radio', 'dropdown'].includes(field.field_type) && field.options) {
+    if (['radio', 'dropdown', 'limited_choice'].includes(field.field_type) && field.options) {
       const counts: Record<string, number> = {};
       field.options.forEach(o => { counts[o] = 0; });
       vals.forEach(v => {
@@ -421,6 +421,11 @@ export default function FormResponsesPage() {
                       <div className="flex-1 w-full space-y-3 min-w-0">
                         {entries.map(([option, count], i) => {
                           const pct = summary.total > 0 ? Math.round((count / summary.total) * 100) : 0;
+                          const maxes = field.field_type === 'limited_choice'
+                            ? optionMaxFromValidation(field.options, field.validation)
+                            : [];
+                          const maxIdx = field.options?.indexOf(option) ?? -1;
+                          const cap = maxIdx >= 0 ? maxes[maxIdx] : undefined;
                           return (
                             <div key={option}>
                               <div className="flex items-center justify-between text-sm mb-1.5 gap-2">
@@ -429,7 +434,7 @@ export default function FormResponsesPage() {
                                   <span className="truncate">{option}</span>
                                 </span>
                                 <span className="text-gray-600 text-xs font-semibold tabular-nums shrink-0">
-                                  {count} · {pct}%
+                                  {cap != null ? `${count}/${cap}` : count} · {pct}%
                                 </span>
                               </div>
                               <div className="w-full h-2.5 bg-gray-100 rounded-full overflow-hidden">

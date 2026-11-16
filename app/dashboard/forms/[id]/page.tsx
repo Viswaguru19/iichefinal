@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { createClient } from '@/lib/supabase/client';
 import { ArrowLeft, Share2, Check, Lock, AlertTriangle, Upload, ExternalLink } from 'lucide-react';
-import { EXACT_TWO_HINT, isValidRollNo, rollCountFromValidation, excludedRollsFromValidation } from '@/lib/form-field-types';
+import { EXACT_TWO_HINT, LIMITED_CHOICE_HINT, isValidRollNo, isLimitedChoiceField, isLimitedChoiceFull, rollCountFromValidation, excludedRollsFromValidation, optionMaxFromValidation } from '@/lib/form-field-types';
 import SearchableRollSelect from '@/components/forms/SearchableRollSelect';
 import SearchableParticipantSelect, {
   type FeedbackRosterPerson,
@@ -65,6 +65,7 @@ interface FormField {
     maxFileSize?: number;
     maxFiles?: number;
     allowedFileTypes?: string[];
+    optionMax?: number[];
   };
 }
 
@@ -95,6 +96,7 @@ export default function FormSubmitPage() {
   const [eventDetails, setEventDetails] = useState<any>(null);
   /** Roll nos already used per field id — hidden from searchable dropdown. */
   const [takenRollsByFieldId, setTakenRollsByFieldId] = useState<Record<string, string[]>>({});
+  const [limitedCountsByFieldId, setLimitedCountsByFieldId] = useState<Record<string, Record<string, number>>>({});
   /** Set after successful event registration submit (venue QR uses source=onsite). */
   const [submittedWasOnSite, setSubmittedWasOnSite] = useState(false);
   const [isTestMode, setIsTestMode] = useState(false);
@@ -178,6 +180,51 @@ export default function FormSubmitPage() {
       }),
     );
     setTakenRollsByFieldId(next);
+  }
+
+  async function refreshLimitedChoiceCounts(formFields: FormField[], asTest = isTestMode) {
+    const limitedFields = formFields.filter((f) => isLimitedChoiceField(f.field_type) && f.label?.trim());
+    if (limitedFields.length === 0) {
+      setLimitedCountsByFieldId({});
+      return;
+    }
+    const next: Record<string, Record<string, number>> = {};
+    await Promise.all(
+      limitedFields.map(async (f) => {
+        const result = await withTimeout(
+          Promise.resolve(
+            supabase.rpc('form_limited_choice_counts', {
+              p_form_id: formId,
+              p_field_label: f.label.trim(),
+              p_is_test: asTest,
+            }),
+          ),
+          3500,
+        );
+        if (!result || result.error) {
+          if (result?.error) console.error('form_limited_choice_counts', result.error);
+          next[f.id] = {};
+          return;
+        }
+        const raw = result.data && typeof result.data === 'object' ? result.data as Record<string, unknown> : {};
+        const counts: Record<string, number> = {};
+        for (const [k, v] of Object.entries(raw)) {
+          const n = Number(v);
+          counts[k] = Number.isFinite(n) ? n : 0;
+        }
+        next[f.id] = counts;
+      }),
+    );
+    setLimitedCountsByFieldId(next);
+  }
+
+  function refreshChoiceAvailability(formFields: FormField[], asTest = isTestMode) {
+    if (formFields.some((f) => f.field_type === 'roll_no')) {
+      void refreshTakenRolls(formFields, asTest);
+    }
+    if (formFields.some((f) => isLimitedChoiceField(f.field_type))) {
+      void refreshLimitedChoiceCounts(formFields, asTest);
+    }
   }
 
   async function fetchForm() {
@@ -267,9 +314,7 @@ export default function FormSubmitPage() {
           setClosedReason('This form is only available to portal members.');
         }
         setCanViewResponses(false);
-        if (!closed && formFields.some((f) => f.field_type === 'roll_no')) {
-          void refreshTakenRolls(formFields, testMode);
-        }
+        if (!closed) refreshChoiceAvailability(formFields, testMode);
         return;
       }
 
@@ -378,9 +423,7 @@ export default function FormSubmitPage() {
         setEventDetails(null);
       }
 
-      if (!closed && formFields.some((f) => f.field_type === 'roll_no')) {
-        void refreshTakenRolls(formFields, testMode);
-      }
+      if (!closed) refreshChoiceAvailability(formFields, testMode);
     } catch (err) {
       console.error('fetchForm fatal', err);
       toast.error('Could not load form');
@@ -459,6 +502,17 @@ export default function FormSubmitPage() {
           newErrors[field.id] = `Select an available roll number between 1 and ${rollCountFromValidation(field.validation)}`;
         }
       }
+      if (isLimitedChoiceField(field.field_type) && val != null && String(val).trim() !== '') {
+        const choice = String(val);
+        const maxes = optionMaxFromValidation(field.options, field.validation);
+        const idx = (field.options || []).findIndex((o) => o === choice);
+        const taken = limitedCountsByFieldId[field.id]?.[choice] || 0;
+        if (idx < 0) {
+          newErrors[field.id] = 'Choose a valid option';
+        } else if (isLimitedChoiceFull(taken, maxes[idx])) {
+          newErrors[field.id] = `"${choice}" is full. Choose another option.`;
+        }
+      }
     }
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -529,9 +583,14 @@ export default function FormSubmitPage() {
 
     const onSubmitConflict = async (message: string) => {
       toast.error(message);
-      if (fields.some((f) => f.field_type === 'roll_no')) {
-        await refreshTakenRolls(fields, submittingAsTest);
-      }
+      await Promise.all([
+        fields.some((f) => f.field_type === 'roll_no')
+          ? refreshTakenRolls(fields, submittingAsTest)
+          : Promise.resolve(),
+        fields.some((f) => isLimitedChoiceField(f.field_type))
+          ? refreshLimitedChoiceCounts(fields, submittingAsTest)
+          : Promise.resolve(),
+      ]);
       setSubmitting(false);
     };
 
@@ -950,6 +1009,41 @@ export default function FormSubmitPage() {
                         <span className="text-gray-700">{opt}</span>
                       </motion.label>
                     ))}
+                  </div>
+                )}
+                {field.field_type === 'limited_choice' && (
+                  <div className="space-y-2 mt-2">
+                    <p className="text-xs font-medium text-indigo-600">{LIMITED_CHOICE_HINT}</p>
+                    {field.options?.map((opt, j) => {
+                      const max = optionMaxFromValidation(field.options, field.validation)[j];
+                      const taken = limitedCountsByFieldId[field.id]?.[opt] || 0;
+                      const full = isLimitedChoiceFull(taken, max);
+                      return (
+                        <motion.label
+                          key={j}
+                          whileHover={full ? undefined : { x: 4 }}
+                          className={`flex items-center gap-3 p-2.5 rounded-xl transition-colors ${
+                            full ? 'opacity-50 cursor-not-allowed' : 'hover:bg-indigo-50/50 cursor-pointer'
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name={field.id}
+                            checked={answers[field.id] === opt}
+                            disabled={full}
+                            onChange={() => {
+                              if (full) return;
+                              updateAnswer(field.id, opt);
+                            }}
+                            className="w-4 h-4 text-indigo-600"
+                          />
+                          <span className="text-gray-700 flex-1">{opt}</span>
+                          <span className={`text-xs font-semibold tabular-nums ${full ? 'text-red-500' : 'text-gray-500'}`}>
+                            {full ? 'Full' : `${taken}/${max}`}
+                          </span>
+                        </motion.label>
+                      );
+                    })}
                   </div>
                 )}
                 {field.field_type === 'checkbox' && (

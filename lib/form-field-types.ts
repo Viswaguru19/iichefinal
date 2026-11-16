@@ -1,5 +1,10 @@
 /** Form field types that store a list of selectable options. */
-export const OPTION_FIELD_TYPES = ['radio', 'checkbox', 'dropdown', 'checkbox_exact_2'] as const;
+export const OPTION_FIELD_TYPES = ['radio', 'checkbox', 'dropdown', 'checkbox_exact_2', 'limited_choice'] as const;
+
+/** Single-select options with a max number of live answers per choice (e.g. seminar slots). */
+export const LIMITED_CHOICE_TYPE = 'limited_choice';
+export const LIMITED_CHOICE_DEFAULT_MAX = 100;
+export const LIMITED_CHOICE_HINT = 'Each option closes when it reaches its max entries.';
 
 export function isOptionFieldType(type: string): boolean {
   return (OPTION_FIELD_TYPES as readonly string[]).includes(type);
@@ -7,8 +12,50 @@ export function isOptionFieldType(type: string): boolean {
 
 export function defaultOptionsForFieldType(type: string): string[] {
   if (type === 'checkbox_exact_2') return ['Option 1', 'Option 2'];
+  if (type === LIMITED_CHOICE_TYPE) return ['Slot 1', 'Slot 2'];
   if (isOptionFieldType(type)) return ['Option 1'];
   return [];
+}
+
+export function isLimitedChoiceField(type: string): boolean {
+  return type === LIMITED_CHOICE_TYPE;
+}
+
+export function clampOptionMax(value: unknown): number {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 1) return LIMITED_CHOICE_DEFAULT_MAX;
+  return Math.min(100000, Math.floor(n));
+}
+
+/** Max entries allowed for each option, padded to match `options`. */
+export function optionMaxFromValidation(
+  options: string[] | undefined,
+  validation?: { optionMax?: Array<number | string> | null } | null,
+): number[] {
+  const opts = options || [];
+  const raw = validation?.optionMax;
+  return opts.map((_, i) => clampOptionMax(raw?.[i]));
+}
+
+export function isLimitedChoiceFull(taken: number, max: number): boolean {
+  return max > 0 && taken >= max;
+}
+
+export function persistLimitedChoiceFields<T extends {
+  field_type: string;
+  options?: string[];
+  validation?: { optionMax?: Array<number | string> | null } | null;
+}>(fields: T[]): T[] {
+  return fields.map((f) => {
+    if (!isLimitedChoiceField(f.field_type)) return f;
+    return {
+      ...f,
+      validation: {
+        ...(f.validation || {}),
+        optionMax: optionMaxFromValidation(f.options, f.validation),
+      },
+    };
+  });
 }
 
 export const EXACT_TWO_HINT = 'Select exactly 2 options';
@@ -71,12 +118,16 @@ export function defaultValidationForFieldType(type: string): {
   minValue?: number;
   maxValue?: number;
   excludedRolls?: string[];
+  optionMax?: number[];
 } {
   if (type === 'file') {
     return { maxFileSize: 10, maxFiles: 1, allowedFileTypes: ['pdf', 'doc', 'docx', 'jpg', 'png'] };
   }
   if (type === 'roll_no') {
     return { minValue: 1, maxValue: ROLL_NO_DEFAULT_COUNT, excludedRolls: [] };
+  }
+  if (type === LIMITED_CHOICE_TYPE) {
+    return { optionMax: optionMaxFromValidation(defaultOptionsForFieldType(type), null) };
   }
   return {};
 }

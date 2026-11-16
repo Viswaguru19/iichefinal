@@ -309,9 +309,13 @@ function allowedFieldType(type: string): string {
     choice: 'radio',
     select: 'dropdown',
     phone: 'mobile',
+    slot: 'limited_choice',
+    slots: 'limited_choice',
+    'limited slots': 'limited_choice',
+    'limited choice': 'limited_choice',
   };
   const resolved = map[t] || t;
-  const ok = ['text', 'textarea', 'radio', 'checkbox', 'dropdown', 'date', 'number', 'email', 'mobile', 'file', 'roll_no', 'event_participant'];
+  const ok = ['text', 'textarea', 'radio', 'checkbox', 'dropdown', 'date', 'number', 'email', 'mobile', 'file', 'roll_no', 'event_participant', 'limited_choice'];
   return ok.includes(resolved) ? resolved : 'text';
 }
 

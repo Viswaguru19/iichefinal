@@ -3,11 +3,11 @@
 import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { createClient } from '@/lib/supabase/client';
-import { ArrowLeft, Plus, X, GripVertical, Copy, Eye, Settings, ChevronDown, ChevronUp, Upload, Type, AlignLeft, List, CheckSquare, ChevronRight, Calendar, Hash, Mail, FileUp, Image as ImageIcon, Phone } from 'lucide-react';
+import { ArrowLeft, Plus, X, GripVertical, Copy, Eye, Settings, ChevronDown, ChevronUp, Upload, Type, AlignLeft, List, CheckSquare, ChevronRight, Calendar, Hash, Mail, FileUp, Image as ImageIcon, Phone, Users } from 'lucide-react';
 import RollExcludeChecklist from '@/components/forms/RollExcludeChecklist';
 import ResponseViewerPicker from '@/components/forms/ResponseViewerPicker';
 import FormPagesEditor from '@/components/forms/FormPagesEditor';
-import { defaultOptionsForFieldType, defaultValidationForFieldType, isOptionFieldType, EXACT_TWO_HINT, clampRollCount, ROLL_NO_MAX_COUNT, ROLL_NO_MIN_COUNT, rollCountFromValidation, excludedRollsFromValidation } from '@/lib/form-field-types';
+import { defaultOptionsForFieldType, defaultValidationForFieldType, isOptionFieldType, isLimitedChoiceField, EXACT_TWO_HINT, LIMITED_CHOICE_HINT, clampRollCount, clampOptionMax, ROLL_NO_MAX_COUNT, ROLL_NO_MIN_COUNT, rollCountFromValidation, excludedRollsFromValidation, optionMaxFromValidation, persistLimitedChoiceFields } from '@/lib/form-field-types';
 import { blankFormPage, fieldsOnPage, pageIndex, pagesMissingQuestions, resolveFormPage, type FormPage } from '@/lib/form-pages';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -37,6 +37,7 @@ interface FormField {
     maxFiles?: number;
     allowedFileTypes?: string[];
     excludedRolls?: string[];
+    optionMax?: number[];
   };
   order_index: number;
   page_id?: string;
@@ -49,6 +50,7 @@ const FIELD_TYPES = [
   { value: 'checkbox', label: 'Checkboxes', icon: CheckSquare },
   { value: 'checkbox_exact_2', label: 'Select Exactly 2', icon: CheckSquare },
   { value: 'dropdown', label: 'Dropdown', icon: ChevronRight },
+  { value: 'limited_choice', label: 'Limited slots', icon: Users },
   { value: 'file', label: 'File Upload', icon: FileUp },
   { value: 'date', label: 'Date', icon: Calendar },
   { value: 'number', label: 'Number', icon: Hash },
@@ -251,7 +253,18 @@ export default function CreateFormPage() {
   function addOption(fieldId: string) {
     const field = fields.find(f => f.id === fieldId);
     if (!field) return;
-    updateField(fieldId, { options: [...field.options, `Option ${field.options.length + 1}`] });
+    const label = isLimitedChoiceField(field.field_type)
+      ? `Slot ${field.options.length + 1}`
+      : `Option ${field.options.length + 1}`;
+    const options = [...field.options, label];
+    if (isLimitedChoiceField(field.field_type)) {
+      updateField(fieldId, {
+        options,
+        validation: { ...field.validation, optionMax: optionMaxFromValidation(options, field.validation) },
+      });
+      return;
+    }
+    updateField(fieldId, { options });
   }
 
   function updateOption(fieldId: string, optIndex: number, value: string) {
@@ -262,6 +275,14 @@ export default function CreateFormPage() {
     updateField(fieldId, { options: opts });
   }
 
+  function updateOptionMax(fieldId: string, optIndex: number, value: string) {
+    const field = fields.find(f => f.id === fieldId);
+    if (!field) return;
+    const optionMax = optionMaxFromValidation(field.options, field.validation);
+    optionMax[optIndex] = clampOptionMax(value);
+    updateField(fieldId, { validation: { ...field.validation, optionMax } });
+  }
+
   function removeOption(fieldId: string, optIndex: number) {
     const field = fields.find(f => f.id === fieldId);
     if (!field) return;
@@ -270,7 +291,13 @@ export default function CreateFormPage() {
       if (field.field_type === 'checkbox_exact_2') toast.error('Exactly-2 questions need at least 2 options');
       return;
     }
-    updateField(fieldId, { options: field.options.filter((_, i) => i !== optIndex) });
+    const options = field.options.filter((_, i) => i !== optIndex);
+    if (isLimitedChoiceField(field.field_type)) {
+      const optionMax = optionMaxFromValidation(field.options, field.validation).filter((_, i) => i !== optIndex);
+      updateField(fieldId, { options, validation: { ...field.validation, optionMax } });
+      return;
+    }
+    updateField(fieldId, { options });
   }
 
   async function handleBannerUpload(file: File) {
@@ -300,6 +327,8 @@ export default function CreateFormPage() {
     if (emptyLabels.length > 0) { toast.error('All questions must have labels'); return; }
     const badExactTwo = fields.find(f => f.field_type === 'checkbox_exact_2' && f.options.filter(o => o.trim()).length < 2);
     if (badExactTwo) { toast.error('"Select Exactly 2" questions need at least 2 options'); return; }
+    const badLimited = fields.find(f => isLimitedChoiceField(f.field_type) && f.options.filter(o => o.trim()).length < 1);
+    if (badLimited) { toast.error('Limited slots questions need at least one option'); return; }
     const badRoll = fields.find(f => f.field_type === 'roll_no' && !rollCountFromValidation(f.validation));
     if (badRoll) { toast.error('Set how many roll numbers (1–99) for Roll No questions'); return; }
     const emptyPages = pagesMissingQuestions(pages, fields);
@@ -317,7 +346,7 @@ export default function CreateFormPage() {
       .insert({
         title: title.trim(),
         description: description.trim() || null,
-        fields,
+        fields: persistLimitedChoiceFields(fields),
         created_by: user.id,
         is_active: status === 'active',
         settings: {
@@ -435,6 +464,13 @@ export default function CreateFormPage() {
                   {field.options.map((opt, j) => <option key={j}>{opt}</option>)}
                 </select>
               )}
+              {field.field_type === 'limited_choice' && field.options.map((opt, j) => (
+                <label key={j} className="flex items-center gap-3 py-2">
+                  <span className="w-5 h-5 rounded-full border-2 border-gray-400" />
+                  <span className="text-gray-700">{opt}</span>
+                  <span className="text-xs text-gray-400">max {optionMaxFromValidation(field.options, field.validation)[j]}</span>
+                </label>
+              ))}
             </motion.div>
           ))}
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }} className="premium-panel rounded-b-3xl p-6 mt-1">
@@ -680,12 +716,29 @@ export default function CreateFormPage() {
                           {field.field_type === 'checkbox_exact_2' && (
                             <p className="text-xs text-indigo-600 font-medium">{EXACT_TWO_HINT} · add at least 2 options</p>
                           )}
+                          {field.field_type === 'limited_choice' && (
+                            <p className="text-xs text-indigo-600 font-medium">{LIMITED_CHOICE_HINT}</p>
+                          )}
                           {field.options.map((opt, oi) => (
                             <div key={oi} className="flex items-center gap-2">
                               {field.field_type === 'radio' && <span className="w-4 h-4 rounded-full border-2 border-gray-400 flex-shrink-0" />}
+                              {field.field_type === 'limited_choice' && <span className="w-4 h-4 rounded-full border-2 border-indigo-400 flex-shrink-0" />}
                               {(field.field_type === 'checkbox' || field.field_type === 'checkbox_exact_2') && <span className="w-4 h-4 rounded border-2 border-gray-400 flex-shrink-0" />}
                               {field.field_type === 'dropdown' && <span className="text-gray-400 text-sm w-5">{oi + 1}.</span>}
                               <input type="text" value={opt} onChange={e => updateOption(field.id, oi, e.target.value)} className="flex-1 bg-transparent border-b border-gray-200 focus:border-indigo-400 outline-none py-1 text-sm" />
+                              {field.field_type === 'limited_choice' && (
+                                <label className="flex items-center gap-1 text-xs text-gray-500 shrink-0">
+                                  Max
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    max={100000}
+                                    value={optionMaxFromValidation(field.options, field.validation)[oi]}
+                                    onChange={e => updateOptionMax(field.id, oi, e.target.value)}
+                                    className="w-20 border rounded-lg px-2 py-1 text-sm"
+                                  />
+                                </label>
+                              )}
                               {field.options.length > (field.field_type === 'checkbox_exact_2' ? 2 : 1) && <button onClick={() => removeOption(field.id, oi)} className="text-gray-400 hover:text-red-500"><X className="w-4 h-4" /></button>}
                             </div>
                           ))}
@@ -772,9 +825,15 @@ export default function CreateFormPage() {
                                   nextOptions = defaultOptionsForFieldType(nextType);
                                 }
                               }
-                              const nextValidation = nextType === 'roll_no' && !field.validation?.maxValue
+                              let nextValidation = nextType === 'roll_no' && !field.validation?.maxValue
                                 ? { ...field.validation, ...defaultValidationForFieldType('roll_no') }
                                 : field.validation;
+                              if (nextType === 'limited_choice') {
+                                nextValidation = {
+                                  ...nextValidation,
+                                  optionMax: optionMaxFromValidation(nextOptions, field.validation),
+                                };
+                              }
                               updateField(field.id, { field_type: nextType, options: nextOptions, validation: nextValidation });
                             }} className="text-sm border rounded-lg px-2 py-1 bg-white/80">
                               {FIELD_TYPES.map(ft => <option key={ft.value} value={ft.value}>{ft.label}</option>)}
