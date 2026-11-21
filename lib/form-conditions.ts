@@ -8,6 +8,7 @@ export const FOLLOW_UP_FIELD_TYPES = [
   { value: 'text', label: 'Short answer' },
   { value: 'textarea', label: 'Paragraph' },
   { value: 'radio', label: 'Multiple choice' },
+  { value: 'checkbox', label: 'Checkboxes' },
   { value: 'dropdown', label: 'Dropdown' },
   { value: 'number', label: 'Number' },
   { value: 'email', label: 'Email' },
