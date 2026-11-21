@@ -434,7 +434,7 @@ export default function FormResponsesPage() {
                                   <span className="truncate">{option}</span>
                                 </span>
                                 <span className="text-gray-600 text-xs font-semibold tabular-nums shrink-0">
-                                  {cap != null ? `${count}/${cap}` : count}
+                                  {count}
                                   {cap != null && limitedChoiceSeatsLabel(count, cap) ? ` · ${limitedChoiceSeatsLabel(count, cap)}` : ''}
                                   {' · '}{pct}%
                                 </span>

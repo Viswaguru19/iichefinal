@@ -953,14 +953,14 @@ export default function FormSubmitPage() {
                 animate="show"
                 className={`premium-panel p-6 transition-all duration-300 hover:shadow-lg overflow-visible ${
                   isFeedbackNameField(field, form?.form_type) ? 'relative z-30' : 'relative z-0'
-                } ${field.showWhen?.fieldId ? 'ml-3 sm:ml-6 border-l-4 border-indigo-200' : ''} ${errors[field.id] ? 'ring-2 ring-red-400/60' : ''}`}
+                } ${errors[field.id] ? 'ring-2 ring-red-400/60' : ''}`}
               >
-                {field.showWhen?.option && (
-                  <p className="text-xs font-medium text-indigo-500 mb-2">
-                    Asked because you selected {field.showWhen.option}
-                  </p>
-                )}
                 <label className="block text-base font-semibold text-gray-800 mb-1">
+                  {field.showWhen?.option && (
+                    <span className="mr-2 inline-flex items-center rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-600 align-middle">
+                      If {field.showWhen.option}
+                    </span>
+                  )}
                   {field.label || 'Untitled Question'}
                   {field.required && <span className="text-red-400 ml-1">*</span>}
                 </label>
@@ -1061,9 +1061,11 @@ export default function FormSubmitPage() {
                             className="w-4 h-4 text-indigo-600"
                           />
                           <span className="text-gray-700 flex-1">{opt}</span>
-                          <span className={`text-xs font-semibold tabular-nums ${full ? 'text-red-500' : seatsLabel ? 'text-amber-600' : 'text-gray-500'}`}>
-                            {full ? 'Full' : seatsLabel || `${taken}/${max}`}
-                          </span>
+                          {(full || seatsLabel) && (
+                            <span className={`text-xs font-semibold tabular-nums ${full ? 'text-red-500' : 'text-amber-600'}`}>
+                              {full ? 'Full' : seatsLabel}
+                            </span>
+                          )}
                         </motion.label>
                       );
                     })}

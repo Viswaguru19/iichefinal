@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { createClient } from '@/lib/supabase/client';
 import { ArrowLeft, Plus, X, GripVertical, Copy, Eye, Settings, ChevronDown, ChevronUp, Upload, Type, AlignLeft, List, CheckSquare, ChevronRight, Calendar, Hash, Mail, FileUp, Image as ImageIcon, Save, Phone, Users } from 'lucide-react';
 import { defaultOptionsForFieldType, defaultValidationForFieldType, isOptionFieldType, isLimitedChoiceField, EXACT_TWO_HINT, LIMITED_CHOICE_HINT, clampRollCount, clampOptionMax, ROLL_NO_MAX_COUNT, ROLL_NO_MIN_COUNT, rollCountFromValidation, excludedRollsFromValidation, optionMaxFromValidation, persistLimitedChoiceFields } from '@/lib/form-field-types';
-import { dropFollowUpsForOption, isChoiceGate, isFollowUpField, packFollowUps, renameGatedOption, withoutFieldAndFollowUps } from '@/lib/form-conditions';
+import { FOLLOW_UP_FIELD_TYPES, dropFollowUpsForOption, isChoiceGate, isFollowUpField, packFollowUps, renameGatedOption, withoutFieldAndFollowUps } from '@/lib/form-conditions';
 import ConditionalFollowUpsEditor from '@/components/forms/ConditionalFollowUpsEditor';
 import RollExcludeChecklist from '@/components/forms/RollExcludeChecklist';
 import ResponseViewerPicker from '@/components/forms/ResponseViewerPicker';
@@ -278,12 +278,25 @@ export default function EditFormPage() {
     }
 
     function moveField(index: number, direction: 'up' | 'down') {
+        const current = fields[index];
+        if (!current) return;
+        if (isFollowUpField(current)) {
+            const siblings = fields.filter((f) => f.showWhen?.fieldId === current.showWhen?.fieldId);
+            const si = siblings.findIndex((f) => f.id === current.id);
+            const swap = siblings[direction === 'up' ? si - 1 : si + 1];
+            if (!swap) return;
+            const swapIndex = fields.findIndex((f) => f.id === swap.id);
+            if (swapIndex < 0) return;
+            const newFields = [...fields];
+            [newFields[index], newFields[swapIndex]] = [newFields[swapIndex], newFields[index]];
+            setFields(packFollowUps(newFields));
+            return;
+        }
         const page = resolveFormPage(pages, activePageId);
         const visible = fieldsOnPage(fields, page, pages).filter((f) => !isFollowUpField(f));
-        const current = fields[index];
-        const vi = visible.findIndex((f) => f.id === current?.id);
+        const vi = visible.findIndex((f) => f.id === current.id);
         const swapVis = visible[direction === 'up' ? vi - 1 : vi + 1];
-        if (!current || vi < 0 || !swapVis) return;
+        if (vi < 0 || !swapVis) return;
         const swapIndex = fields.findIndex((f) => f.id === swapVis.id);
         if (swapIndex < 0) return;
         const newFields = [...fields];
@@ -524,7 +537,7 @@ export default function EditFormPage() {
 
     const activePage = resolveFormPage(pages, activePageId || pages[0]?.id);
     const visibleFields = fieldsOnPage(fields, activePage, pages);
-    const editorFields = visibleFields.filter((f) => !isFollowUpField(f));
+    const editorFields = visibleFields;
 
     if (loading) return <PortalLoadingScreen message="Loading forms…" variant="resources" />;
 
@@ -741,8 +754,13 @@ export default function EditFormPage() {
                         {/* Questions */}
                         {editorFields.map((field) => {
                             const index = fields.findIndex((f) => f.id === field.id);
-                            const visIndex = editorFields.findIndex((f) => f.id === field.id);
+                            const followUp = isFollowUpField(field);
+                            const moveGroup = followUp
+                                ? editorFields.filter((f) => f.showWhen?.fieldId === field.showWhen?.fieldId)
+                                : editorFields.filter((f) => !isFollowUpField(f));
+                            const visIndex = moveGroup.findIndex((f) => f.id === field.id);
                             const isActive = activeField === field.id;
+                            const typeChoices = followUp ? FOLLOW_UP_FIELD_TYPES : FIELD_TYPES;
                             const TypeIcon = FIELD_TYPES.find(ft => ft.value === field.field_type)?.icon || Type;
                             return (
                                 <motion.div key={field.id} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, delay: index * 0.04 }} whileHover={{ y: -2 }} onClick={() => setActiveField(field.id)} className={`premium-card rounded-2xl p-6 transition-all cursor-pointer shadow-md ${isActive ? 'ring-2 ring-indigo-500 shadow-xl' : 'hover:shadow-lg'}`}>
@@ -751,6 +769,11 @@ export default function EditFormPage() {
                                         <div className="flex-1 space-y-3">
                                             <div className="flex items-center gap-3">
                                                 <input type="text" value={field.label} onChange={e => updateField(field.id, { label: e.target.value })} placeholder={`Question ${index + 1}`} className="flex-1 text-lg font-medium bg-transparent border-b-2 border-gray-200 focus:border-indigo-500 outline-none py-1 placeholder-gray-300" />
+                                                {followUp && (
+                                                    <span className="shrink-0 rounded-full bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-700">
+                                                        If {field.showWhen?.option}
+                                                    </span>
+                                                )}
                                                 <div className="flex items-center gap-1 px-2 py-1 rounded-lg bg-indigo-50 text-indigo-600 text-xs font-medium">
                                                     <TypeIcon className="w-3.5 h-3.5" />
                                                     {FIELD_TYPES.find(ft => ft.value === field.field_type)?.label}
@@ -803,6 +826,7 @@ export default function EditFormPage() {
                                                     parent={field}
                                                     fields={fields}
                                                     onChange={setFields}
+                                                    onAdded={setActiveField}
                                                 />
                                             )}
 
@@ -847,7 +871,7 @@ export default function EditFormPage() {
 
                                             {isActive && (
                                                 <div className="flex items-center justify-between pt-3 border-t border-gray-100 mt-3">
-                                                    <select value={field.field_type} onChange={e => {
+                                                    <select value={typeChoices.some((ft) => ft.value === field.field_type) ? field.field_type : typeChoices[0].value} onChange={e => {
                                                         const nextType = e.target.value;
                                                         let nextOptions = field.options;
                                                         if (isOptionFieldType(nextType)) {
@@ -871,13 +895,13 @@ export default function EditFormPage() {
                                                         ));
                                                         setFields(isChoiceGate(nextType) ? nextFields : nextFields.filter((f) => f.showWhen?.fieldId !== field.id));
                                                     }} className="text-sm border rounded-lg px-2 py-1 bg-white/80">
-                                                        {FIELD_TYPES.map(ft => <option key={ft.value} value={ft.value}>{ft.label}</option>)}
+                                                        {typeChoices.map(ft => <option key={ft.value} value={ft.value}>{ft.label}</option>)}
                                                     </select>
                                                     <div className="flex items-center gap-3">
                                                         <button onClick={() => duplicateField(index)} className="text-gray-400 hover:text-indigo-600" title="Duplicate"><Copy className="w-4 h-4" /></button>
                                                         <button onClick={() => removeField(index)} className="text-gray-400 hover:text-red-500" title="Delete"><X className="w-4 h-4" /></button>
                                                         <button onClick={() => moveField(index, 'up')} disabled={visIndex === 0} className="text-gray-400 hover:text-indigo-600 disabled:opacity-30"><ChevronUp className="w-4 h-4" /></button>
-                                                        <button onClick={() => moveField(index, 'down')} disabled={visIndex === editorFields.length - 1} className="text-gray-400 hover:text-indigo-600 disabled:opacity-30"><ChevronDown className="w-4 h-4" /></button>
+                                                        <button onClick={() => moveField(index, 'down')} disabled={visIndex === moveGroup.length - 1} className="text-gray-400 hover:text-indigo-600 disabled:opacity-30"><ChevronDown className="w-4 h-4" /></button>
                                                         <div className="border-l border-gray-200 pl-3">
                                                             <label className="flex items-center gap-1.5 text-sm text-gray-600">
                                                                 <input type="checkbox" checked={field.required} onChange={e => updateField(field.id, { required: e.target.checked })} className="rounded text-indigo-600" /> Required
