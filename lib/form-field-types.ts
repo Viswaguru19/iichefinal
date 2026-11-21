@@ -41,6 +41,23 @@ export function isLimitedChoiceFull(taken: number, max: number): boolean {
   return max > 0 && taken >= max;
 }
 
+/** Show a remaining-seats note once this many or fewer are left. */
+export const LIMITED_CHOICE_LOW_SEATS = 10;
+
+/** Seats still open, only when the option is in the low-availability window. */
+export function limitedChoiceSeatsLeft(taken: number, max: number): number | null {
+  if (!(max > 0)) return null;
+  const left = max - Math.max(0, taken);
+  if (left <= 0 || left > LIMITED_CHOICE_LOW_SEATS) return null;
+  return left;
+}
+
+export function limitedChoiceSeatsLabel(taken: number, max: number): string | null {
+  const left = limitedChoiceSeatsLeft(taken, max);
+  if (left == null) return null;
+  return left === 1 ? 'Only 1 seat available' : `Only ${left} seats available`;
+}
+
 export function persistLimitedChoiceFields<T extends {
   field_type: string;
   options?: string[];

@@ -6,6 +6,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { createClient } from '@/lib/supabase/client';
 import { ArrowLeft, Plus, X, GripVertical, Copy, Eye, Settings, ChevronDown, ChevronUp, Upload, Type, AlignLeft, List, CheckSquare, ChevronRight, Calendar, Hash, Mail, FileUp, Image as ImageIcon, Save, Phone, Users } from 'lucide-react';
 import { defaultOptionsForFieldType, defaultValidationForFieldType, isOptionFieldType, isLimitedChoiceField, EXACT_TWO_HINT, LIMITED_CHOICE_HINT, clampRollCount, clampOptionMax, ROLL_NO_MAX_COUNT, ROLL_NO_MIN_COUNT, rollCountFromValidation, excludedRollsFromValidation, optionMaxFromValidation, persistLimitedChoiceFields } from '@/lib/form-field-types';
+import { dropFollowUpsForOption, isChoiceGate, isFollowUpField, packFollowUps, renameGatedOption, withoutFieldAndFollowUps } from '@/lib/form-conditions';
+import ConditionalFollowUpsEditor from '@/components/forms/ConditionalFollowUpsEditor';
 import RollExcludeChecklist from '@/components/forms/RollExcludeChecklist';
 import ResponseViewerPicker from '@/components/forms/ResponseViewerPicker';
 import FormPagesEditor from '@/components/forms/FormPagesEditor';
@@ -37,6 +39,7 @@ interface FormField {
     };
     order_index: number;
     page_id?: string;
+    showWhen?: { fieldId: string; option: string } | null;
 }
 
 const FIELD_TYPES = [
@@ -252,14 +255,21 @@ export default function EditFormPage() {
 
     function duplicateField(index: number) {
         const original = fields[index];
-        const copy: FormField = { ...original, id: generateId(), label: original.label + ' (copy)', order_index: fields.length, page_id: original.page_id || activePageId };
+        const copy: FormField = { ...original, id: generateId(), label: original.label + ' (copy)', order_index: fields.length, page_id: original.page_id || activePageId, showWhen: original.showWhen ? { ...original.showWhen } : undefined };
+        const children = fields.filter((f) => f.showWhen?.fieldId === original.id).map((child) => ({
+            ...child,
+            id: generateId(),
+            showWhen: { fieldId: copy.id, option: child.showWhen!.option },
+        }));
         const updated = [...fields];
-        updated.splice(index + 1, 0, copy);
-        setFields(updated.map((f, i) => ({ ...f, order_index: i })));
+        updated.splice(index + 1, 0, copy, ...children);
+        setFields(packFollowUps(updated));
     }
 
     function removeField(index: number) {
-        setFields(fields.filter((_, i) => i !== index).map((f, i) => ({ ...f, order_index: i })));
+        const removed = fields[index];
+        if (!removed) return;
+        setFields(withoutFieldAndFollowUps(fields, removed.id));
         setActiveField(null);
     }
 
@@ -269,7 +279,7 @@ export default function EditFormPage() {
 
     function moveField(index: number, direction: 'up' | 'down') {
         const page = resolveFormPage(pages, activePageId);
-        const visible = fieldsOnPage(fields, page, pages);
+        const visible = fieldsOnPage(fields, page, pages).filter((f) => !isFollowUpField(f));
         const current = fields[index];
         const vi = visible.findIndex((f) => f.id === current?.id);
         const swapVis = visible[direction === 'up' ? vi - 1 : vi + 1];
@@ -278,7 +288,7 @@ export default function EditFormPage() {
         if (swapIndex < 0) return;
         const newFields = [...fields];
         [newFields[index], newFields[swapIndex]] = [newFields[swapIndex], newFields[index]];
-        setFields(newFields.map((f, i) => ({ ...f, order_index: i })));
+        setFields(packFollowUps(newFields));
     }
 
     function handlePagesChange(next: FormPage[]) {
@@ -315,8 +325,14 @@ export default function EditFormPage() {
     function updateOption(fieldId: string, optIndex: number, value: string) {
         const field = fields.find(f => f.id === fieldId);
         if (!field) return;
+        const previous = field.options[optIndex];
         const opts = [...field.options]; opts[optIndex] = value;
-        updateField(fieldId, { options: opts });
+        setFields(renameGatedOption(
+            fields.map((f) => (f.id === fieldId ? { ...f, options: opts } : f)),
+            fieldId,
+            previous,
+            value,
+        ));
     }
 
     function updateOptionMax(fieldId: string, optIndex: number, value: string) {
@@ -335,13 +351,18 @@ export default function EditFormPage() {
             if (field.field_type === 'checkbox_exact_2') toast.error('Exactly-2 questions need at least 2 options');
             return;
         }
+        const removed = field.options[optIndex];
         const options = field.options.filter((_, i) => i !== optIndex);
-        if (isLimitedChoiceField(field.field_type)) {
-            const optionMax = optionMaxFromValidation(field.options, field.validation).filter((_, i) => i !== optIndex);
-            updateField(fieldId, { options, validation: { ...field.validation, optionMax } });
-            return;
-        }
-        updateField(fieldId, { options });
+        let next = fields.map((f) => {
+            if (f.id !== fieldId) return f;
+            if (isLimitedChoiceField(field.field_type)) {
+                const optionMax = optionMaxFromValidation(field.options, field.validation).filter((_, i) => i !== optIndex);
+                return { ...f, options, validation: { ...f.validation, optionMax } };
+            }
+            return { ...f, options };
+        });
+        next = dropFollowUpsForOption(next, fieldId, removed);
+        setFields(next);
     }
 
     async function handleBannerUpload(file: File) {
@@ -503,6 +524,7 @@ export default function EditFormPage() {
 
     const activePage = resolveFormPage(pages, activePageId || pages[0]?.id);
     const visibleFields = fieldsOnPage(fields, activePage, pages);
+    const editorFields = visibleFields.filter((f) => !isFollowUpField(f));
 
     if (loading) return <PortalLoadingScreen message="Loading forms…" variant="resources" />;
 
@@ -717,9 +739,9 @@ export default function EditFormPage() {
                         />
 
                         {/* Questions */}
-                        {visibleFields.map((field) => {
+                        {editorFields.map((field) => {
                             const index = fields.findIndex((f) => f.id === field.id);
-                            const visIndex = visibleFields.findIndex((f) => f.id === field.id);
+                            const visIndex = editorFields.findIndex((f) => f.id === field.id);
                             const isActive = activeField === field.id;
                             const TypeIcon = FIELD_TYPES.find(ft => ft.value === field.field_type)?.icon || Type;
                             return (
@@ -745,7 +767,7 @@ export default function EditFormPage() {
                                                         <p className="text-xs text-indigo-600 font-medium">{EXACT_TWO_HINT} · add at least 2 options</p>
                                                     )}
                                                     {field.field_type === 'limited_choice' && (
-                                                        <p className="text-xs text-indigo-600 font-medium">{LIMITED_CHOICE_HINT} You can change these numbers later.</p>
+                                                        <p className="text-xs text-indigo-600 font-medium">{LIMITED_CHOICE_HINT} You can change these numbers later. Once 10 or fewer seats are left, the form shows how many are still available.</p>
                                                     )}
                                                     {field.options.map((opt, oi) => (
                                                         <div key={oi} className="flex items-center gap-2">
@@ -774,6 +796,14 @@ export default function EditFormPage() {
                                                         <Plus className="w-3.5 h-3.5" /> Add option
                                                     </button>
                                                 </div>
+                                            )}
+
+                                            {isActive && isChoiceGate(field.field_type) && (
+                                                <ConditionalFollowUpsEditor
+                                                    parent={field}
+                                                    fields={fields}
+                                                    onChange={setFields}
+                                                />
                                             )}
 
                                             {field.field_type === 'roll_no' && isActive && (
@@ -834,7 +864,12 @@ export default function EditFormPage() {
                                                                 optionMax: optionMaxFromValidation(nextOptions, field.validation),
                                                             };
                                                         }
-                                                        updateField(field.id, { field_type: nextType, options: nextOptions, validation: nextValidation });
+                                                        const nextFields = fields.map((f) => (
+                                                            f.id === field.id
+                                                                ? { ...f, field_type: nextType, options: nextOptions, validation: nextValidation }
+                                                                : f
+                                                        ));
+                                                        setFields(isChoiceGate(nextType) ? nextFields : nextFields.filter((f) => f.showWhen?.fieldId !== field.id));
                                                     }} className="text-sm border rounded-lg px-2 py-1 bg-white/80">
                                                         {FIELD_TYPES.map(ft => <option key={ft.value} value={ft.value}>{ft.label}</option>)}
                                                     </select>
@@ -842,7 +877,7 @@ export default function EditFormPage() {
                                                         <button onClick={() => duplicateField(index)} className="text-gray-400 hover:text-indigo-600" title="Duplicate"><Copy className="w-4 h-4" /></button>
                                                         <button onClick={() => removeField(index)} className="text-gray-400 hover:text-red-500" title="Delete"><X className="w-4 h-4" /></button>
                                                         <button onClick={() => moveField(index, 'up')} disabled={visIndex === 0} className="text-gray-400 hover:text-indigo-600 disabled:opacity-30"><ChevronUp className="w-4 h-4" /></button>
-                                                        <button onClick={() => moveField(index, 'down')} disabled={visIndex === visibleFields.length - 1} className="text-gray-400 hover:text-indigo-600 disabled:opacity-30"><ChevronDown className="w-4 h-4" /></button>
+                                                        <button onClick={() => moveField(index, 'down')} disabled={visIndex === editorFields.length - 1} className="text-gray-400 hover:text-indigo-600 disabled:opacity-30"><ChevronDown className="w-4 h-4" /></button>
                                                         <div className="border-l border-gray-200 pl-3">
                                                             <label className="flex items-center gap-1.5 text-sm text-gray-600">
                                                                 <input type="checkbox" checked={field.required} onChange={e => updateField(field.id, { required: e.target.checked })} className="rounded text-indigo-600" /> Required

@@ -16,7 +16,7 @@ import {
   getResponderDedupeKey,
 } from '@/lib/form-responder-fields';
 import SimplePieChart, { pieColors } from '@/components/forms/SimplePieChart';
-import { generateAvailableRollOptions, rollCountFromValidation, excludedRollsFromValidation, optionMaxFromValidation } from '@/lib/form-field-types';
+import { generateAvailableRollOptions, rollCountFromValidation, excludedRollsFromValidation, optionMaxFromValidation, limitedChoiceSeatsLabel } from '@/lib/form-field-types';
 import { canViewFormResponses } from '@/lib/form-access';
 import { FORM_PAGES_META_KEY } from '@/lib/form-pages';
 import { withTimeout } from '@/lib/with-timeout';
@@ -434,7 +434,9 @@ export default function FormResponsesPage() {
                                   <span className="truncate">{option}</span>
                                 </span>
                                 <span className="text-gray-600 text-xs font-semibold tabular-nums shrink-0">
-                                  {cap != null ? `${count}/${cap}` : count} · {pct}%
+                                  {cap != null ? `${count}/${cap}` : count}
+                                  {cap != null && limitedChoiceSeatsLabel(count, cap) ? ` · ${limitedChoiceSeatsLabel(count, cap)}` : ''}
+                                  {' · '}{pct}%
                                 </span>
                               </div>
                               <div className="w-full h-2.5 bg-gray-100 rounded-full overflow-hidden">

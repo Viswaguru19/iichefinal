@@ -7,6 +7,7 @@ import {
   isLimitedChoiceFull,
   isOptionFieldType,
   LIMITED_CHOICE_DEFAULT_MAX,
+  limitedChoiceSeatsLabel,
   optionMaxFromValidation,
 } from '@/lib/form-field-types';
 
@@ -30,5 +31,12 @@ describe('limited choice fields', () => {
   it('marks an option full at its cap', () => {
     expect(isLimitedChoiceFull(100, 100)).toBe(true);
     expect(isLimitedChoiceFull(99, 100)).toBe(false);
+  });
+
+  it('shows remaining seats only once 10 or fewer are left', () => {
+    expect(limitedChoiceSeatsLabel(90, 100)).toBe('Only 10 seats available');
+    expect(limitedChoiceSeatsLabel(99, 100)).toBe('Only 1 seat available');
+    expect(limitedChoiceSeatsLabel(89, 100)).toBeNull();
+    expect(limitedChoiceSeatsLabel(100, 100)).toBeNull();
   });
 });

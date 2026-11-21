@@ -5,7 +5,8 @@ import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { createClient } from '@/lib/supabase/client';
 import { ArrowLeft, Share2, Check, Lock, AlertTriangle, Upload, ExternalLink } from 'lucide-react';
-import { EXACT_TWO_HINT, LIMITED_CHOICE_HINT, isValidRollNo, isLimitedChoiceField, isLimitedChoiceFull, rollCountFromValidation, excludedRollsFromValidation, optionMaxFromValidation } from '@/lib/form-field-types';
+import { EXACT_TWO_HINT, LIMITED_CHOICE_HINT, isValidRollNo, isLimitedChoiceField, isLimitedChoiceFull, limitedChoiceSeatsLabel, rollCountFromValidation, excludedRollsFromValidation, optionMaxFromValidation } from '@/lib/form-field-types';
+import { isFieldAsked } from '@/lib/form-conditions';
 import SearchableRollSelect from '@/components/forms/SearchableRollSelect';
 import SearchableParticipantSelect, {
   type FeedbackRosterPerson,
@@ -56,6 +57,7 @@ interface FormField {
   options?: string[];
   required: boolean;
   page_id?: string;
+  showWhen?: { fieldId: string; option: string } | null;
   validation?: {
     email?: boolean;
     minLength?: number;
@@ -434,7 +436,13 @@ export default function FormSubmitPage() {
   }
 
   function updateAnswer(fieldId: string, value: any) {
-    setAnswers(prev => ({ ...prev, [fieldId]: value }));
+    setAnswers(prev => {
+      const next = { ...prev, [fieldId]: value };
+      for (const f of fields) {
+        if (!isFieldAsked(f, fields, next)) delete next[f.id];
+      }
+      return next;
+    });
     setErrors(prev => { const n = { ...prev }; delete n[fieldId]; return n; });
   }
 
@@ -458,14 +466,20 @@ export default function FormSubmitPage() {
   function toggleCheckbox(fieldId: string, option: string, exactTwo = false) {
     setAnswers(prev => {
       const current: string[] = prev[fieldId] || [];
+      let selected: string[];
       if (current.includes(option)) {
-        return { ...prev, [fieldId]: current.filter((o: string) => o !== option) };
-      }
-      if (exactTwo && current.length >= 2) {
+        selected = current.filter((o: string) => o !== option);
+      } else if (exactTwo && current.length >= 2) {
         toast.error(EXACT_TWO_HINT);
         return prev;
+      } else {
+        selected = [...current, option];
       }
-      return { ...prev, [fieldId]: [...current, option] };
+      const next = { ...prev, [fieldId]: selected };
+      for (const f of fields) {
+        if (!isFieldAsked(f, fields, next)) delete next[f.id];
+      }
+      return next;
     });
     setErrors(prev => { const n = { ...prev }; delete n[fieldId]; return n; });
   }
@@ -473,7 +487,8 @@ export default function FormSubmitPage() {
   function validate(): boolean {
     const newErrors: Record<string, string> = {};
     const pages = normalizeFormPages(form?.settings, fields);
-    const pageFields = fieldsOnPage(fields, resolveFormPage(pages, currentPageId), pages);
+    const pageFields = fieldsOnPage(fields, resolveFormPage(pages, currentPageId), pages)
+      .filter((field) => isFieldAsked(field, fields, answers));
     for (const field of pageFields) {
       const val = answers[field.id];
       if (field.field_type === 'checkbox_exact_2') {
@@ -539,7 +554,8 @@ export default function FormSubmitPage() {
 
     const pages = normalizeFormPages(form?.settings, fields);
     const currentPage = resolveFormPage(pages, currentPageId);
-    const pageFields = fieldsOnPage(fields, currentPage, pages);
+    const pageFields = fieldsOnPage(fields, currentPage, pages)
+      .filter((field) => isFieldAsked(field, fields, answers));
     const responses: Record<string, any> = { [FORM_PAGES_META_KEY]: [currentPage.id] };
     for (const field of pageFields) {
       const val = answers[field.id];
@@ -723,7 +739,8 @@ export default function FormSubmitPage() {
   const backHref = user ? '/dashboard/forms' : isPublicFormRoute ? '/' : '/dashboard/forms';
   const formPages = normalizeFormPages(form?.settings, fields);
   const currentPage = resolveFormPage(formPages, currentPageId);
-  const visibleFields = fieldsOnPage(fields, currentPage, formPages);
+  const visibleFields = fieldsOnPage(fields, currentPage, formPages)
+    .filter((field) => isFieldAsked(field, fields, answers));
 
   if (loading) return <PortalLoadingScreen message="Loading forms…" variant="resources" />;
 
@@ -936,8 +953,13 @@ export default function FormSubmitPage() {
                 animate="show"
                 className={`premium-panel p-6 transition-all duration-300 hover:shadow-lg overflow-visible ${
                   isFeedbackNameField(field, form?.form_type) ? 'relative z-30' : 'relative z-0'
-                } ${errors[field.id] ? 'ring-2 ring-red-400/60' : ''}`}
+                } ${field.showWhen?.fieldId ? 'ml-3 sm:ml-6 border-l-4 border-indigo-200' : ''} ${errors[field.id] ? 'ring-2 ring-red-400/60' : ''}`}
               >
+                {field.showWhen?.option && (
+                  <p className="text-xs font-medium text-indigo-500 mb-2">
+                    Asked because you selected {field.showWhen.option}
+                  </p>
+                )}
                 <label className="block text-base font-semibold text-gray-800 mb-1">
                   {field.label || 'Untitled Question'}
                   {field.required && <span className="text-red-400 ml-1">*</span>}
@@ -1018,6 +1040,7 @@ export default function FormSubmitPage() {
                       const max = optionMaxFromValidation(field.options, field.validation)[j];
                       const taken = limitedCountsByFieldId[field.id]?.[opt] || 0;
                       const full = isLimitedChoiceFull(taken, max);
+                      const seatsLabel = limitedChoiceSeatsLabel(taken, max);
                       return (
                         <motion.label
                           key={j}
@@ -1038,8 +1061,8 @@ export default function FormSubmitPage() {
                             className="w-4 h-4 text-indigo-600"
                           />
                           <span className="text-gray-700 flex-1">{opt}</span>
-                          <span className={`text-xs font-semibold tabular-nums ${full ? 'text-red-500' : 'text-gray-500'}`}>
-                            {full ? 'Full' : `${taken}/${max}`}
+                          <span className={`text-xs font-semibold tabular-nums ${full ? 'text-red-500' : seatsLabel ? 'text-amber-600' : 'text-gray-500'}`}>
+                            {full ? 'Full' : seatsLabel || `${taken}/${max}`}
                           </span>
                         </motion.label>
                       );
