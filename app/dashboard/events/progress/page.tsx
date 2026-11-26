@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
 import NotionProgressBar from '@/components/events/NotionProgressBar';
-import { Clock, AlertCircle, Camera, FileText, Download, X, ChevronLeft, ChevronRight, Paperclip, MessageSquare } from 'lucide-react';
+import { Clock, Camera, FileText, Download, X, ChevronLeft, ChevronRight, Paperclip, MessageSquare, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import DashboardAtmosphere from '@/components/react-bits/DashboardAtmosphere';
 import PageHeader from '@/components/PageHeader';
@@ -33,6 +33,7 @@ export default function EventProgressPage() {
   const [loading, setLoading] = useState(false);
   const [showTaskDetail, setShowTaskDetail] = useState(false);
   const [focusCommittee, setFocusCommittee] = useState<string | null>(null);
+  const [taskDraft, setTaskDraft] = useState<{ id: string; title: string; description: string; deadline: string } | null>(null);
   const [showPendingTasks, setShowPendingTasks] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [eventToDelete, setEventToDelete] = useState<any>(null);
@@ -304,6 +305,68 @@ ${reportAdditionalDetails ? `## Additional Details\n${reportAdditionalDetails}` 
     URL.revokeObjectURL(url);
   }
 
+  function myCommitteeIds() {
+    return (currentUser?.committee_members || []).map((m: any) => m.committee_id);
+  }
+
+  function ownsAssignment(task: any) {
+    return !!currentUser?.is_admin || !!currentUser?.is_faculty || myCommitteeIds().includes(task.assigned_by_committee);
+  }
+
+  function openTaskDraft(task: any) {
+    setTaskDraft({
+      id: task.id,
+      title: task.title || '',
+      description: task.description || '',
+      deadline: task.deadline ? new Date(task.deadline).toISOString().slice(0, 16) : '',
+    });
+  }
+
+  async function saveOwnedTask() {
+    if (!taskDraft || !selectedEvent) return;
+    if (!taskDraft.title.trim()) {
+      toast.error('Task title is required');
+      return;
+    }
+    setLoading(true);
+    try {
+      const { error } = await supabase
+        .from('task_assignments')
+        .update({
+          title: taskDraft.title.trim(),
+          description: taskDraft.description.trim() || null,
+          deadline: taskDraft.deadline ? new Date(taskDraft.deadline).toISOString() : null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', taskDraft.id);
+      if (error) throw error;
+      toast.success('Task updated');
+      setTaskDraft(null);
+      loadTasks(selectedEvent.id);
+    } catch (error: any) {
+      toast.error(error.message || 'Could not update task');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function deleteOwnedTask(task: any) {
+    if (!selectedEvent) return;
+    if (!window.confirm(`Delete "${task.title}"?`)) return;
+    setLoading(true);
+    try {
+      const { error } = await supabase.from('task_assignments').delete().eq('id', task.id);
+      if (error) throw error;
+      toast.success('Task deleted');
+      if (taskDraft?.id === task.id) setTaskDraft(null);
+      loadTasks(selectedEvent.id);
+    } catch (error: any) {
+      toast.error(error.message || 'Could not delete task');
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function createTask(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
@@ -318,13 +381,13 @@ ${reportAdditionalDetails ? `## Additional Details\n${reportAdditionalDetails}` 
           assigned_by_user: currentUser.id,
           title: taskTitle,
           description: taskDescription,
-          status: 'pending',
+          status: (currentUser?.is_faculty || currentUser?.is_admin || currentUser?.executive_role) ? 'approved' : 'pending_ec_approval',
           progress: 0
         });
 
       if (error) throw error;
 
-      toast.success('Task created! Waiting for EC approval.');
+      toast.success((currentUser?.is_faculty || currentUser?.is_admin || currentUser?.executive_role) ? 'Task assigned.' : 'Task created. Waiting for EC approval.');
       setShowTaskModal(false);
       setTaskTitle('');
       setTaskDescription('');
@@ -488,8 +551,9 @@ ${reportAdditionalDetails ? `## Additional Details\n${reportAdditionalDetails}` 
     return Array.from(committeeMap.values());
   };
 
-  // Count pending tasks for EC approval
-  const pendingECApprovalCount = tasks.filter(t => t.status === 'pending_ec_approval').length;
+  const pendingForUs = tasks.filter(
+    (t) => t.status === 'pending_ec_approval' && myCommitteeIds().includes(t.assigned_by_committee),
+  );
 
   return (
     <div className="min-h-screen bg-mesh relative overflow-hidden">
@@ -554,14 +618,10 @@ ${reportAdditionalDetails ? `## Additional Details\n${reportAdditionalDetails}` 
                       <h2 className="text-3xl font-bold text-gray-900 mb-2">{selectedEvent.title}</h2>
                       <p className="text-gray-600">{selectedEvent.description}</p>
                     </div>
-                    {isExecutive && pendingECApprovalCount > 0 && (
-                      <button
-                        onClick={() => router.push(`/dashboard/event-detail/${selectedEvent.id}`)}
-                        className="flex items-center gap-2 bg-yellow-600 text-white px-4 py-2 rounded-lg hover:bg-yellow-700 transition animate-pulse"
-                      >
-                        <AlertCircle className="w-5 h-5" />
-                        {pendingECApprovalCount} Task{pendingECApprovalCount > 1 ? 's' : ''} Awaiting Approval
-                      </button>
+                    {pendingForUs.length > 0 && (
+                      <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                        {pendingForUs.length} task{pendingForUs.length === 1 ? '' : 's'} pending EC approval. Only your committee can see these until they are approved.
+                      </div>
                     )}
                   </div>
 
@@ -633,6 +693,44 @@ ${reportAdditionalDetails ? `## Additional Details\n${reportAdditionalDetails}` 
                       Event details
                     </button>
                   </div>
+                  {pendingForUs.length > 0 && (
+                    <div className="mb-5 space-y-2">
+                      <h4 className="text-xs font-semibold uppercase tracking-wider text-amber-600">Pending EC approval</h4>
+                      {pendingForUs.map((task) => {
+                        const editing = taskDraft?.id === task.id;
+                        return (
+                          <div key={task.id} className="rounded-xl border border-amber-200 bg-amber-50/60 p-3.5">
+                            {editing && taskDraft ? (
+                              <div className="space-y-2">
+                                <input value={taskDraft.title} onChange={(e) => setTaskDraft({ ...taskDraft, title: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm font-semibold" />
+                                <textarea value={taskDraft.description} onChange={(e) => setTaskDraft({ ...taskDraft, description: e.target.value })} rows={2} className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Description" />
+                                <label className="block text-xs text-gray-600">
+                                  Deadline (optional)
+                                  <input type="datetime-local" value={taskDraft.deadline} onChange={(e) => setTaskDraft({ ...taskDraft, deadline: e.target.value })} className="mt-1 w-full border rounded-lg px-3 py-2 text-sm" />
+                                </label>
+                                <div className="flex gap-2">
+                                  <button type="button" onClick={saveOwnedTask} disabled={loading} className="bg-indigo-600 text-white px-3 py-1.5 rounded-lg text-sm disabled:opacity-50">Save</button>
+                                  <button type="button" onClick={() => setTaskDraft(null)} className="px-3 py-1.5 rounded-lg text-sm bg-white border">Cancel</button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <p className="font-semibold text-gray-900">{task.title}</p>
+                                  <p className="text-xs text-amber-700 mt-1">Pending EC approval · {committeeNameOf(task)}</p>
+                                  {task.deadline && <p className="text-xs text-gray-500 mt-1">Deadline {formatPortalDate(task.deadline)}</p>}
+                                </div>
+                                <div className="flex shrink-0 gap-2">
+                                  <button type="button" onClick={() => openTaskDraft(task)} className="text-sm text-indigo-600 font-semibold">Edit</button>
+                                  <button type="button" onClick={() => deleteOwnedTask(task)} className="text-sm text-red-600 font-semibold inline-flex items-center gap-1"><Trash2 className="w-3.5 h-3.5" />Delete</button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                   {(() => {
                     const visible = tasks.filter((t) => t.status !== 'pending_ec_approval' && t.status !== 'rejected');
                     const groups = new Map<string, any[]>();
@@ -810,6 +908,30 @@ ${reportAdditionalDetails ? `## Additional Details\n${reportAdditionalDetails}` 
               </button>
             </div>
             {selectedTask.description && <p className="text-sm text-gray-600 mb-4">{selectedTask.description}</p>}
+            {ownsAssignment(selectedTask) && (
+              <div className="mb-4 rounded-xl border border-slate-200 p-3 space-y-2">
+                <p className="text-xs font-semibold text-gray-500">Your committee assigned this task</p>
+                {taskDraft?.id === selectedTask.id ? (
+                  <>
+                    <input value={taskDraft.title} onChange={(e) => setTaskDraft({ ...taskDraft, title: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" />
+                    <textarea value={taskDraft.description} onChange={(e) => setTaskDraft({ ...taskDraft, description: e.target.value })} rows={2} className="w-full border rounded-lg px-3 py-2 text-sm" />
+                    <label className="block text-xs text-gray-600">
+                      Deadline (optional)
+                      <input type="datetime-local" value={taskDraft.deadline} onChange={(e) => setTaskDraft({ ...taskDraft, deadline: e.target.value })} className="mt-1 w-full border rounded-lg px-3 py-2 text-sm" />
+                    </label>
+                    <div className="flex gap-2">
+                      <button type="button" onClick={saveOwnedTask} disabled={loading} className="bg-indigo-600 text-white px-3 py-1.5 rounded-lg text-sm">Save</button>
+                      <button type="button" onClick={() => setTaskDraft(null)} className="px-3 py-1.5 rounded-lg text-sm border">Cancel</button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex gap-3">
+                    <button type="button" onClick={() => openTaskDraft(selectedTask)} className="text-sm font-semibold text-indigo-600">Edit</button>
+                    <button type="button" onClick={() => deleteOwnedTask(selectedTask)} className="text-sm font-semibold text-red-600">Delete</button>
+                  </div>
+                )}
+              </div>
+            )}
             <p className="text-xs text-gray-500 mb-5">
               Visible to the assigned committee, the event’s proposing committee, faculty, EC, and admins.
             </p>

@@ -33,6 +33,10 @@ export default function TasksPage() {
   const [taskDescription, setTaskDescription] = useState('');
   const [loading, setLoading] = useState(false);
   const [pageLoading, setPageLoading] = useState(true);
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [editDeadline, setEditDeadline] = useState('');
   const [showProgressModal, setShowProgressModal] = useState(false);
   const [progressValue, setProgressValue] = useState(0);
   const [progressTask, setProgressTask] = useState<any>(null);
@@ -85,14 +89,15 @@ export default function TasksPage() {
     // Everyone sees only tasks assigned to their non-EC committees
     // EC/admin/faculty can also see pending_ec_approval tasks for review
     if (nonEcCommitteeIds.length > 0) {
+      const committeeList = nonEcCommitteeIds.join(',');
       if (isExec) {
-        // EC members see: tasks for their committees + tasks pending EC approval + tasks assigned directly to them
+        // EC members see: tasks for their committees + tasks they assigned + tasks pending EC approval + tasks assigned directly to them
         tasksQuery = tasksQuery.or(
-          `assigned_to_committee.in.(${nonEcCommitteeIds.join(',')}),status.eq.pending_ec_approval,assigned_to_user.eq.${user.id}`
+          `assigned_to_committee.in.(${committeeList}),assigned_by_committee.in.(${committeeList}),status.eq.pending_ec_approval,assigned_to_user.eq.${user.id}`
         );
       } else {
         tasksQuery = tasksQuery.or(
-          `assigned_to_committee.in.(${nonEcCommitteeIds.join(',')}),assigned_to_user.eq.${user.id}`
+          `assigned_to_committee.in.(${committeeList}),assigned_by_committee.in.(${committeeList}),assigned_to_user.eq.${user.id}`
         );
       }
     } else if (isExec) {
@@ -410,6 +415,61 @@ export default function TasksPage() {
     return userCommittees.length > 0;
   }
 
+  function canManageAssignment(task: any) {
+    if (userProfile?.is_admin || userProfile?.is_faculty) return true;
+    return userCommittees.includes(task.assigned_by_committee);
+  }
+
+  function startEditTask(task: any) {
+    setEditingTaskId(task.id);
+    setEditTitle(task.title || '');
+    setEditDescription(task.description || '');
+    setEditDeadline(task.deadline ? new Date(task.deadline).toISOString().slice(0, 16) : '');
+  }
+
+  async function saveTaskEdits(taskId: string) {
+    if (!editTitle.trim()) {
+      toast.error('Task title is required');
+      return;
+    }
+    setLoading(true);
+    try {
+      const { error } = await supabase
+        .from('task_assignments')
+        .update({
+          title: editTitle.trim(),
+          description: editDescription.trim() || null,
+          deadline: editDeadline ? new Date(editDeadline).toISOString() : null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', taskId);
+      if (error) throw error;
+      toast.success('Task updated');
+      setEditingTaskId(null);
+      loadData();
+    } catch (error: any) {
+      toast.error(error.message || 'Could not update task');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function deleteAssignedTask(task: any) {
+    if (!window.confirm(`Delete "${task.title}"? This cannot be undone.`)) return;
+    setLoading(true);
+    try {
+      const { error } = await supabase.from('task_assignments').delete().eq('id', task.id);
+      if (error) throw error;
+      toast.success('Task deleted');
+      if (editingTaskId === task.id) setEditingTaskId(null);
+      loadData();
+    } catch (error: any) {
+      toast.error(error.message || 'Could not delete task');
+    } finally {
+      setLoading(false);
+    }
+  }
+
   function canUpdateTask(task: any) {
     // If a task is assigned to a specific person, only they can update it.
     if (task.assigned_to_user) return task.assigned_to_user === userProfile?.id;
@@ -602,8 +662,13 @@ export default function TasksPage() {
 
             {/* Tasks List */}
             <div className="space-y-4">
-              {tasks.map((task) => {
+              {tasks.filter((task) => {
+                if (task.status !== 'pending_ec_approval') return true;
+                if (isExecutive || userProfile?.is_admin || userProfile?.is_faculty) return true;
+                return userCommittees.includes(task.assigned_by_committee);
+              }).map((task) => {
                 const canUpdate = canUpdateTask(task);
+                const canEditAssignment = canManageAssignment(task);
                 const canECReview = isExecutive && task.status === 'pending_ec_approval';
                 const statusColors = {
                   pending_ec_approval: 'bg-yellow-100 text-yellow-800',
@@ -665,7 +730,38 @@ export default function TasksPage() {
                     {/* Task Header */}
                     <div className="flex flex-col sm:flex-row justify-between items-start gap-2 mb-4">
                       <div className="flex-1 min-w-0 w-full">
-                        <h3 className="text-lg sm:text-xl font-bold text-gray-900 break-words">{task.title}</h3>
+                        {editingTaskId === task.id ? (
+                          <div className="space-y-2">
+                            <input
+                              value={editTitle}
+                              onChange={(e) => setEditTitle(e.target.value)}
+                              className="w-full px-3 py-2 border rounded-lg text-base font-semibold"
+                              placeholder="Task title"
+                            />
+                            <textarea
+                              value={editDescription}
+                              onChange={(e) => setEditDescription(e.target.value)}
+                              rows={3}
+                              className="w-full px-3 py-2 border rounded-lg text-sm"
+                              placeholder="Description"
+                            />
+                            <label className="block text-xs font-medium text-gray-600">
+                              Deadline (optional)
+                              <input
+                                type="datetime-local"
+                                value={editDeadline}
+                                onChange={(e) => setEditDeadline(e.target.value)}
+                                className="mt-1 w-full px-3 py-2 border rounded-lg text-sm"
+                              />
+                            </label>
+                            <div className="flex flex-wrap gap-2">
+                              <button type="button" onClick={() => saveTaskEdits(task.id)} disabled={loading} className="btn-gradient-blue px-3 py-1.5 rounded-lg text-sm disabled:opacity-50">Save</button>
+                              <button type="button" onClick={() => setEditingTaskId(null)} className="glass px-3 py-1.5 rounded-lg text-sm">Cancel</button>
+                            </div>
+                          </div>
+                        ) : (
+                          <h3 className="text-lg sm:text-xl font-bold text-gray-900 break-words">{task.title}</h3>
+                        )}
                         <p className="text-sm text-gray-600 break-words">
                           Assigned to: <span className="font-semibold">{task.assigned_to?.name}</span>
                           {task.assignee?.name ? (
@@ -713,6 +809,17 @@ export default function TasksPage() {
                         {task.status.replace(/_/g, ' ').toUpperCase()}
                       </span>
                     </div>
+
+                    {canEditAssignment && editingTaskId !== task.id && (
+                      <div className="flex flex-wrap gap-2 mb-4">
+                        <button type="button" onClick={() => startEditTask(task)} className="glass px-3 py-1.5 rounded-lg text-sm flex items-center gap-1.5">
+                          <Edit2 className="w-3.5 h-3.5" /> Edit
+                        </button>
+                        <button type="button" onClick={() => deleteAssignedTask(task)} disabled={loading} className="px-3 py-1.5 rounded-lg text-sm text-red-600 hover:bg-red-50 flex items-center gap-1.5 disabled:opacity-50">
+                          <Trash2 className="w-3.5 h-3.5" /> Delete
+                        </button>
+                      </div>
+                    )}
 
                     {task.description && (
                       <p className="text-gray-700 mb-4">{task.description}</p>
