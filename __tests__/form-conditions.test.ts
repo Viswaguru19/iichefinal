@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { isFieldAsked, MAX_CONDITIONAL_QUESTIONS, replaceFollowUps } from '@/lib/form-conditions';
 
-const parent = { id: 'q1', field_type: 'radio', options: ['Yes', 'No'] };
+const parent = { id: 'q1', field_type: 'radio', options: ['Yes', 'No'], showWhen: null as { fieldId: string; option: string } | null };
 const extra = [
-  { id: 'f1', field_type: 'text', showWhen: { fieldId: 'q1', option: 'Yes' } },
-  { id: 'f2', field_type: 'text', showWhen: { fieldId: 'q1', option: 'Yes' } },
+  { id: 'f1', field_type: 'text', options: [] as string[], showWhen: { fieldId: 'q1', option: 'Yes' } },
+  { id: 'f2', field_type: 'text', options: [] as string[], showWhen: { fieldId: 'q1', option: 'Yes' } },
 ];
 
 describe('choice follow-up questions', () => {

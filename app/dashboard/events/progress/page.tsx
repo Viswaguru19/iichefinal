@@ -908,30 +908,26 @@ ${reportAdditionalDetails ? `## Additional Details\n${reportAdditionalDetails}` 
               </button>
             </div>
             {selectedTask.description && <p className="text-sm text-gray-600 mb-4">{selectedTask.description}</p>}
-            {ownsAssignment(selectedTask) && (
+            {ownsAssignment(selectedTask) && taskDraft && taskDraft.id === selectedTask.id ? (
               <div className="mb-4 rounded-xl border border-slate-200 p-3 space-y-2">
                 <p className="text-xs font-semibold text-gray-500">Your committee assigned this task</p>
-                {taskDraft?.id === selectedTask.id ? (
-                  <>
-                    <input value={taskDraft.title} onChange={(e) => setTaskDraft({ ...taskDraft, title: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" />
-                    <textarea value={taskDraft.description} onChange={(e) => setTaskDraft({ ...taskDraft, description: e.target.value })} rows={2} className="w-full border rounded-lg px-3 py-2 text-sm" />
-                    <label className="block text-xs text-gray-600">
-                      Deadline (optional)
-                      <input type="datetime-local" value={taskDraft.deadline} onChange={(e) => setTaskDraft({ ...taskDraft, deadline: e.target.value })} className="mt-1 w-full border rounded-lg px-3 py-2 text-sm" />
-                    </label>
+                <input value={taskDraft.title} onChange={(e) => setTaskDraft({ ...taskDraft, title: e.target.value })} className="w-full border rounded-lg px-3 py-2 text-sm" />
+                <textarea value={taskDraft.description} onChange={(e) => setTaskDraft({ ...taskDraft, description: e.target.value })} rows={2} className="w-full border rounded-lg px-3 py-2 text-sm" />
+                <label className="block text-xs text-gray-600">
+                  Deadline (optional)
+                  <input type="datetime-local" value={taskDraft.deadline} onChange={(e) => setTaskDraft({ ...taskDraft, deadline: e.target.value })} className="mt-1 w-full border rounded-lg px-3 py-2 text-sm" />
+                </label>
                     <div className="flex gap-2">
                       <button type="button" onClick={saveOwnedTask} disabled={loading} className="bg-indigo-600 text-white px-3 py-1.5 rounded-lg text-sm">Save</button>
                       <button type="button" onClick={() => setTaskDraft(null)} className="px-3 py-1.5 rounded-lg text-sm border">Cancel</button>
-                    </div>
-                  </>
-                ) : (
-                  <div className="flex gap-3">
-                    <button type="button" onClick={() => openTaskDraft(selectedTask)} className="text-sm font-semibold text-indigo-600">Edit</button>
-                    <button type="button" onClick={() => deleteOwnedTask(selectedTask)} className="text-sm font-semibold text-red-600">Delete</button>
-                  </div>
-                )}
+                </div>
               </div>
-            )}
+            ) : ownsAssignment(selectedTask) ? (
+              <div className="mb-4 flex gap-3">
+                <button type="button" onClick={() => openTaskDraft(selectedTask)} className="text-sm font-semibold text-indigo-600">Edit</button>
+                <button type="button" onClick={() => deleteOwnedTask(selectedTask)} className="text-sm font-semibold text-red-600">Delete</button>
+              </div>
+            ) : null}
             <p className="text-xs text-gray-500 mb-5">
               Visible to the assigned committee, the event’s proposing committee, faculty, EC, and admins.
             </p>
