@@ -7,6 +7,7 @@ import {
   ON_SPOT_REGISTRATION_GROUP,
   summarizeEventParticipantCounts,
   participantMatchesGroupFilter,
+  attendanceSlotMismatch,
 } from '@/lib/event-participant-groups';
 import { dummyCheckInPayload, outlookAddressList, participantCampusOutlookEmail, participantCheckInPayload, participantMailFromRosterField, participantMatchesLookup, remainingEmailsAfterSend, resolveParticipantSendEmail } from '@/lib/event-participant-qr';
 import { buildEventParticipantEmail, draftParticipantInviteMessage } from '@/lib/event-participant-email-builder';
@@ -95,6 +96,18 @@ describe('participantMatchesGroupFilter', () => {
     expect(participantMatchesGroupFilter(person, '11 am to 1 pm')).toBe(true);
     expect(participantMatchesGroupFilter(person, FORM_REGISTRATION_GROUP)).toBe(true);
     expect(participantMatchesGroupFilter(person, '2 pm to 4 pm')).toBe(false);
+  });
+});
+
+describe('attendanceSlotMismatch', () => {
+  it('flags a scan from another slot and accepts the selected slot', () => {
+    const afternoon = { participant_group: '2 pm to 4 pm', registration_source: 'advance' };
+    expect(attendanceSlotMismatch(afternoon, '11 am to 1 pm')).toEqual({
+      mismatch: true,
+      theirSlot: '2 pm to 4 pm',
+    });
+    expect(attendanceSlotMismatch(afternoon, '2 pm to 4 pm').mismatch).toBe(false);
+    expect(attendanceSlotMismatch(afternoon, 'all').mismatch).toBe(false);
   });
 });
 

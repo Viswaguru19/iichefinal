@@ -40,7 +40,7 @@ export default function TestEmailCard() {
                 <Mail className="w-5 h-5" /> Test Email
             </h2>
             <p className="text-sm text-gray-500 mb-4">
-                Verify that email notifications (Resend API) are working.
+                Sends one message with the portal mail settings.
             </p>
             <div className="flex gap-2">
                 <input

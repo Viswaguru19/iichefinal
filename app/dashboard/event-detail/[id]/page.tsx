@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import { Calendar, MapPin, CheckCircle, Clock, Edit, Check, X, Palette, ImageIcon, AlertCircle, Camera, ChevronLeft, ChevronRight, Users, QrCode, FileText, MessageSquare, Paperclip, ChevronDown, Mail, Link2, Copy } from 'lucide-react';
@@ -17,7 +17,7 @@ import EventQrScanner, { type QrScanResult } from '@/components/events/EventQrSc
 import { unlockScanAudio } from '@/lib/scan-feedback-audio';
 import EventParticipantManager from '@/components/events/EventParticipantManager';
 import EventParticipantEmailPanel from '@/components/events/EventParticipantEmailPanel';
-import { isManualParticipantSource, participantDisplayGroup, participantSecondaryText, registrationSourceLabel } from '@/lib/event-participant-groups';
+import { attendanceSlotMismatch, isManualParticipantSource, isSlotGroupName, participantDisplayGroup, participantSecondaryText, registrationSourceLabel } from '@/lib/event-participant-groups';
 import { participantCheckInPayload } from '@/lib/event-participant-qr';
 import { imageFilesFromList, uploadEventPhotoFiles } from '@/lib/event-photos';
 import { eventPhotoShareUrl } from '@/lib/event-photo-share';
@@ -115,6 +115,8 @@ type ParticipantRow = {
   form_response_id?: string | null;
   qr_data?: string | null;
   attendance_status?: string | null;
+  participant_group?: string | null;
+  registration_source?: string | null;
 };
 
 function parseQrPayload(raw: string): {
@@ -257,6 +259,26 @@ export default function EventDetailPage() {
   const [eventQrImage, setEventQrImage] = useState<string | null>(null);
   const [scanInput, setScanInput] = useState('');
   const [scannerOpen, setScannerOpen] = useState(false);
+  const [attendanceSlot, setAttendanceSlot] = useState('all');
+  const [wrongSlotPrompt, setWrongSlotPrompt] = useState<{
+    participantId: string;
+    name: string;
+    theirSlot: string;
+    selectedSlot: string;
+  } | null>(null);
+  const attendanceSlotRef = useRef('all');
+  attendanceSlotRef.current = attendanceSlot;
+  const attendanceSlots = useMemo(() => {
+    const names: string[] = [];
+    const seen = new Set<string>();
+    for (const participant of participants) {
+      const name = participantDisplayGroup(participant);
+      if (!isSlotGroupName(name) || seen.has(name)) continue;
+      seen.add(name);
+      names.push(name);
+    }
+    return names;
+  }, [participants]);
   const participantsRef = useRef<any[]>([]);
   const markAttendanceRef = useRef<
     (participantId: string, status?: 'present' | 'absent') => Promise<boolean>
@@ -557,11 +579,11 @@ export default function EventDetailPage() {
             JSON.stringify(payload),
           ].filter((v, i, arr) => Boolean(v) && arr.indexOf(v) === i);
 
-          const lookups: Promise<{ id: string; participant_name: string | null } | null>[] = [
+          const lookups: Promise<ParticipantRow | null>[] = [
             Promise.resolve(
               supabase
                 .from('event_participants')
-                .select('id, participant_name')
+                .select('id, participant_name, participant_group, registration_source, attendance_status')
                 .eq('id', String(pid))
                 .eq('event_id', eventId)
                 .maybeSingle()
@@ -574,7 +596,7 @@ export default function EventDetailPage() {
               Promise.resolve(
                 supabase
                   .from('event_participants')
-                  .select('id, participant_name')
+                  .select('id, participant_name, participant_group, registration_source, attendance_status')
                   .eq('form_response_id', String(responseId))
                   .eq('event_id', eventId)
                   .maybeSingle()
@@ -588,7 +610,7 @@ export default function EventDetailPage() {
               Promise.resolve(
                 supabase
                   .from('event_participants')
-                  .select('id, participant_name')
+                  .select('id, participant_name, participant_group, registration_source, attendance_status')
                   .eq('event_id', eventId)
                   .eq('qr_data', qrText)
                   .maybeSingle()
@@ -600,10 +622,13 @@ export default function EventDetailPage() {
           const results = await Promise.all(lookups);
           const hit = results.find((r) => r?.id);
           if (hit) {
+            const local = localRows.find((p) => p.id === hit.id);
             participantRow = {
               id: hit.id,
               participant_name: hit.participant_name,
-              attendance_status: localRows.find((p) => p.id === hit.id)?.attendance_status,
+              participant_group: hit.participant_group ?? local?.participant_group,
+              registration_source: hit.registration_source ?? local?.registration_source,
+              attendance_status: hit.attendance_status ?? local?.attendance_status,
             };
           }
         }
@@ -613,8 +638,25 @@ export default function EventDetailPage() {
         }
 
         const name = participantRow.participant_name || 'Participant';
+        const selectedSlot = attendanceSlotRef.current;
+        const slotCheck = attendanceSlotMismatch(participantRow, selectedSlot);
         if (participantRow.attendance_status === 'present') {
-          return { ok: true, message: `Already present: ${name}` };
+          return {
+            ok: true,
+            message: slotCheck.mismatch
+              ? `Already present: ${name} (${slotCheck.theirSlot})`
+              : `Already present: ${name}`,
+          };
+        }
+        if (slotCheck.mismatch) {
+          return {
+            ok: false,
+            message: `Wrong slot: ${name} is in ${slotCheck.theirSlot}, not ${selectedSlot}`,
+            allowParticipantId: participantRow.id,
+            theirSlot: slotCheck.theirSlot,
+            selectedSlot,
+            participantName: name,
+          };
         }
 
         const marked = await markAttendanceRef.current(participantRow.id, 'present');
@@ -630,15 +672,45 @@ export default function EventDetailPage() {
     [event?.id, supabase],
   );
 
+  function rememberScanResult(result: QrScanResult) {
+    if (result.allowParticipantId && result.theirSlot && result.selectedSlot) {
+      setWrongSlotPrompt({
+        participantId: result.allowParticipantId,
+        name: result.participantName || 'Participant',
+        theirSlot: result.theirSlot,
+        selectedSlot: result.selectedSlot,
+      });
+      return;
+    }
+    setWrongSlotPrompt(null);
+  }
+
+  async function allowWrongSlot(participantId: string): Promise<QrScanResult> {
+    const row = (participantsRef.current as ParticipantRow[]).find((p) => p.id === participantId);
+    const name = row?.participant_name || wrongSlotPrompt?.name || 'Participant';
+    setWrongSlotPrompt(null);
+    if (row?.attendance_status === 'present') {
+      return { ok: true, message: `Already present: ${name}` };
+    }
+    const marked = await markAttendanceRef.current(participantId, 'present');
+    if (marked) return { ok: true, message: `Present: ${name}` };
+    return { ok: false, message: `Could not mark ${name}` };
+  }
+
   async function handleScan() {
     const result = await processScanPayload(scanInput);
+    rememberScanResult(result);
     if (!result.ok) toast.error(result.message);
     else toast.success(result.message);
     setScanInput('');
   }
 
   const handleQrScanned = useCallback(
-    (decodedText: string) => processScanPayload(decodedText),
+    async (decodedText: string) => {
+      const result = await processScanPayload(decodedText);
+      rememberScanResult(result);
+      return result;
+    },
     [processScanPayload],
   );
 
@@ -2230,6 +2302,27 @@ export default function EventDetailPage() {
               <p className="text-xs text-gray-600 mb-3">
                 <strong>Already registered?</strong> Scan their <strong>personal check-in QR</strong> (from the form confirmation or the QR emailed from Participants). Paste QR JSON if needed.
               </p>
+              {attendanceSlots.length > 0 && (
+                <label className="block mb-3">
+                  <span className="text-xs font-semibold text-gray-600">Slot</span>
+                  <select
+                    value={attendanceSlot}
+                    onChange={(e) => {
+                      setAttendanceSlot(e.target.value);
+                      setWrongSlotPrompt(null);
+                    }}
+                    className="mt-1 block w-full max-w-xs border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
+                  >
+                    <option value="all">All slots</option>
+                    {attendanceSlots.map((slot) => (
+                      <option key={slot} value={slot}>{slot}</option>
+                    ))}
+                    {attendanceSlot !== 'all' && !attendanceSlots.includes(attendanceSlot) && (
+                      <option value={attendanceSlot}>{attendanceSlot}</option>
+                    )}
+                  </select>
+                </label>
+              )}
               <div className="flex items-center justify-between gap-2 mb-2">
                 <p className="text-sm font-medium text-gray-800">Scan participant check-in QR</p>
                 <button
@@ -2254,6 +2347,25 @@ export default function EventDetailPage() {
                   Mark present
                 </button>
               </div>
+              {wrongSlotPrompt && (
+                <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+                  <p>
+                    Wrong slot: <strong>{wrongSlotPrompt.name}</strong> is in {wrongSlotPrompt.theirSlot}, not {wrongSlotPrompt.selectedSlot}.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void allowWrongSlot(wrongSlotPrompt.participantId).then((result) => {
+                        if (result.ok) toast.success(result.message);
+                        else toast.error(result.message);
+                      });
+                    }}
+                    className="mt-2 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700"
+                  >
+                    Allow and mark present
+                  </button>
+                </div>
+              )}
             </div>
             {participantsLoading ? (
               <p className="text-gray-500">Loading participants...</p>
@@ -2264,6 +2376,8 @@ export default function EventDetailPage() {
                 canManage={canManageParticipants}
                 onRefresh={loadParticipants}
                 mode="attendance"
+                groupFilterValue={attendanceSlot}
+                onGroupFilterChange={setAttendanceSlot}
                 showAttendanceActions
                 onMarkAttendance={(participantId, status) => {
                   void markAttendance(participantId, status);
@@ -2280,6 +2394,7 @@ export default function EventDetailPage() {
         open={scannerOpen}
         onClose={() => setScannerOpen(false)}
         onScanned={handleQrScanned}
+        onAllow={allowWrongSlot}
         continuous
       />
     </div>

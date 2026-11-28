@@ -271,6 +271,19 @@ export function participantDisplayGroup(p: {
   return participantGroupLabel(p.participant_group);
 }
 
+/** When attendance is being taken for one slot, a person in any other group is a mismatch. */
+export function attendanceSlotMismatch(
+  participant: { participant_group?: string | null; registration_source?: string | null },
+  selectedSlot: string | null | undefined,
+): { mismatch: boolean; theirSlot: string } {
+  const slot = (selectedSlot || '').trim();
+  const theirSlot = participantDisplayGroup(participant);
+  if (!slot || slot === 'all' || !isSlotGroupName(slot) || theirSlot === slot) {
+    return { mismatch: false, theirSlot };
+  }
+  return { mismatch: true, theirSlot };
+}
+
 /** Slot filters match the chosen session. Form and on-spot filters match how they registered, even when a slot is also set. */
 export function participantMatchesGroupFilter(
   p: { participant_group?: string | null; registration_source?: string | null },

@@ -40,6 +40,9 @@ interface EventParticipantManagerProps {
   onMarkAttendance?: (participantId: string, status: 'present' | 'absent') => void | Promise<void>;
   /** manage = add groups/participants; attendance = mark present/absent only */
   mode?: 'manage' | 'attendance';
+  /** When set, the group dropdown is controlled by the attendance slot selector. */
+  groupFilterValue?: string;
+  onGroupFilterChange?: (value: string) => void;
   markingId?: string | null;
   onResetAttendance?: () => void | Promise<void>;
   resettingAttendance?: boolean;
@@ -56,6 +59,8 @@ export default function EventParticipantManager({
   showAttendanceActions = false,
   onMarkAttendance,
   mode = 'manage',
+  groupFilterValue,
+  onGroupFilterChange,
   markingId = null,
   onResetAttendance,
   resettingAttendance = false,
@@ -68,7 +73,12 @@ export default function EventParticipantManager({
   const [showGroupsPanel, setShowGroupsPanel] = useState(true);
   const [showAddPanel, setShowAddPanel] = useState(false);
   const [showBulkPanel, setShowBulkPanel] = useState(false);
-  const [groupFilter, setGroupFilter] = useState<string>('all');
+  const [uncontrolledGroupFilter, setUncontrolledGroupFilter] = useState<string>('all');
+  const groupFilter = groupFilterValue ?? uncontrolledGroupFilter;
+  function setGroupFilter(value: string) {
+    onGroupFilterChange?.(value);
+    if (groupFilterValue === undefined) setUncontrolledGroupFilter(value);
+  }
   const [attendanceFilter, setAttendanceFilter] = useState<string>('all');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');

@@ -1,13 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
-import { Resend } from 'resend';
 import { NextResponse } from 'next/server';
 import { formatPortalDateTime } from '@/lib/portal-date';
-
-let resend: Resend | null = null;
-function getResend() {
-  if (!resend) resend = new Resend(process.env.RESEND_API_KEY || '');
-  return resend;
-}
+import { sendEmail } from '@/lib/notifications';
 
 export async function POST(request: Request) {
   try {
@@ -105,12 +99,9 @@ async function sendReminder(meeting: any, timeframe: string) {
       </div>
     `;
 
-    return getResend().emails.send({
-      from: 'IIChE AVVU SC <noreply@iiche-avvu.com>',
-      to: p.profiles.email,
-      subject: `Reminder: ${meeting.title} starts in ${timeframe}`,
-      html: emailHtml
-    });
+    const email = p.profiles?.email;
+    if (!email) return Promise.resolve({ success: false, error: 'Missing email' });
+    return sendEmail(email, `Reminder: ${meeting.title} starts in ${timeframe}`, emailHtml);
   });
 
   await Promise.all(emailPromises);

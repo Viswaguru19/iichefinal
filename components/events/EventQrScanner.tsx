@@ -8,12 +8,19 @@ import { playScanBuzz, playScanOk, unlockScanAudio } from '@/lib/scan-feedback-a
 export type QrScanResult = {
   ok: boolean;
   message: string;
+  /** Set when the person belongs to a different attendance slot. */
+  allowParticipantId?: string;
+  participantName?: string;
+  theirSlot?: string;
+  selectedSlot?: string;
 };
 
 interface EventQrScannerProps {
   open: boolean;
   onClose: () => void;
   onScanned: (decodedText: string) => void | Promise<QrScanResult | void>;
+  /** Mark present after a wrong-slot warning. */
+  onAllow?: (participantId: string) => void | Promise<QrScanResult | void>;
   /** Keep camera open after each scan (default: true). */
   continuous?: boolean;
 }
@@ -43,11 +50,13 @@ export default function EventQrScanner({
   open,
   onClose,
   onScanned,
+  onAllow,
   continuous = true,
 }: EventQrScannerProps) {
   const readerId = useId().replace(/:/g, '');
   const onCloseRef = useRef(onClose);
   const onScannedRef = useRef(onScanned);
+  const onAllowRef = useRef(onAllow);
   const lastPayloadRef = useRef('');
   const lastScanAtRef = useRef(0);
   const inflightRef = useRef(new Set<string>());
@@ -58,6 +67,7 @@ export default function EventQrScanner({
 
   onCloseRef.current = onClose;
   onScannedRef.current = onScanned;
+  onAllowRef.current = onAllow;
 
   function showFlash(kind: 'ok' | 'bad', feedback: QrScanResult) {
     if (kind === 'ok') playScanOk();
@@ -225,7 +235,29 @@ export default function EventQrScanner({
               ) : (
                 <XCircle className="w-4 h-4 shrink-0 mt-0.5" />
               )}
-              <span>{lastResult.message}</span>
+              <div className="min-w-0">
+                <span>{lastResult.message}</span>
+                {!lastResult.ok && lastResult.allowParticipantId && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const participantId = lastResult.allowParticipantId;
+                      if (!participantId) return;
+                      void (async () => {
+                        const result = await onAllowRef.current?.(participantId);
+                        const feedback: QrScanResult = result || {
+                          ok: true,
+                          message: 'Present',
+                        };
+                        showFlash(feedback.ok ? 'ok' : 'bad', feedback);
+                      })();
+                    }}
+                    className="mt-2 block rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700"
+                  >
+                    Allow and mark present
+                  </button>
+                )}
+              </div>
             </div>
           )}
           <p className="text-xs text-gray-500">
