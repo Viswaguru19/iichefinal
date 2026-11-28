@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { Sparkles, CheckCircle2, Clock, ArrowRight } from 'lucide-react';
 import EventApprovalTrail, { eventApprovalFlags, type EventApprovalSource } from '@/components/events/EventApprovalTrail';
 import { computeEventOverallProgress, eventProgressTasks } from '@/lib/event-progress';
+import type { EventParticipantCount } from '@/lib/event-participant-groups';
 import WavyEventProgressBar, { buildEventProgressMarks } from '@/components/events/WavyEventProgressBar';
 
 interface Task {
@@ -21,10 +22,33 @@ interface Event extends EventApprovalSource {
     title: string;
     committees?: { name: string };
     tasks?: Task[];
+    participants?: EventParticipantCount;
 }
 
 interface AnimatedEventProgressProps {
     events: Event[];
+}
+
+function ParticipantCounts({ summary }: { summary?: EventParticipantCount }) {
+    const total = summary?.total ?? 0;
+    const slots = summary?.slots ?? [];
+    if (total === 0 && slots.length === 0) return null;
+
+    return (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700">
+                {slots.length > 0 ? `Total ${total}` : `${total} participant${total === 1 ? '' : 's'}`}
+            </span>
+            {slots.map((slot) => (
+                <span
+                    key={slot.name}
+                    className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-white/80 text-gray-600 ring-1 ring-gray-200"
+                >
+                    {slot.name} · {slot.count}
+                </span>
+            ))}
+        </div>
+    );
 }
 
 export default function AnimatedEventProgress({ events }: AnimatedEventProgressProps) {
@@ -82,6 +106,7 @@ export default function AnimatedEventProgress({ events }: AnimatedEventProgressP
                                             {event.committees.name}
                                         </p>
                                     )}
+                                    <ParticipantCounts summary={event.participants} />
                                 </div>
                                 {allTasksDone && tasks.length > 0 && (
                                     <motion.span

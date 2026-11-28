@@ -5,6 +5,8 @@ import {
   buildAttendanceReportCsv,
   FORM_REGISTRATION_GROUP,
   ON_SPOT_REGISTRATION_GROUP,
+  summarizeEventParticipantCounts,
+  participantMatchesGroupFilter,
 } from '@/lib/event-participant-groups';
 import { dummyCheckInPayload, outlookAddressList, participantCampusOutlookEmail, participantCheckInPayload, participantMailFromRosterField, participantMatchesLookup, remainingEmailsAfterSend, resolveParticipantSendEmail } from '@/lib/event-participant-qr';
 import { buildEventParticipantEmail, draftParticipantInviteMessage } from '@/lib/event-participant-email-builder';
@@ -54,6 +56,45 @@ describe('parseBulkParticipantLines', () => {
       { name: 'Adwin A', email: 'CB.EN.U4CHE26101', group: 'CHE A' },
       { name: 'Akshara Ravikumar', email: 'CB.EN.U4CHE26102', group: 'CHE A' },
     ]);
+  });
+});
+
+describe('summarizeEventParticipantCounts', () => {
+  it('shows slot counts and a total, and only a total when there are no slots', () => {
+    const counts = summarizeEventParticipantCounts(
+      [
+        { event_id: 'ielts', participant_group: '11 am to 1 pm' },
+        { event_id: 'ielts', participant_group: '11 am to 1 pm' },
+        { event_id: 'ielts', participant_group: '2 pm to 4 pm' },
+        { event_id: 'plain', participant_group: FORM_REGISTRATION_GROUP },
+        { event_id: 'plain', participant_group: null },
+      ],
+      [
+        { event_id: 'ielts', name: '11 am to 1 pm', sort_order: 0 },
+        { event_id: 'ielts', name: '2 pm to 4 pm', sort_order: 1 },
+        { event_id: 'ielts', name: FORM_REGISTRATION_GROUP, sort_order: 2 },
+      ],
+    );
+    expect(counts.ielts).toEqual({
+      total: 3,
+      slots: [
+        { name: '11 am to 1 pm', count: 2 },
+        { name: '2 pm to 4 pm', count: 1 },
+      ],
+    });
+    expect(counts.plain).toEqual({ total: 2, slots: [] });
+  });
+});
+
+describe('participantMatchesGroupFilter', () => {
+  it('keeps form registrants under Registered through form even when they also have a slot', () => {
+    const person = {
+      participant_group: '11 am to 1 pm',
+      registration_source: 'advance',
+    };
+    expect(participantMatchesGroupFilter(person, '11 am to 1 pm')).toBe(true);
+    expect(participantMatchesGroupFilter(person, FORM_REGISTRATION_GROUP)).toBe(true);
+    expect(participantMatchesGroupFilter(person, '2 pm to 4 pm')).toBe(false);
   });
 });
 

@@ -349,20 +349,6 @@ export default function FormResponsesPage() {
           ))}
         </div>
 
-        {!allowMultiple && (
-          <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 flex gap-2">
-            <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-            <p>
-              New submissions are blocked if the same <strong>email</strong> already responded.
-              If there is no email on the form, <strong>mobile number</strong> is used instead.
-              Turn on “Allow multiple responses” in form settings if you want to permit repeats.
-              {duplicateMeta.duplicateResponseCount > 0 && (
-                <> Currently {duplicateMeta.duplicateResponseCount} existing row{duplicateMeta.duplicateResponseCount !== 1 ? 's' : ''} share a key (listed under Individual).</>
-              )}
-            </p>
-          </div>
-        )}
-
         <div className="premium-card rounded-2xl p-1.5 flex gap-1 mb-8 w-full max-w-full overflow-x-auto mobile-clean-scroll">
           {(['summary', 'individual'] as const).map(tab => (
             <button

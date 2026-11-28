@@ -5,6 +5,7 @@ import nextDynamic from 'next/dynamic';
 import { Crown, Send, ClipboardList, Sparkles } from 'lucide-react';
 import { canManageEcElection, electionCardCopy } from '@/lib/ec-election';
 import { canEditOtherMemberProfiles } from '@/lib/member-profile-edit';
+import { summarizeEventParticipantCounts } from '@/lib/event-participant-groups';
 import DashboardNav from '@/components/dashboard/DashboardNav';
 import AnimatedDashboardCard from '@/components/dashboard/AnimatedDashboardCard';
 import AnimatedSection from '@/components/dashboard/AnimatedSection';
@@ -154,7 +155,7 @@ export default async function DashboardPage() {
     ]).filter(Boolean),
   )];
 
-  const [tasksRes, approversRes, ecApprovalsRes] = await Promise.all([
+  const [tasksRes, approversRes, ecApprovalsRes, participantsRes, participantGroupsRes] = await Promise.all([
     eventIds.length > 0
       ? supabase
           .from('task_assignments')
@@ -172,9 +173,19 @@ export default async function DashboardPage() {
           .in('event_id', eventIds)
           .eq('approved', true)
       : Promise.resolve({ data: [] as any[] }),
+    eventIds.length > 0
+      ? supabase.from('event_participants').select('event_id, participant_group').in('event_id', eventIds).limit(10000)
+      : Promise.resolve({ data: [] as { event_id: string; participant_group: string | null }[] }),
+    eventIds.length > 0
+      ? supabase.from('event_participant_groups').select('event_id, name, sort_order').in('event_id', eventIds)
+      : Promise.resolve({ data: [] as { event_id: string; name: string; sort_order: number | null }[] }),
   ]);
 
   const allTasksForEvents = tasksRes.data;
+  const participantCounts = summarizeEventParticipantCounts(
+    participantsRes.data || [],
+    participantGroupsRes.data || [],
+  );
   const approverById = Object.fromEntries((approversRes.data || []).map((p: any) => [p.id, p]));
   const ecByEvent = (ecApprovalsRes.data || []).reduce((acc: Record<string, any[]>, row: any) => {
     if (!acc[row.event_id]) acc[row.event_id] = [];
@@ -195,6 +206,7 @@ export default async function DashboardPage() {
     faculty_approver: approverById[event.faculty_approved_by] || null,
     ec_approvals: ecByEvent[event.id] || [],
     tasks: tasksByEvent[event.id] || [],
+    participants: participantCounts[event.id] || { total: 0, slots: [] },
   }));
 
   const userCommitteeIds = userMemberships?.map(m => m.committee_id) || [];

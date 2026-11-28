@@ -185,6 +185,66 @@ export function groupParticipants<T extends { participant_group?: string | null 
 export const FORM_REGISTRATION_GROUP = 'Registered through form';
 export const ON_SPOT_REGISTRATION_GROUP = 'On-spot registration';
 
+const NON_SLOT_GROUPS = new Set([
+  FORM_REGISTRATION_GROUP,
+  ON_SPOT_REGISTRATION_GROUP,
+  'Form registration',
+  'Unassigned',
+]);
+
+export type EventSlotCount = { name: string; count: number };
+export type EventParticipantCount = { total: number; slots: EventSlotCount[] };
+
+export function isSlotGroupName(name: string | null | undefined): boolean {
+  const trimmed = (name || '').trim();
+  return Boolean(trimmed) && !NON_SLOT_GROUPS.has(trimmed);
+}
+
+/** Total headcount, plus one count per slot group (limited-choice session or other named group). */
+export function summarizeEventParticipantCounts(
+  rows: { event_id: string; participant_group?: string | null }[],
+  groups: { event_id: string; name: string; sort_order?: number | null }[] = [],
+): Record<string, EventParticipantCount> {
+  const byEvent = new Map<string, { total: number; counts: Map<string, number>; order: Map<string, number> }>();
+  const bucket = (eventId: string) => {
+    let row = byEvent.get(eventId);
+    if (!row) {
+      row = { total: 0, counts: new Map(), order: new Map() };
+      byEvent.set(eventId, row);
+    }
+    return row;
+  };
+
+  for (const group of groups) {
+    const name = (group.name || '').trim();
+    if (!isSlotGroupName(name)) continue;
+    const row = bucket(group.event_id);
+    if (!row.counts.has(name)) row.counts.set(name, 0);
+    if (!row.order.has(name)) row.order.set(name, group.sort_order ?? row.order.size);
+  }
+
+  for (const participant of rows) {
+    const row = bucket(participant.event_id);
+    row.total += 1;
+    const name = (participant.participant_group || '').trim();
+    if (!isSlotGroupName(name)) continue;
+    row.counts.set(name, (row.counts.get(name) || 0) + 1);
+    if (!row.order.has(name)) row.order.set(name, row.order.size);
+  }
+
+  const result: Record<string, EventParticipantCount> = {};
+  for (const [eventId, row] of byEvent) {
+    result[eventId] = {
+      total: row.total,
+      slots: [...row.counts.entries()]
+        .map(([name, count]) => ({ name, count, order: row.order.get(name) ?? 0 }))
+        .sort((a, b) => a.order - b.order || a.name.localeCompare(b.name))
+        .map(({ name, count }) => ({ name, count })),
+    };
+  }
+  return result;
+}
+
 export function attendanceReportStatus(status: string | null | undefined): 'Present' | 'Absent' {
   return status === 'present' ? 'Present' : 'Absent';
 }
@@ -193,13 +253,37 @@ export function participantDisplayGroup(p: {
   participant_group?: string | null;
   registration_source?: string | null;
 }): string {
+  const named = (p.participant_group || '').trim();
+  if (
+    named
+    && named !== FORM_REGISTRATION_GROUP
+    && named !== ON_SPOT_REGISTRATION_GROUP
+    && named !== 'Form registration'
+  ) {
+    return named;
+  }
   if (p.registration_source === 'on_site') return ON_SPOT_REGISTRATION_GROUP;
   if (p.registration_source === 'advance') return FORM_REGISTRATION_GROUP;
   if (isManualParticipantSource(p.registration_source)) {
     return participantGroupLabel(p.participant_group);
   }
-  if (!p.participant_group?.trim()) return FORM_REGISTRATION_GROUP;
+  if (!named) return FORM_REGISTRATION_GROUP;
   return participantGroupLabel(p.participant_group);
+}
+
+/** Slot filters match the chosen session. Form and on-spot filters match how they registered, even when a slot is also set. */
+export function participantMatchesGroupFilter(
+  p: { participant_group?: string | null; registration_source?: string | null },
+  filter: string,
+): boolean {
+  if (!filter || filter === 'all') return true;
+  if (filter === FORM_REGISTRATION_GROUP) {
+    return p.registration_source === 'advance' || participantDisplayGroup(p) === FORM_REGISTRATION_GROUP;
+  }
+  if (filter === ON_SPOT_REGISTRATION_GROUP) {
+    return p.registration_source === 'on_site' || participantDisplayGroup(p) === ON_SPOT_REGISTRATION_GROUP;
+  }
+  return participantDisplayGroup(p) === filter;
 }
 
 export function attendanceReportGroupName(p: {

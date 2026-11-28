@@ -12,6 +12,7 @@ import {
   FORM_REGISTRATION_GROUP,
   ON_SPOT_REGISTRATION_GROUP,
   participantDisplayGroup,
+  participantMatchesGroupFilter,
   participantGroupLabel,
   participantSecondaryText,
   isManualParticipantSource,
@@ -116,10 +117,21 @@ export default function EventParticipantManager({
   }
 
   const filterOptions = useMemo(() => {
-    const fromParticipants = participants
-      .map((p) => participantDisplayGroup(p))
-      .filter((g) => g !== 'Unassigned');
-    return [...new Set([...groupNames, FORM_REGISTRATION_GROUP, ON_SPOT_REGISTRATION_GROUP, ...fromParticipants, 'Unassigned'])];
+    const names = new Set<string>(groupNames);
+    let unassigned = 0;
+    for (const p of participants) {
+      const display = participantDisplayGroup(p);
+      if (display === 'Unassigned') unassigned += 1;
+      else if (display) names.add(display);
+      if (p.registration_source === 'advance') names.add(FORM_REGISTRATION_GROUP);
+      if (p.registration_source === 'on_site') names.add(ON_SPOT_REGISTRATION_GROUP);
+    }
+    const ordered = [...names];
+    if (unassigned > 0) ordered.push('Unassigned');
+    return ordered.map((name) => ({
+      name,
+      count: participants.filter((p) => participantMatchesGroupFilter(p, name)).length,
+    }));
   }, [groupNames, participants]);
 
   const duplicateStats = useMemo(() => {
@@ -150,7 +162,7 @@ export default function EventParticipantManager({
   const filteredParticipants = useMemo(() => {
     let list = participants;
     if (groupFilter !== 'all') {
-      list = list.filter((p) => participantDisplayGroup(p) === groupFilter);
+      list = list.filter((p) => participantMatchesGroupFilter(p, groupFilter));
     }
     if (mode === 'attendance' && attendanceFilter !== 'all') {
       list = list.filter((p) => (p.attendance_status || 'registered') === attendanceFilter);
@@ -165,15 +177,20 @@ export default function EventParticipantManager({
     return list;
   }, [participants, groupFilter, attendanceFilter, mode, searchQuery, showDuplicatesOnly, duplicateParticipantIds]);
 
+  const attendancePool = useMemo(() => {
+    if (groupFilter === 'all') return participants;
+    return participants.filter((p) => participantMatchesGroupFilter(p, groupFilter));
+  }, [participants, groupFilter]);
+
   const attendanceCounts = useMemo(() => ({
-    present: participants.filter((p) => p.attendance_status === 'present').length,
-    absent: participants.filter((p) => p.attendance_status === 'absent').length,
-    registered: participants.filter((p) => !p.attendance_status || p.attendance_status === 'registered').length,
-  }), [participants]);
+    present: attendancePool.filter((p) => p.attendance_status === 'present').length,
+    absent: attendancePool.filter((p) => p.attendance_status === 'absent').length,
+    registered: attendancePool.filter((p) => !p.attendance_status || p.attendance_status === 'registered').length,
+  }), [attendancePool]);
 
   function downloadAttendanceReport(groupAsColumn: boolean) {
     const csv = buildAttendanceReportCsv(
-      participants.map((p) => ({
+      attendancePool.map((p) => ({
         participant_name: p.participant_name,
         participant_email: p.participant_email,
         participant_group: p.participant_group,
@@ -803,9 +820,7 @@ export default function EventParticipantManager({
             <p className="text-xs text-indigo-800">
               {filteredParticipants.length} match{filteredParticipants.length === 1 ? '' : 'es'} — mark Present or Absent below.
             </p>
-          ) : (
-            <p className="text-xs text-indigo-800/80">Results update as you type.</p>
-          )}
+          ) : null}
         </div>
 
         <div className="flex flex-wrap items-center gap-3 rounded-xl border border-gray-200 bg-white/60 px-4 py-3">
@@ -915,9 +930,9 @@ export default function EventParticipantManager({
           onChange={(e) => setGroupFilter(e.target.value)}
           className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm bg-white"
         >
-          <option value="all">All groups</option>
+          <option value="all">All groups ({participants.length})</option>
           {filterOptions.map((g) => (
-            <option key={g} value={g}>{g}</option>
+            <option key={g.name} value={g.name}>{g.name} ({g.count})</option>
           ))}
         </select>
       </div>
