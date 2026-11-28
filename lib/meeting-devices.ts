@@ -185,6 +185,90 @@ async function gum(constraints: MediaStreamConstraints) {
     return navigator.mediaDevices.getUserMedia(constraints);
 }
 
+function stopOtherTracks(stream: MediaStream | null, keep?: MediaStreamTrack | null) {
+    stream?.getTracks().forEach((track) => {
+        if (track === keep) return;
+        try { track.stop(); } catch { /* ignore */ }
+    });
+}
+
+function speechAudio(deviceId?: string): MediaTrackConstraints {
+    const audio: MediaTrackConstraints = {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+    };
+    if (deviceId && deviceId !== 'default' && deviceId !== 'communications') {
+        audio.deviceId = { exact: deviceId };
+    }
+    return audio;
+}
+
+/** Open the microphone by itself. A failed switch back to the Mac mic must not leave the first track ended. */
+export async function acquireMicrophoneTrack(): Promise<MediaStreamTrack | null> {
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) return null;
+
+    let probe: MediaStream | null = null;
+    for (const constraints of [
+        { audio: speechAudio(), video: false },
+        { audio: true, video: false },
+    ] as MediaStreamConstraints[]) {
+        try {
+            probe = await gum(constraints);
+            break;
+        } catch {
+            /* Safari/Chrome on Mac reject some constraint sets */
+        }
+    }
+    if (!probe) return null;
+
+    const current = probe.getAudioTracks()[0] || null;
+    if (!current) {
+        stopOtherTracks(probe);
+        return null;
+    }
+
+    const devices = await listDevices();
+    const preferred = pickPreferredAudioInput(devices);
+    const currentId = typeof current.getSettings === 'function' ? current.getSettings().deviceId || '' : '';
+    const listedLabel = devices.find((d) => d.kind === 'audioinput' && d.deviceId === currentId)?.label || '';
+    const swap = Boolean(
+        preferred
+        && shouldReplaceAudioDevice(current.label || listedLabel, preferred)
+        && preferred.deviceId
+        && preferred.deviceId !== 'default'
+        && preferred.deviceId !== 'communications'
+        && preferred.deviceId !== currentId,
+    );
+    if (!swap) {
+        current.enabled = true;
+        return current;
+    }
+
+    stopOtherTracks(probe);
+    try {
+        const next = await gum({ audio: speechAudio(preferred!.deviceId), video: false });
+        const track = next.getAudioTracks()[0] || null;
+        stopOtherTracks(next, track);
+        if (track && track.readyState === 'live') {
+            track.enabled = true;
+            return track;
+        }
+    } catch {
+        /* exact Mac mic was busy or rejected */
+    }
+
+    try {
+        const again = await gum({ audio: true, video: false });
+        const track = again.getAudioTracks()[0] || null;
+        stopOtherTracks(again, track);
+        if (track) track.enabled = true;
+        return track;
+    } catch {
+        return null;
+    }
+}
+
 async function listDevices(): Promise<MediaDeviceLike[]> {
     try {
         const devices = await navigator.mediaDevices.enumerateDevices();
@@ -194,49 +278,36 @@ async function listDevices(): Promise<MediaDeviceLike[]> {
     }
 }
 
-function replaceTrackOnStream(stream: MediaStream, next: MediaStreamTrack) {
-    const kind = next.kind;
-    stream.getTracks().filter((t) => t.kind === kind).forEach((old) => {
-        stream.removeTrack(old);
-        try { old.stop(); } catch { /* ignore */ }
-    });
-    stream.addTrack(next);
-}
-
 export function macMediaPermissionHint() {
     return 'On a Mac, allow Camera and Microphone for this browser in System Settings → Privacy & Security, then reload.';
 }
 
-/** Open camera + mic, preferring the laptop's own devices on macOS. */
+/** Open camera + mic. On a Mac the mic is opened alone so a camera or device swap cannot end it. */
 export async function acquireMeetingMedia(): Promise<MediaStream | null> {
     if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) return null;
 
-    const speechAudio: MediaTrackConstraints = {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-        channelCount: 1,
-    };
-    const mobile = isMobileMeetingClient();
-    const attempts: MediaStreamConstraints[] = mobile
-        ? [
-            {
-                audio: speechAudio,
-                video: { facingMode: 'user' },
-            },
-            { audio: true, video: true },
-            { audio: true, video: false },
-            { audio: false, video: true },
-        ]
-        : [
-            {
-                audio: speechAudio,
-                video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 24, max: 30 } },
-            },
-            { audio: true, video: true },
-            { audio: true, video: false },
-            { audio: false, video: true },
-        ];
+    if (!isMobileMeetingClient()) {
+        let audio = await acquireMicrophoneTrack();
+        const video = await acquireCameraTrack();
+        if (audio && audio.readyState !== 'live') {
+            try { audio.stop(); } catch { /* ignore */ }
+            audio = await acquireMicrophoneTrack();
+        }
+        const tracks = [audio, video].filter((track): track is MediaStreamTrack => !!track && track.readyState === 'live');
+        if (!tracks.length) return null;
+        applyMeetingAudioSession(true);
+        return markMeetingTracks(new MediaStream(tracks));
+    }
+
+    const attempts: MediaStreamConstraints[] = [
+        {
+            audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+            video: { facingMode: 'user' },
+        },
+        { audio: true, video: true },
+        { audio: true, video: false },
+        { audio: false, video: true },
+    ];
 
     let stream: MediaStream | null = null;
     for (const constraints of attempts) {
@@ -249,53 +320,6 @@ export async function acquireMeetingMedia(): Promise<MediaStream | null> {
     }
     if (!stream) return null;
     applyMeetingAudioSession(true);
-
-    const audioTrack = stream.getAudioTracks()[0];
-    if (audioTrack) {
-        await audioTrack.applyConstraints({
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-            channelCount: 1,
-        }).catch(() => undefined);
-    }
-
-    const devices = await listDevices();
-    const wantVideo = pickPreferredVideoInput(devices);
-    const wantAudio = pickPreferredAudioInput(devices);
-    const currentVideo = stream.getVideoTracks()[0];
-    const currentAudio = stream.getAudioTracks()[0];
-
-    if (wantVideo && currentVideo && shouldReplaceVideoDevice(currentVideo.label, wantVideo) && wantVideo.deviceId) {
-        try {
-            const next = await gum({ video: { deviceId: { exact: wantVideo.deviceId } }, audio: false });
-            const track = next.getVideoTracks()[0];
-            if (track) replaceTrackOnStream(stream, track);
-            next.getTracks().forEach((t) => {
-                if (t !== track) {
-                    try { t.stop(); } catch { /* ignore */ }
-                }
-            });
-        } catch {
-            /* keep the first camera */
-        }
-    }
-
-    if (wantAudio && currentAudio && shouldReplaceAudioDevice(currentAudio.label, wantAudio) && wantAudio.deviceId) {
-        try {
-            const next = await gum({ audio: { deviceId: { exact: wantAudio.deviceId } }, video: false });
-            const track = next.getAudioTracks()[0];
-            if (track) replaceTrackOnStream(stream, track);
-            next.getTracks().forEach((t) => {
-                if (t !== track) {
-                    try { t.stop(); } catch { /* ignore */ }
-                }
-            });
-        } catch {
-            /* keep the first mic */
-        }
-    }
-
     return markMeetingTracks(stream);
 }
 

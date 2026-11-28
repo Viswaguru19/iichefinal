@@ -8,6 +8,19 @@ type ProfileGate = {
 };
 
 const AUTH_BUDGET_MS = 2500;
+const GATE_COOKIE = 'iiche_gate';
+const GATE_MAX_AGE = 60 * 10;
+
+function rememberGate(response: NextResponse, userId: string) {
+  response.cookies.set(GATE_COOKIE, userId, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    path: '/',
+    maxAge: GATE_MAX_AGE,
+  });
+  return response;
+}
 
 function withBudget<T>(promise: Promise<T>, ms = AUTH_BUDGET_MS): Promise<T | null> {
   return new Promise((resolve) => {
@@ -138,6 +151,8 @@ export async function middleware(request: NextRequest) {
       return response;
     }
 
+    const gateCached = request.cookies.get(GATE_COOKIE)?.value === user.id;
+
     async function loadProfile(): Promise<ProfileGate | null> {
       const result = await withBudget(
         Promise.resolve(
@@ -153,6 +168,9 @@ export async function middleware(request: NextRequest) {
 
     // /account-pending
     if (path.startsWith('/account-pending')) {
+      if (gateCached) {
+        return NextResponse.redirect(new URL('/dashboard', request.url));
+      }
       const p = await loadProfile();
       if (p?.hiring_portal_only) {
         return NextResponse.redirect(new URL('/hiring/portal', request.url));
@@ -163,8 +181,9 @@ export async function middleware(request: NextRequest) {
       return response;
     }
 
-    // Hiring-only + approval gate (skip if profile is slow — avoid 504)
+    // Hiring-only + approval gate. A recent pass skips the profile round-trip.
     if (isProtected) {
+      if (gateCached) return response;
       const p = await loadProfile();
       if (p) {
         if (p.hiring_portal_only) {
@@ -174,17 +193,23 @@ export async function middleware(request: NextRequest) {
         if (!canUseDashboard) {
           return NextResponse.redirect(new URL('/account-pending', request.url));
         }
+        return rememberGate(response, user.id);
       }
     }
 
     if (path === '/login' && user) {
+      if (gateCached) {
+        return NextResponse.redirect(new URL('/dashboard', request.url));
+      }
       const p = await loadProfile();
       if (p?.hiring_portal_only) {
         return NextResponse.redirect(new URL('/hiring/portal', request.url));
       }
       const dest =
         p?.role === 'super_admin' || p?.approved === true ? '/dashboard' : '/account-pending';
-      return NextResponse.redirect(new URL(dest, request.url));
+      const redirect = NextResponse.redirect(new URL(dest, request.url));
+      if (dest === '/dashboard' && p) rememberGate(redirect, user.id);
+      return redirect;
     }
 
     return response;

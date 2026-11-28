@@ -52,6 +52,7 @@ import {
 import {
     acquireCameraTrack,
     acquireMeetingMedia,
+    acquireMicrophoneTrack,
     bindLocalPreviewVideo,
     isMobileMeetingClient,
     macMediaPermissionHint,
@@ -1133,6 +1134,7 @@ export default function MeetingRoomPage() {
             } catch {
                 ctx = new Ctx();
             }
+            void ctx.resume();
             analyser = ctx.createAnalyser();
             analyser.fftSize = 256;
             source = ctx.createMediaStreamSource(new MediaStream([audioTrack]));
@@ -1176,25 +1178,22 @@ export default function MeetingRoomPage() {
             let audioTrack = stream.getAudioTracks()[0];
             const needsFreshTrack = !audioTrack || audioTrack.readyState !== 'live';
             if (needsFreshTrack) {
-                try {
-                    const audioOnly = await navigator.mediaDevices.getUserMedia({ audio: true });
-                    const fresh = audioOnly.getAudioTracks()[0];
-                    if (fresh) {
-                        fresh.enabled = true;
-                        const old = stream.getAudioTracks()[0];
-                        if (old) {
-                            stream.removeTrack(old);
-                            old.stop();
-                        }
-                        stream.addTrack(fresh);
-                        markMeetingTracks(new MediaStream([fresh]));
-                        await replaceAudioTrack(fresh);
-                        audioTrack = fresh;
-                    }
-                } catch {
+                const fresh = await acquireMicrophoneTrack();
+                if (!fresh) {
                     toast.error(`Could not access microphone. ${macMediaPermissionHint()}`);
                     return;
                 }
+                fresh.enabled = true;
+                const old = stream.getAudioTracks()[0];
+                if (old) {
+                    stream.removeTrack(old);
+                    old.stop();
+                }
+                stream.addTrack(fresh);
+                markMeetingTracks(new MediaStream([fresh]));
+                await replaceAudioTrack(fresh);
+                setIsMuted(false);
+                return;
             }
             if (!audioTrack) return;
             audioTrack.enabled = !audioTrack.enabled;
@@ -1744,7 +1743,13 @@ export default function MeetingRoomPage() {
                                 <div className="h-1.5 rounded-full bg-white/10 overflow-hidden">
                                     <div className={`h-full rounded-full ${micLevel > 70 ? 'bg-emerald-300' : micLevel > 35 ? 'bg-sky-300' : 'bg-white/40'}`} style={{ width: `${isMuted ? 0 : micLevel}%` }} />
                                 </div>
-                                <p className="text-xs text-white/45 mt-2">{isMuted ? 'Mic is muted' : 'Speak to test your microphone'}</p>
+                                <p className="text-xs text-white/45 mt-2">
+                                    {isMuted
+                                        ? 'Mic is muted'
+                                        : localStream?.getAudioTracks().some((t) => t.readyState === 'live')
+                                          ? `Mic connected · ${localStream.getAudioTracks().find((t) => t.readyState === 'live')?.label || 'Microphone'}`
+                                          : 'Microphone is not connected'}
+                                </p>
                             </div>
                             <div className="flex flex-wrap gap-2 mb-5">
                                 <button
@@ -3393,6 +3398,7 @@ function ParticipantMicSphere({
             } catch {
                 ctx = new Ctx();
             }
+            void ctx.resume();
             analyser = ctx.createAnalyser();
             analyser.fftSize = 256;
             src = ctx.createMediaStreamSource(new MediaStream([audioTrack]));
